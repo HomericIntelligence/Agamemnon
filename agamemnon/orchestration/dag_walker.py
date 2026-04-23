@@ -42,6 +42,57 @@ class DAGWalker:
             and all(dep in completed_ids for dep in t.dependencies)
         ]
 
+    def validate_no_cycles(self) -> bool:
+        """Return True if the task DAG is acyclic, False if a cycle exists.
+
+        Uses an iterative three-color DFS (WHITE/GRAY/BLACK) to avoid
+        RecursionError on deep dependency chains. A GRAY node encountered
+        during traversal indicates a back-edge and therefore a cycle.
+        """
+        # Build adjacency: task_id -> list of dependency ids present in the graph
+        task_ids = {t.id for t in self.tasks}
+        adj: dict[str, list[str]] = {
+            t.id: [dep for dep in t.dependencies if dep in task_ids]
+            for t in self.tasks
+        }
+
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color: dict[str, int] = {t.id: WHITE for t in self.tasks}
+
+        for start in task_ids:
+            if color[start] != WHITE:
+                continue
+
+            # Stack holds (node_id, processed) tuples.
+            # processed=False: first visit — mark GRAY, push neighbors.
+            # processed=True:  all neighbors done — mark BLACK.
+            stack: list[tuple[str, bool]] = [(start, False)]
+
+            while stack:
+                node, processed = stack.pop()
+
+                if processed:
+                    color[node] = BLACK
+                    continue
+
+                if color[node] == GRAY:
+                    # Back-edge: cycle detected
+                    return False
+
+                if color[node] == BLACK:
+                    continue
+
+                color[node] = GRAY
+                # Push post-process sentinel before neighbors
+                stack.append((node, True))
+                for neighbor in adj[node]:
+                    if color[neighbor] == GRAY:
+                        return False
+                    if color[neighbor] == WHITE:
+                        stack.append((neighbor, False))
+
+        return True
+
     async def advance_dag(self) -> list[tuple[Task, Agent]]:
         """Assign ready tasks to available agents, returning the assignments made.
 
