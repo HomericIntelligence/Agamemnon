@@ -41,6 +41,12 @@ will be rejected.
 ### Cutting a release
 
 ```bash
+# Ensure you are on main with a clean working tree:
+git checkout main && git pull
+
+# Verify prerequisites using the helper script:
+./scripts/check-release-readiness.sh
+
 # Bump version in pyproject.toml, commit, then:
 git tag -s v0.1.0 -m "release: v0.1.0"
 git push origin v0.1.0
@@ -50,4 +56,6 @@ The workflow runs automatically and publishes the package. Verify with:
 
 ```bash
 pip index versions HomericIntelligence-Agamemnon
+pip install HomericIntelligence-Agamemnon==0.1.0 --dry-run
+python -c "import agamemnon_client; print(agamemnon_client.__version__)"
 ```
