@@ -34,6 +34,12 @@ class TaskClaimer:
         self._claim_task = claim_task
         self._team_locks: dict[str, asyncio.Lock] = {}
         self._advancing: set[str] = set()
+        self._in_flight: set[asyncio.Task[Any]] = set()
+
+    @property
+    def in_flight_count(self) -> int:
+        """Number of advance_dag_tracked tasks currently executing."""
+        return len(self._in_flight)
 
     def _get_team_lock(self, team_id: str) -> asyncio.Lock:
         """Return the per-team lock, creating it lazily if needed."""
@@ -73,3 +79,43 @@ class TaskClaimer:
                 return claimed
         finally:
             self._advancing.discard(team_id)
+
+    def advance_dag_tracked(self, team_id: str) -> asyncio.Task[Any]:
+        """Schedule advance_dag(team_id) as a tracked asyncio Task.
+
+        The returned Task is registered in _in_flight and removed when done.
+        Use drain() to wait for all in-flight tasks to complete.
+
+        Args:
+            team_id: The team whose DAG should be advanced.
+
+        Returns:
+            The asyncio.Task wrapping the advance_dag coroutine.
+        """
+        task: asyncio.Task[Any] = asyncio.get_event_loop().create_task(
+            self.advance_dag(team_id)
+        )
+        self._in_flight.add(task)
+        task.add_done_callback(self._in_flight.discard)
+        return task
+
+    async def drain(self, timeout: float) -> bool:
+        """Wait for all in-flight advance_dag_tracked tasks to complete.
+
+        Args:
+            timeout: Maximum seconds to wait before giving up.
+
+        Returns:
+            True if all tasks completed within the timeout, False otherwise.
+        """
+        if not self._in_flight:
+            return True
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*self._in_flight, return_exceptions=True),
+                timeout=timeout,
+            )
+            return True
+        except asyncio.TimeoutError:
+            logger.warning("drain_timeout", extra={"timeout": timeout})
+            return False
