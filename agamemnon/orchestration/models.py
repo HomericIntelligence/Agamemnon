@@ -9,6 +9,23 @@ from pydantic import BaseModel, ConfigDict, model_validator
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "error", "cancelled"})
 
 
+def resolve_event_status(
+    status: str | None,
+    data: dict | None,
+    new_status: str | None,
+) -> str | None:
+    """Resolve effective status from three possible sources in priority order.
+
+    Priority: status > data["status"] > new_status
+    """
+    resolved = status
+    if not resolved and data:
+        resolved = data.get("status")
+    if not resolved:
+        resolved = new_status
+    return resolved
+
+
 @dataclass
 class Task:
     id: str
@@ -53,10 +70,5 @@ class TaskEvent(BaseModel):
 
     @model_validator(mode="after")
     def _resolve_effective_status(self) -> TaskEvent:
-        resolved = self.status
-        if not resolved and self.data:
-            resolved = self.data.get("status")
-        if not resolved:
-            resolved = self.newStatus
-        self.effective_status = resolved
+        self.effective_status = resolve_event_status(self.status, self.data, self.newStatus)
         return self
