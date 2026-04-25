@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "error", "cancelled"})
@@ -41,6 +41,8 @@ class TaskEvent(BaseModel):
     All fields are optional — NATS payloads can be sparse or use different
     schemas depending on the emitting component.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     status: str | None = None
     newStatus: str | None = None  # noqa: N815 — matches camelCase JSON payload
