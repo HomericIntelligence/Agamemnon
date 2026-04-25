@@ -125,6 +125,19 @@ class NATSListener:
         )
         self._task_claimer.advance_dag_tracked(team_id)
 
+    @staticmethod
+    def _parse_subject(subject: str) -> tuple[str, str]:
+        """Parse NATS subject 'hi.tasks.{team_id}.{task_id}.{event}' into (team_id, task_id).
+
+        Raises ValueError if the subject does not have the expected 5-part structure.
+        """
+        parts = subject.split(".")
+        if len(parts) != NATSListener._SUBJECT_PART_COUNT:
+            raise ValueError(
+                f"Expected {NATSListener._SUBJECT_PART_COUNT} subject parts, got {len(parts)}: {subject!r}"
+            )
+        return parts[2], parts[3]  # team_id, task_id
+
     async def stop(self) -> None:
         """Drain the NATS connection and release resources."""
         logger.info("nats_listener_stopped")
