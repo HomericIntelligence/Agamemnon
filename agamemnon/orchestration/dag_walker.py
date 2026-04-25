@@ -41,22 +41,29 @@ class DAGWalker:
             and all(dep in completed_ids for dep in t.dependencies)
         ]
 
-    def validate_no_cycles(self) -> bool:
-        """Return True if the task DAG is acyclic, False if a cycle exists.
+    def _find_cycle_path(self) -> list[str]:
+        """Return the IDs of tasks forming a cycle, or an empty list if the DAG is acyclic.
 
-        Uses an iterative three-color DFS (WHITE/GRAY/BLACK) to avoid
-        RecursionError on deep dependency chains. A GRAY node encountered
-        during traversal indicates a back-edge and therefore a cycle.
+        Uses an iterative three-color DFS (WHITE/GRAY/BLACK) with parent tracking to
+        reconstruct the cycle path when a back-edge is found.  An unknown dependency ID
+        (one not present in ``self.tasks``) raises :exc:`ValueError` immediately.
         """
-        # Build adjacency: task_id -> list of dependency ids present in the graph
         task_ids = {t.id for t in self.tasks}
-        adj: dict[str, list[str]] = {
-            t.id: [dep for dep in t.dependencies if dep in task_ids]
-            for t in self.tasks
-        }
+
+        # Validate all dependency IDs before traversal (Issue #233).
+        for t in self.tasks:
+            for dep_id in t.dependencies:
+                if dep_id not in task_ids:
+                    raise ValueError(
+                        f"Unknown dependency {dep_id!r} referenced by task {t.id!r}"
+                    )
+
+        adj: dict[str, list[str]] = {t.id: list(t.dependencies) for t in self.tasks}
 
         WHITE, GRAY, BLACK = 0, 1, 2
         color: dict[str, int] = {t.id: WHITE for t in self.tasks}
+        # parent[node] = the node that first pushed *node* onto the DFS stack
+        parent: dict[str, str | None] = {t.id: None for t in self.tasks}
 
         for start in task_ids:
             if color[start] != WHITE:
@@ -75,29 +82,58 @@ class DAGWalker:
                     continue
 
                 if color[node] == GRAY:
-                    # Back-edge: cycle detected
-                    return False
+                    # Back-edge detected; reconstruct cycle starting from *node*.
+                    cycle: list[str] = [node]
+                    cur: str | None = parent[node]
+                    while cur is not None and cur != node:
+                        cycle.append(cur)
+                        cur = parent[cur]
+                    cycle.append(node)
+                    cycle.reverse()
+                    return cycle
 
                 if color[node] == BLACK:
                     continue
 
                 color[node] = GRAY
-                # Push post-process sentinel before neighbors
                 stack.append((node, True))
                 for neighbor in adj[node]:
                     if color[neighbor] == GRAY:
-                        return False
+                        # Immediate back-edge to an already-gray neighbor.
+                        cycle = [neighbor]
+                        cur2: str | None = node
+                        while cur2 is not None and cur2 != neighbor:
+                            cycle.append(cur2)
+                            cur2 = parent[cur2]
+                        cycle.append(neighbor)
+                        cycle.reverse()
+                        return cycle
                     if color[neighbor] == WHITE:
+                        parent[neighbor] = node
                         stack.append((neighbor, False))
 
-        return True
+        return []
+
+    def validate_no_cycles(self) -> bool:
+        """Return True if the task DAG is acyclic, False if a cycle exists.
+
+        Delegates to :meth:`_find_cycle_path`.  Unknown dependency IDs cause a
+        :exc:`ValueError` to be raised (see :meth:`_find_cycle_path`).
+        """
+        return len(self._find_cycle_path()) == 0
 
     async def advance_dag(self) -> list[tuple[Task, Agent]]:
         """Assign ready tasks to available agents, returning the assignments made.
 
-        Agents are marked busy immediately upon selection so a single call cannot
-        double-assign the same agent even if the local list is stale.
+        Raises :exc:`ValueError` if the task DAG contains a cycle or if any task
+        references an unknown dependency ID.  Agents are marked busy immediately upon
+        selection so a single call cannot double-assign the same agent even if the
+        local list is stale.
         """
+        cycle_path = self._find_cycle_path()
+        if cycle_path:
+            raise ValueError(f"Cycle detected in task DAG: {cycle_path}")
+
         assignments: list[tuple[Task, Agent]] = []
         available = self.get_available_agents()
 
