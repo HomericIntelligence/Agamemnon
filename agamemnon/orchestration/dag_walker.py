@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from .models import Agent, Task, TERMINAL_STATUSES
-from .maestro_client import MaestroClient
 
 
 class DAGWalker:
@@ -13,7 +12,7 @@ class DAGWalker:
         self,
         tasks: list[Task],
         agents: list[Agent],
-        client: Optional[MaestroClient] = None,
+        client: Optional[Any] = None,
     ) -> None:
         self.tasks = tasks
         self.agents = agents
