@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .models import Agent, Task, TERMINAL_STATUSES
+from .validation import validate_id
 
 
 def _agent_from_api(data: dict[str, Any]) -> Agent:
@@ -73,6 +74,8 @@ class MaestroClient:
 
     async def assign_task(self, task_id: str, agent_id: str) -> None:
         """Assign a task to an agent via the API."""
+        validate_id(task_id, "task_id")
+        validate_id(agent_id, "agent_id")
         await self._with_retries(
             lambda: self._client.put(
                 f"/api/tasks/{task_id}/assign",
