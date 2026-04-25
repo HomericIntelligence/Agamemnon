@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Protocol
+
+import nats.errors
+import nats.js.errors
 
 from pydantic import ValidationError
 
@@ -56,6 +60,100 @@ class NATSListener:
         """
         self._shutting_down = True
         logger.info("nats_listener_shutdown_started")
+
+    async def start(
+        self,
+        nc: Any,
+        subject: str = "hi.tasks.>",
+        *,
+        stream: str = "homeric-tasks",
+        max_retries: int = 5,
+        retry_base_delay: float = 1.0,
+    ) -> None:
+        """Subscribe to a JetStream subject, retrying with backoff on stream-not-found.
+
+        Args:
+            nc: An active ``nats.aio.client.Client`` connection.
+            subject: The NATS subject pattern to subscribe to.
+            stream: The JetStream stream name (used in error messages).
+            max_retries: Number of retry attempts when the stream is not found.
+            retry_base_delay: Initial delay (seconds) before the first retry;
+                doubles on each subsequent attempt.
+
+        Raises:
+            ConnectionError: If the NATS server is unreachable or authentication fails.
+            RuntimeError: If the stream is not found after all retries are exhausted,
+                or if JetStream is not available on the server.
+        """
+        js = nc.jetstream()
+        last_exc: Exception | None = None
+        delay = retry_base_delay
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                await js.subscribe(subject)
+                logger.info(
+                    "nats_listener_subscribed",
+                    extra={"subject": subject, "stream": stream},
+                )
+                return
+            except nats.js.errors.NotFoundError as exc:
+                last_exc = exc
+                logger.warning(
+                    "nats_stream_not_found",
+                    extra={
+                        "stream": stream,
+                        "subject": subject,
+                        "attempt": attempt,
+                        "max_retries": max_retries,
+                        "retry_delay_seconds": delay,
+                        "error": str(exc),
+                    },
+                )
+                if attempt < max_retries:
+                    await asyncio.sleep(delay)
+                    delay *= 2
+            except nats.errors.NoServersError as exc:
+                logger.error(
+                    "nats_no_servers",
+                    extra={"subject": subject, "stream": stream, "error": str(exc)},
+                )
+                raise ConnectionError(
+                    f"NATS server unreachable — cannot subscribe to '{subject}': {exc}"
+                ) from exc
+            except (
+                nats.errors.AuthorizationError,
+                nats.errors.InvalidUserCredentialsError,
+            ) as exc:
+                logger.error(
+                    "nats_auth_error",
+                    extra={"subject": subject, "stream": stream, "error": str(exc)},
+                )
+                raise ConnectionError(
+                    f"NATS authentication failed — cannot subscribe to '{subject}': {exc}"
+                ) from exc
+            except nats.js.errors.ServiceUnavailableError as exc:
+                logger.error(
+                    "nats_jetstream_unavailable",
+                    extra={"subject": subject, "stream": stream, "error": str(exc)},
+                )
+                raise RuntimeError(
+                    "JetStream is not enabled on the connected NATS server"
+                ) from exc
+
+        logger.error(
+            "nats_stream_not_found_fatal",
+            extra={
+                "stream": stream,
+                "subject": subject,
+                "attempts": max_retries,
+                "error": str(last_exc),
+            },
+        )
+        raise RuntimeError(
+            f"NATS stream for task events not found — ensure stream '{stream}' is "
+            f"configured (tried {max_retries} time(s)): {last_exc}"
+        ) from last_exc
 
     async def _on_task_event(
         self,
