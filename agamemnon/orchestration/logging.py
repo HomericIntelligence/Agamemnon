@@ -21,6 +21,12 @@ _RESERVED_FIELDS = frozenset({"timestamp", "level", "logger", "message", "except
 class JsonFormatter(logging.Formatter):
     """Formats log records as single-line JSON objects."""
 
+    def __init__(
+        self, *args: Any, include_location: bool = False, **kwargs: Any
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._include_location = include_location
+
     def format(self, record: logging.LogRecord) -> str:
         output: dict[str, Any] = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -28,6 +34,12 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
+
+        # Add location fields if requested.
+        if self._include_location:
+            output["pathname"] = record.pathname
+            output["lineno"] = record.lineno
+            output["funcName"] = record.funcName
 
         # Promote extra fields injected by the caller.
         for key, value in record.__dict__.items():
@@ -77,6 +89,16 @@ class KeystoneLogger:
         with self._lock:
             extra.update(self._context)
         self._logger.exception(msg, extra=extra)
+
+    def bind(self, **extra: object) -> KeystoneLogger:
+        """Return a new KeystoneLogger with merged context fields.
+
+        The returned logger includes all existing context plus the given extra fields.
+        If a field name exists in both, the extra field takes precedence.
+        """
+        with self._lock:
+            merged_context = {**self._context, **extra}
+        return KeystoneLogger(self._logger, merged_context)
 
 
 def configure_logging(level: int = logging.INFO) -> None:
