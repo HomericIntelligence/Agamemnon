@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import Any, Optional
 
 from .models import Agent, Task, TERMINAL_STATUSES
+
+logger = logging.getLogger(__name__)
 
 
 class DAGWalker:
@@ -13,10 +17,13 @@ class DAGWalker:
         tasks: list[Task],
         agents: list[Agent],
         client: Optional[Any] = None,
+        scan_interval: float = 60.0,
     ) -> None:
         self.tasks = tasks
         self.agents = agents
         self.client = client
+        self.scan_interval = scan_interval
+        self._scan_task: Optional[asyncio.Task[None]] = None
 
     def get_available_agents(self) -> list[Agent]:
         """Return agents that are active, online, and not currently assigned a task."""
@@ -125,6 +132,10 @@ class DAGWalker:
     async def advance_dag(self) -> list[tuple[Task, Agent]]:
         """Assign ready tasks to available agents, returning the assignments made.
 
+        When a ``client`` is configured and it exposes a ``get_agents()`` coroutine,
+        the method fetches a fresh agent list before evaluating availability (issue
+        #196).  This prevents double-assignment races caused by a stale cached list.
+
         Raises :exc:`ValueError` if the task DAG contains a cycle or if any task
         references an unknown dependency ID.  Agents are marked busy immediately upon
         selection so a single call cannot double-assign the same agent even if the
@@ -133,6 +144,19 @@ class DAGWalker:
         cycle_path = self._find_cycle_path()
         if cycle_path:
             raise ValueError(f"Cycle detected in task DAG: {cycle_path}")
+
+        # Issue #196: refresh the agent list from the client before assigning so
+        # that stale in-memory state doesn't cause double-assignment.
+        if self.client is not None and hasattr(self.client, "get_agents"):
+            try:
+                fresh_agents = await self.client.get_agents()
+                if fresh_agents is not None:
+                    self.agents = fresh_agents
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "advance_dag: get_agents() failed — falling back to cached list",
+                    exc_info=True,
+                )
 
         assignments: list[tuple[Task, Agent]] = []
         available = self.get_available_agents()
@@ -153,3 +177,40 @@ class DAGWalker:
             assignments.append((task, agent))
 
         return assignments
+
+    async def _background_scan_loop(self, stop_event: asyncio.Event) -> None:
+        """Periodically call :meth:`advance_dag` as a safety net (issue #98).
+
+        Uses ``asyncio.wait_for`` on *stop_event* so the loop wakes up
+        immediately on shutdown rather than sleeping for the full interval.
+        """
+        logger.info(
+            "DAGWalker background scan started (interval=%.1fs)", self.scan_interval
+        )
+        while not stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    stop_event.wait(), timeout=self.scan_interval
+                )
+                # stop_event was set — exit cleanly.
+                break
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await self.advance_dag()
+            except Exception:  # noqa: BLE001
+                logger.exception("DAGWalker background scan failed — continuing")
+        logger.info("DAGWalker background scan stopped")
+
+    def start_background_scan(
+        self, stop_event: asyncio.Event
+    ) -> "asyncio.Task[None]":
+        """Schedule a background scan loop and return the created task (issue #98).
+
+        The caller is responsible for cancelling or awaiting the returned task on
+        shutdown.  Passing *stop_event* allows a graceful, prompt exit.
+        """
+        self._scan_task = asyncio.create_task(
+            self._background_scan_loop(stop_event), name="dag-background-scan"
+        )
+        return self._scan_task
