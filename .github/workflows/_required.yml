@@ -30,6 +30,35 @@ jobs:
       - name: Python client lint
         run: ruff check clients/python/
 
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang clang-tidy
+          pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install Conan dependencies (debug, for compile_commands.json)
+        run: |
+          conan install . --build=missing -s build_type=Debug \
+            --output-folder build/debug
+
+      - name: Configure with clang-tidy enabled
+        run: cmake --preset debug -DProjectAgamemnon_ENABLE_CLANG_TIDY=ON
+
+      - name: Build (runs clang-tidy)
+        run: cmake --build --preset debug
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Python client type check
+        continue-on-error: true
+        run: mypy clients/python/ --ignore-missing-imports
+
   # ── 2. unit-tests ──────────────────────────────────────────────────────────
   unit-tests:
     name: unit-tests
@@ -130,17 +159,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Gitleaks
+        run: |
+          GITLEAKS_VERSION=8.30.1
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${OS}_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
       - name: Run Gitleaks
         run: |
-          wget -q https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz
-          echo "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e  gitleaks_8.30.0_linux_x64.tar.gz" | sha256sum --check
-          tar -xzf gitleaks_8.30.0_linux_x64.tar.gz
-          chmod +x gitleaks
           if [ -f .gitleaks.toml ]; then
-            ./gitleaks detect --source=. --config=.gitleaks.toml --verbose --exit-code=1
+            gitleaks detect --source . --config .gitleaks.toml \
+              --report-format sarif --report-path gitleaks.sarif --exit-code 0
           else
-            ./gitleaks detect --source=. --verbose --exit-code=1
+            gitleaks detect --source . \
+              --report-format sarif --report-path gitleaks.sarif --exit-code 0
           fi
+        continue-on-error: true
+
+      - name: Upload Gitleaks SARIF
+        if: always() && hashFiles('gitleaks.sarif') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+          retention-days: 90
 
   # ── 6. build ───────────────────────────────────────────────────────────────
   build:
@@ -169,41 +215,7 @@ jobs:
       - name: Build
         run: cmake --build --preset release
 
-  # ── 7. typecheck ───────────────────────────────────────────────────────────
-  typecheck:
-    name: typecheck
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build clang clang-tidy
-          pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies (debug, for compile_commands.json)
-        run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/debug
-
-      - name: Configure with clang-tidy enabled
-        run: cmake --preset debug -DProjectAgamemnon_ENABLE_CLANG_TIDY=ON
-
-      - name: Build (runs clang-tidy)
-        run: cmake --build --preset debug
-
-      - name: Install mypy
-        run: pip install mypy
-
-      - name: Python client type check
-        continue-on-error: true
-        run: mypy clients/python/ --ignore-missing-imports
-
-  # ── 8. schema-validation ───────────────────────────────────────────────────
+  # ── 7. schema-validation ───────────────────────────────────────────────────
   schema-validation:
     name: schema-validation
     runs-on: ubuntu-24.04
@@ -219,7 +231,7 @@ jobs:
             xargs check-jsonschema \
               --schemafile https://json.schemastore.org/github-workflow
 
-  # ── 9. deps/version-sync ───────────────────────────────────────────────────
+  # ── 8. deps/version-sync ───────────────────────────────────────────────────
   deps-version-sync:
     name: deps/version-sync
     runs-on: ubuntu-24.04

@@ -31,13 +31,7 @@ jobs:
         run: ./scripts/coverage.sh
       - name: Check threshold
         run: |
-          LINE_COV=$(python3 -c "
-import xml.etree.ElementTree as ET
-tree = ET.parse('build/coverage-report/coverage.xml')
-root = tree.getroot()
-rate = float(root.attrib.get('line-rate', 0)) * 100
-print(f'{rate:.1f}')
-")
+          LINE_COV=$(python3 -c "import xml.etree.ElementTree as ET; root = ET.parse('build/coverage-report/coverage.xml').getroot(); print(f\"{float(root.attrib.get('line-rate', 0)) * 100:.1f}\")")
           echo "Line coverage: ${LINE_COV}%"
           python3 -c "import sys; cov=float('${LINE_COV}'); sys.exit(0 if cov >= 80 else 1)"
 
