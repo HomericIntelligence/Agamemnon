@@ -9,6 +9,7 @@ HomericIntelligence distributed agent mesh. It replaces ai-maestro's task coordi
 **Role in the pipeline:** User <-> Odysseus <-> Nestor <-> **Agamemnon** <-> agentic pipeline loop -> completion
 
 Agamemnon receives researched briefs from ProjectNestor and manages:
+
 - Planning breakdown (inter-repo -> per-repo -> module -> sub-module -> impl details)
 - HMAS 4-layer agentic hierarchy (L0 ChiefArchitect -> L1 ComponentLead -> L2 ModuleLead -> L3 TaskAgent)
 - State machine coordination for each task
@@ -24,10 +25,12 @@ myrmidon-level decisions (myrmidons communicate peer-to-peer directly).
 
 All inter-component communication flows **through ProjectKeystone** (invisible transport layer).
 Components publish/subscribe to logical subjects — Keystone routes transparently:
+
 - Local (intra-host): BlazingMQ + C++20 MessageBus
 - Cross-host: NATS JetStream via nats.c v3.12.0 over Tailscale
 
 Relevant NATS subjects Agamemnon uses:
+
 - `hi.tasks.>` — task state updates (pub/sub, Odysseus reads)
 - `hi.pipeline.>` — pipeline state updates (pub/sub, Odysseus reads)
 - `hi.myrmidon.{type}.>` — work queues (PULL consumers, myrmidons pull from here)
