@@ -9,16 +9,42 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   build-and-publish:
     name: Build and publish to PyPI
     runs-on: ubuntu-24.04
     environment: pypi
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: clients/python
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify pypi environment and OIDC permissions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fail fast if the pypi GitHub environment is missing or misconfigured
+          if ! gh api "repos/${{ github.repository }}/environments/pypi" --silent 2>/dev/null; then
+            echo "::error::GitHub environment 'pypi' does not exist or is inaccessible."
+            echo "::error::Create the environment at: https://github.com/${{ github.repository }}/settings/environments"
+            echo "::error::It must be named exactly 'pypi' and scoped to the 'v*' tag pattern."
+            exit 1
+          fi
+
+          # Verify OIDC token endpoint is available (set by runner when id-token: write is granted)
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL}" ]; then
+            echo "::error::OIDC token endpoint is not available."
+            echo "::error::Ensure 'id-token: write' is present in the workflow permissions block."
+            exit 1
+          fi
+
+          echo "Preflight passed: 'pypi' environment exists and OIDC is available."
 
       - name: Set up Python
         uses: actions/setup-python@v5
