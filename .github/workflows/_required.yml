@@ -72,8 +72,7 @@ jobs:
       - name: Install mypy
         run: pip install mypy
 
-      - name: Python client type check
-        continue-on-error: true
+      - name: Enforce Python client type check
         run: mypy clients/python/ --ignore-missing-imports
 
   markdownlint:
