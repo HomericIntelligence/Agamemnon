@@ -27,7 +27,7 @@ All inter-component communication flows **through ProjectKeystone** (invisible t
 Components publish/subscribe to logical subjects — Keystone routes transparently:
 
 - Local (intra-host): BlazingMQ + C++20 MessageBus
-- Cross-host: NATS JetStream via nats.c v3.12.0 over Tailscale
+- Cross-host: NATS JetStream via nats.c v3.9.1 over Tailscale
 
 Relevant NATS subjects Agamemnon uses:
 
