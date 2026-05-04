@@ -65,6 +65,9 @@ just ci
 
 ## What You Can Contribute
 
+See [ROADMAP.md](ROADMAP.md) for the full list of planned features and their acceptance
+criteria. Good first targets are the deferred features with clear acceptance criteria.
+
 - **REST API routes** — New endpoints under `/v1/` for task, agent, or workflow management
 - **Store implementations** — Persistent or in-memory data store improvements
 - **NATS client features** — Subject routing, consumer groups, message handling
