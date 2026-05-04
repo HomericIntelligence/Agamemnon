@@ -82,6 +82,8 @@ Before starting work:
 - Comment on an issue to claim it before starting work
 - Create a new issue if one doesn't exist for your contribution
 
+Use the provided issue templates (bug report, feature request) when opening new issues — they pre-fill the required fields.
+
 ### 2. Branch Naming Convention
 
 Create a feature branch from `main`:
