@@ -6,9 +6,11 @@
 # this library.
 set(sources
     src/version_info.cpp
-    src/store.cpp)
+    src/store.cpp
+    src/rate_limiter.cpp)
 
 set(headers
     include/projectagamemnon/version.hpp
     include/projectagamemnon/store.hpp
-    include/projectagamemnon/peer_discovery.hpp)
+    include/projectagamemnon/peer_discovery.hpp
+    include/projectagamemnon/rate_limiter.hpp)

@@ -2,6 +2,7 @@
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/peer_discovery.hpp"
 #include "projectagamemnon/port_parse.hpp"
+#include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
 #include "projectagamemnon/version.hpp"
@@ -84,6 +85,15 @@ int main() {
   } else {
     std::cerr << "[agamemnon] WARNING: running without NATS — events will be skipped\n";
   }
+
+  // ── Rate limiter ──────────────────────────────────────────────────────────
+  const char* rps_env = std::getenv("RATE_LIMIT_RPS");
+  const char* burst_env = std::getenv("RATE_LIMIT_BURST");
+  double rate_limit_rps = rps_env ? std::stod(rps_env) : 60.0;
+  double rate_limit_burst = burst_env ? std::stod(burst_env) : 120.0;
+  projectagamemnon::RateLimiter rate_limiter(rate_limit_rps, rate_limit_burst);
+  std::cout << "[agamemnon] rate limiting: " << rate_limit_rps << " req/s, burst "
+            << rate_limit_burst << "\n";
 
   // ── HTTP server ───────────────────────────────────────────────────────────
   auto env_int = [](const char* name, int def) -> int {
