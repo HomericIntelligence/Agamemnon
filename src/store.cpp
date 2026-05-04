@@ -539,4 +539,61 @@ bool Store::remove_fault(const std::string& id) {
   return true;
 }
 
+// ── HMAS typed tasks ──────────────────────────────────────────────────────────
+
+void Store::create_hmas_task(const HmasTask& task) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  hmas_tasks_[task.id] = task;
+}
+
+HmasTask* Store::get_hmas_task(const std::string& id) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  auto it = hmas_tasks_.find(id);
+  if (it == hmas_tasks_.end()) return nullptr;
+  return &it->second;
+}
+
+bool Store::update_hmas_task_state(const std::string& id, TaskState state) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  auto it = hmas_tasks_.find(id);
+  if (it == hmas_tasks_.end()) return false;
+  it->second.state = state;
+  return true;
+}
+
+bool Store::update_hmas_task(const HmasTask& task) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  auto it = hmas_tasks_.find(task.id);
+  if (it == hmas_tasks_.end()) return false;
+  it->second = task;
+  return true;
+}
+
+std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::vector<HmasTask> out;
+  for (const auto& [id, task] : hmas_tasks_) {
+    if (task.layer == layer) out.push_back(task);
+  }
+  return out;
+}
+
+std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent_id) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::vector<HmasTask> out;
+  for (const auto& [id, task] : hmas_tasks_) {
+    if (task.parent_task_id == parent_id) out.push_back(task);
+  }
+  return out;
+}
+
+std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_id) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::vector<HmasTask> out;
+  for (const auto& [id, task] : hmas_tasks_) {
+    if (task.brief_id == brief_id) out.push_back(task);
+  }
+  return out;
+}
+
 }  // namespace projectagamemnon

@@ -88,6 +88,10 @@ add_library(agamemnon_lib STATIC
   src/rate_limiter.cpp
   src/auth.cpp
   src/metrics.cpp
+  src/hmas_types.cpp
+  src/orchestrator.cpp
+  src/planning_breakdown.cpp
+  src/state_machine.cpp
 )
 
 target_compile_features(agamemnon_lib PUBLIC cxx_std_20)

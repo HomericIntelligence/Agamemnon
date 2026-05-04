@@ -1,8 +1,11 @@
 #include "projectagamemnon/routes.hpp"
 
 #include "projectagamemnon/auth.hpp"
+#include "projectagamemnon/hmas_types.hpp"
 #include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/nats_client.hpp"  // NatsClient derives NatsPublisher; needed for dynamic_cast
+#include "projectagamemnon/nats_publisher.hpp"
+#include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/store.hpp"
 #include "projectagamemnon/version.hpp"
@@ -177,7 +180,8 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 // All are owned by main() and outlive the server.
 
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
-                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics) {
+                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
+                     Orchestrator& orchestrator) {
   Store* sp = &store;
   NatsPublisher* np = &nats;
   // nc is non-null only when a real NatsClient is passed (production).
@@ -187,7 +191,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
   MetricsRegistry* mp = &metrics;
-  (void)mp;  // suppress unused warning if no route uses it directly
+  Orchestrator* op = &orchestrator;
 
   // ── Prometheus metrics endpoint ────────────────────────────────────────
   server.Get("/metrics", [mp](const httplib::Request&, httplib::Response& res) {
@@ -716,6 +720,79 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                   np->publish("hi.agents.chaos.removed", json{{"id", id}}.dump());
                   reply_json(res, 200, {{"deleted", id}});
                 });
+
+  // ── HMAS Orchestration ────────────────────────────────────────────────────
+
+  // POST /v1/briefs — submit a TaskBrief for HMAS orchestration
+  server.Post("/v1/briefs", [op](const httplib::Request& req, httplib::Response& res) {
+    json body;
+    if (!parse_body(req, res, body)) return;
+    if (!body.contains("title") || body["title"].get<std::string>().empty()) {
+      reply_bad_request(res, "title is required");
+      return;
+    }
+    try {
+      TaskBrief brief = task_brief_from_json(body);
+      std::string brief_id = op->submit(std::move(brief));
+      json plan = op->get_plan(brief_id);
+      reply_json(res, 201, plan);
+    } catch (const std::exception& e) {
+      reply_bad_request(res, std::string("invalid brief: ") + e.what());
+    }
+  });
+
+  // GET /v1/briefs/:brief_id/plan — retrieve the full task tree for a brief
+  server.Get(R"(/v1/briefs/([^/]+)/plan)",
+             [op](const httplib::Request& req, httplib::Response& res) {
+               std::string brief_id = req.matches[1];
+               json plan = op->get_plan(brief_id);
+               if (plan["tasks"].empty()) {
+                 reply_not_found(res, "brief");
+                 return;
+               }
+               reply_json(res, 200, plan);
+             });
+
+  // POST /v1/tasks/:task_id/escalate — escalate an in-progress task
+  server.Post(R"(/v1/tasks/([^/]+)/escalate)",
+              [op](const httplib::Request& req, httplib::Response& res) {
+                std::string task_id = req.matches[1];
+                json body;
+                if (!parse_body(req, res, body)) return;
+                std::string reason = body.value("reason", "unspecified");
+                if (!op->escalate(task_id, reason)) {
+                  reply_not_found(res, "task");
+                  return;
+                }
+                reply_json(res, 200, {{"task_id", task_id}, {"escalated", true}});
+              });
+
+  // POST /v1/tasks/:task_id/complete — mark an HMAS task completed
+  server.Post(R"(/v1/tasks/([^/]+)/complete)",
+              [op](const httplib::Request& req, httplib::Response& res) {
+                std::string task_id = req.matches[1];
+                json body;
+                if (!parse_body(req, res, body)) return;
+                json payload = {{"task_id", task_id}};
+                op->on_myrmidon_completion("v1.tasks." + task_id + ".complete", payload.dump());
+                reply_json(res, 200, {{"task_id", task_id}, {"completed", true}});
+              });
+
+  // GET /v1/tasks/:task_id/state — return current HMAS task state
+  server.Get(R"(/v1/tasks/([^/]+)/state)",
+             [sp](const httplib::Request& req, httplib::Response& res) {
+               std::string task_id = req.matches[1];
+               HmasTask* task = sp->get_hmas_task(task_id);
+               if (!task) {
+                 reply_not_found(res, "task");
+                 return;
+               }
+               json j = hmas_task_to_json(*task);
+               reply_json(res, 200, {{"task_id", task_id},
+                                     {"state", task_state_to_string(task->state)},
+                                     {"layer", hmas_layer_to_string(task->layer)},
+                                     {"task", j}});
+             });
 
   std::cout << "[agamemnon] routes registered\n";
 }
