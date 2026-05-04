@@ -241,6 +241,11 @@ Include: clear title, steps to reproduce, expected vs actual behavior, compiler/
 **Do not open public issues for security vulnerabilities.**
 See [SECURITY.md](SECURITY.md) for the responsible disclosure process.
 
+### Data & Privacy
+
+For questions about what data this service stores or requests to delete records,
+see the [Data & Privacy](SECURITY.md#data--privacy) section of SECURITY.md.
+
 ## Code of Conduct
 
 Please review our [Code of Conduct](CODE_OF_CONDUCT.md) before contributing.
