@@ -1,3 +1,4 @@
+#include "projectagamemnon/github_client.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/peer_discovery.hpp"
 #include "projectagamemnon/port_parse.hpp"
@@ -8,6 +9,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include "httplib.h"
@@ -20,8 +22,22 @@ int main() {
   std::cout << projectagamemnon::kProjectName << " v" << projectagamemnon::kVersion
             << " starting...\n";
 
-  // ── In-memory store ──────────────────────────────────────────────────────
-  projectagamemnon::Store store;
+  // ── GitHub-backed store ──────────────────────────────────────────────────
+  std::shared_ptr<projectagamemnon::IGitHubClient> gh_client;
+
+  const char* gh_token = std::getenv("GITHUB_TOKEN");
+  const char* gh_repo_env = std::getenv("GITHUB_REPO");
+  std::string gh_repo = gh_repo_env ? gh_repo_env : "HomericIntelligence/ProjectAgamemnon";
+
+  if (gh_token && gh_token[0] != '\0') {
+    std::cout << "[agamemnon] GitHub persistence enabled (repo: " << gh_repo << ")\n";
+    gh_client = std::make_shared<projectagamemnon::CurlGitHubClient>(gh_repo, gh_token);
+  } else {
+    std::cerr
+        << "[agamemnon] WARNING: GITHUB_TOKEN not set — running in pure in-memory mode (no persistence)\n";
+  }
+
+  projectagamemnon::Store store(gh_client);
 
   // ── NATS client ──────────────────────────────────────────────────────────
   const char* nats_url_env = std::getenv("NATS_URL");

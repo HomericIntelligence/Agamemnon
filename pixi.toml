@@ -14,10 +14,11 @@ openssl = ">=3"
 clang-tools = ">=17"
 gcovr = ">=7"
 pre-commit = ">=3"
+libcurl = ">=8.20.0,<9"
 
 [tasks]
 deps = "conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing"
-build = { cmd = "cmake --preset debug && cmake --build --preset debug", depends-on = ["deps"] }
+build = { cmd = "cmake --preset debug -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/c++ -DProjectAgamemnon_ENABLE_CLANG_TIDY=OFF && cmake --build --preset debug", depends-on = ["deps"] }
 test = "ctest --preset debug --output-on-failure"
 lint = "./scripts/lint.sh"
 format = "./scripts/format.sh"
