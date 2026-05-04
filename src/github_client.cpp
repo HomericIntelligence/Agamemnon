@@ -1,208 +1,171 @@
 #include "projectagamemnon/github_client.hpp"
 
-#include <curl/curl.h>
+#define CPPHTTPLIB_OPENSSL_SUPPORT
 #include <iostream>
-#include <stdexcept>
-#include <string>
-#include <vector>
+
+#include "httplib.h"
 
 namespace projectagamemnon {
 
 namespace {
-
-size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
-  auto* buf = static_cast<std::string*>(userdata);
-  buf->append(ptr, size * nmemb);
-  return size * nmemb;
-}
-
+constexpr const char* kGitHubHost = "api.github.com";
+constexpr int kGitHubPort = 443;
+constexpr int kPerPage = 100;
 }  // namespace
 
-// ── CurlGitHubClient ─────────────────────────────────────────────────────────
-
-CurlGitHubClient::CurlGitHubClient(std::string repo, std::string token)
-    : repo_(std::move(repo)), token_(std::move(token)) {
-  curl_global_init(CURL_GLOBAL_DEFAULT);
+GitHubClient::GitHubClient(Config cfg) : cfg_(std::move(cfg)) {
+  enabled_ = !cfg_.token.empty() && !cfg_.owner.empty() && !cfg_.repo.empty();
 }
 
-CurlGitHubClient::~CurlGitHubClient() { curl_global_cleanup(); }
-
-CurlGitHubClient::Response CurlGitHubClient::do_get(const std::string& url) const {
-  CURL* curl = curl_easy_init();
-  if (!curl) throw std::runtime_error("curl_easy_init failed");
-
-  Response resp;
-  struct curl_slist* headers = nullptr;
-  std::string auth_header = "Authorization: Bearer " + token_;
-  headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
-  headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
-  headers = curl_slist_append(headers, auth_header.c_str());
-  headers = curl_slist_append(headers, "User-Agent: ProjectAgamemnon/1.0");
-
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-  CURLcode rc = curl_easy_perform(curl);
-  if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
-
-  curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
-
-  if (rc != CURLE_OK)
-    throw std::runtime_error(std::string("curl GET failed: ") + curl_easy_strerror(rc));
-
-  return resp;
+// static
+GitHubClient::Config GitHubClient::config_from_env() {
+  Config cfg;
+  if (const char* v = std::getenv("GITHUB_TOKEN")) cfg.token = v;
+  if (const char* v = std::getenv("GITHUB_OWNER")) cfg.owner = v;
+  if (const char* v = std::getenv("GITHUB_REPO")) cfg.repo = v;
+  return cfg;
 }
 
-CurlGitHubClient::Response CurlGitHubClient::do_post(const std::string& url,
-                                                     const std::string& payload) const {
-  CURL* curl = curl_easy_init();
-  if (!curl) throw std::runtime_error("curl_easy_init failed");
+// ── Private HTTP helpers ─────────────────────────────────────────────────────
 
-  Response resp;
-  struct curl_slist* headers = nullptr;
-  std::string auth_header = "Authorization: Bearer " + token_;
-  headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
-  headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
-  headers = curl_slist_append(headers, auth_header.c_str());
-  headers = curl_slist_append(headers, "Content-Type: application/json");
-  headers = curl_slist_append(headers, "User-Agent: ProjectAgamemnon/1.0");
+nlohmann::json GitHubClient::do_get(const std::string& path) {
+  std::lock_guard<std::mutex> lk(http_mutex_);
+  httplib::SSLClient cli(kGitHubHost, kGitHubPort);
+  cli.set_follow_location(true);
 
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
+  httplib::Headers headers = {
+      {"Authorization", "Bearer " + cfg_.token},
+      {"Accept", "application/vnd.github+json"},
+      {"X-GitHub-Api-Version", "2022-11-28"},
+      {"User-Agent", "ProjectAgamemnon"},
+  };
 
-  CURLcode rc = curl_easy_perform(curl);
-  if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
-
-  curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
-
-  if (rc != CURLE_OK)
-    throw std::runtime_error(std::string("curl POST failed: ") + curl_easy_strerror(rc));
-
-  return resp;
+  auto res = cli.Get(path, headers);
+  if (!res || res->status < 200 || res->status >= 300) {
+    int status = res ? res->status : -1;
+    std::cerr << "[agamemnon/github] GET " << path << " failed: HTTP " << status << "\n";
+    return nlohmann::json::array();
+  }
+  try {
+    return nlohmann::json::parse(res->body);
+  } catch (...) {
+    std::cerr << "[agamemnon/github] GET " << path << " response parse error\n";
+    return nlohmann::json::array();
+  }
 }
 
-CurlGitHubClient::Response CurlGitHubClient::do_patch(const std::string& url,
-                                                      const std::string& payload) const {
-  CURL* curl = curl_easy_init();
-  if (!curl) throw std::runtime_error("curl_easy_init failed");
+nlohmann::json GitHubClient::do_post(const std::string& path, const nlohmann::json& body) {
+  std::lock_guard<std::mutex> lk(http_mutex_);
+  httplib::SSLClient cli(kGitHubHost, kGitHubPort);
+  cli.set_follow_location(true);
 
-  Response resp;
-  struct curl_slist* headers = nullptr;
-  std::string auth_header = "Authorization: Bearer " + token_;
-  headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
-  headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
-  headers = curl_slist_append(headers, auth_header.c_str());
-  headers = curl_slist_append(headers, "Content-Type: application/json");
-  headers = curl_slist_append(headers, "User-Agent: ProjectAgamemnon/1.0");
+  httplib::Headers headers = {
+      {"Authorization", "Bearer " + cfg_.token},
+      {"Accept", "application/vnd.github+json"},
+      {"X-GitHub-Api-Version", "2022-11-28"},
+      {"User-Agent", "ProjectAgamemnon"},
+  };
 
-  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
-
-  CURLcode rc = curl_easy_perform(curl);
-  if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
-
-  curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
-
-  if (rc != CURLE_OK)
-    throw std::runtime_error(std::string("curl PATCH failed: ") + curl_easy_strerror(rc));
-
-  return resp;
+  std::string payload = body.dump();
+  auto res = cli.Post(path, headers, payload, "application/json");
+  if (!res || res->status < 200 || res->status >= 300) {
+    int status = res ? res->status : -1;
+    std::cerr << "[agamemnon/github] POST " << path << " failed: HTTP " << status << "\n";
+    return nullptr;
+  }
+  try {
+    return nlohmann::json::parse(res->body);
+  } catch (...) {
+    std::cerr << "[agamemnon/github] POST " << path << " response parse error\n";
+    return nullptr;
+  }
 }
 
-std::vector<json> CurlGitHubClient::list_issues(std::string_view label) {
-  std::vector<json> results;
+nlohmann::json GitHubClient::do_patch(const std::string& path, const nlohmann::json& body) {
+  std::lock_guard<std::mutex> lk(http_mutex_);
+  httplib::SSLClient cli(kGitHubHost, kGitHubPort);
+  cli.set_follow_location(true);
+
+  httplib::Headers headers = {
+      {"Authorization", "Bearer " + cfg_.token},
+      {"Accept", "application/vnd.github+json"},
+      {"X-GitHub-Api-Version", "2022-11-28"},
+      {"User-Agent", "ProjectAgamemnon"},
+  };
+
+  std::string payload = body.dump();
+  auto res = cli.Patch(path, headers, payload, "application/json");
+  if (!res || res->status < 200 || res->status >= 300) {
+    int status = res ? res->status : -1;
+    std::cerr << "[agamemnon/github] PATCH " << path << " failed: HTTP " << status << "\n";
+    return nullptr;
+  }
+  try {
+    return nlohmann::json::parse(res->body);
+  } catch (...) {
+    std::cerr << "[agamemnon/github] PATCH " << path << " response parse error\n";
+    return nullptr;
+  }
+}
+
+// ── Public API ───────────────────────────────────────────────────────────────
+
+int GitHubClient::create_issue(const std::string& title,
+                               const std::string& body,
+                               const std::vector<std::string>& labels) {
+  if (!enabled_) return -1;
+
+  nlohmann::json payload;
+  payload["title"] = title;
+  payload["body"] = body;
+  payload["labels"] = labels;
+
+  std::string path = "/repos/" + cfg_.owner + "/" + cfg_.repo + "/issues";
+  auto resp = do_post(path, payload);
+  if (resp.is_null() || !resp.contains("number")) return -1;
+  return resp["number"].get<int>();
+}
+
+bool GitHubClient::update_issue(int number,
+                                const std::string& title,
+                                const std::string& body,
+                                const std::vector<std::string>& labels,
+                                const std::string& state) {
+  if (!enabled_) return false;
+
+  nlohmann::json payload;
+  payload["title"] = title;
+  payload["body"] = body;
+  payload["labels"] = labels;
+  payload["state"] = state;
+
+  std::string path =
+      "/repos/" + cfg_.owner + "/" + cfg_.repo + "/issues/" + std::to_string(number);
+  auto resp = do_patch(path, payload);
+  return !resp.is_null();
+}
+
+nlohmann::json GitHubClient::list_issues(const std::string& label, const std::string& state) {
+  if (!enabled_) return nlohmann::json::array();
+
+  nlohmann::json result = nlohmann::json::array();
   int page = 1;
+
   while (true) {
-    std::string url = "https://api.github.com/repos/" + repo_ +
-                      "/issues?state=open&labels=" + std::string(label) +
-                      "&per_page=100&page=" + std::to_string(page);
-    Response resp;
-    try {
-      resp = do_get(url);
-    } catch (const std::exception& e) {
-      std::cerr << "[agamemnon] GitHub list_issues error: " << e.what() << "\n";
-      break;
-    }
+    std::string path = "/repos/" + cfg_.owner + "/" + cfg_.repo + "/issues?state=" + state +
+                       "&labels=" + label + "&per_page=" + std::to_string(kPerPage) +
+                       "&page=" + std::to_string(page);
 
-    if (resp.status != 200) {
-      std::cerr << "[agamemnon] GitHub list_issues HTTP " << resp.status << "\n";
-      break;
-    }
+    auto page_result = do_get(path);
+    if (!page_result.is_array() || page_result.empty()) break;
 
-    json arr;
-    try {
-      arr = json::parse(resp.body);
-    } catch (...) {
-      std::cerr << "[agamemnon] GitHub list_issues: malformed JSON response\n";
-      break;
-    }
+    for (auto& issue : page_result) result.push_back(issue);
 
-    if (!arr.is_array() || arr.empty()) break;
-
-    for (auto& issue : arr) results.push_back(issue);
-
-    if (static_cast<int>(arr.size()) < 100) break;
+    if (static_cast<int>(page_result.size()) < kPerPage) break;
     ++page;
   }
-  return results;
-}
 
-std::string CurlGitHubClient::create_issue(std::string_view title, std::string_view body,
-                                           std::string_view label) {
-  std::string url = "https://api.github.com/repos/" + repo_ + "/issues";
-  json payload = {{"title", std::string(title)},
-                  {"body", std::string(body)},
-                  {"labels", json::array({std::string(label)})}};
-
-  Response resp = do_post(url, payload.dump());
-  if (resp.status != 201) {
-    std::cerr << "[agamemnon] GitHub create_issue HTTP " << resp.status << ": " << resp.body
-              << "\n";
-    return "";
-  }
-
-  try {
-    auto result = json::parse(resp.body);
-    return std::to_string(result["number"].get<int>());
-  } catch (...) {
-    std::cerr << "[agamemnon] GitHub create_issue: malformed response\n";
-    return "";
-  }
-}
-
-void CurlGitHubClient::update_issue_body(std::string_view issue_number, std::string_view body) {
-  std::string url =
-      "https://api.github.com/repos/" + repo_ + "/issues/" + std::string(issue_number);
-  json payload = {{"body", std::string(body)}};
-
-  Response resp = do_patch(url, payload.dump());
-  if (resp.status != 200) {
-    std::cerr << "[agamemnon] GitHub update_issue_body HTTP " << resp.status << "\n";
-  }
-}
-
-void CurlGitHubClient::close_issue(std::string_view issue_number) {
-  std::string url =
-      "https://api.github.com/repos/" + repo_ + "/issues/" + std::string(issue_number);
-  json payload = {{"state", "closed"}};
-
-  Response resp = do_patch(url, payload.dump());
-  if (resp.status != 200) {
-    std::cerr << "[agamemnon] GitHub close_issue HTTP " << resp.status << "\n";
-  }
+  return result;
 }
 
 }  // namespace projectagamemnon
