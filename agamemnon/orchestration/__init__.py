@@ -1,1 +1,1 @@
-# ProjectKeystone Python transport layer
+# Agamemnon orchestration layer (migrated from ProjectKeystone)

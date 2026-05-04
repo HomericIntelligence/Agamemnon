@@ -10,10 +10,10 @@ import sys
 import time
 from typing import Any
 
-from keystone.config import Settings, load_settings
-from keystone.logging import KeystoneLogger, configure_logging, get_logger
-from keystone.nats_listener import NATSListener
-from keystone.task_claimer import TaskClaimer
+from agamemnon.orchestration.config import Settings, load_settings
+from agamemnon.orchestration.logging import KeystoneLogger, configure_logging, get_logger
+from agamemnon.orchestration.nats_listener import NATSListener
+from agamemnon.orchestration.task_claimer import TaskClaimer
 
 logger: KeystoneLogger = get_logger(component="daemon")
 

@@ -1,8 +1,8 @@
-"""Entry point for python -m keystone invocation."""
+"""Entry point for python -m agamemnon.orchestration invocation."""
 from __future__ import annotations
 
 import sys
 
-from keystone.daemon import main
+from agamemnon.orchestration.daemon import main
 
 sys.exit(main())
