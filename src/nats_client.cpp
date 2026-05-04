@@ -3,6 +3,7 @@
 // NOLINTNEXTLINE(misc-include-cleaner) — nats.h brings in its own transitive includes
 #include <chrono>
 #include <iostream>
+#include <memory>
 #include <string>
 
 #include "nats.h"
@@ -172,16 +173,17 @@ extern "C" void nats_msg_handler(natsConnection* /*nc*/, natsSubscription* /*sub
 bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
   if (!connected_ || !conn_) return false;
 
-  // Heap-allocate the context; it lives for the lifetime of the subscription.
-  // For this server the subscription lives for the lifetime of the process.
-  auto* ctx = new CallbackContext{std::move(cb)};  // NOLINT(cppcoreguidelines-owning-memory)
+  // Ownership transfers to the C library on successful subscribe; the callback
+  // deletes the context when the subscription fires or is destroyed.
+  auto ctx = std::make_unique<CallbackContext>(CallbackContext{std::move(cb)});
+  CallbackContext* raw = ctx.release();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transfer to nats.c C API
 
   natsSubscription* sub = nullptr;
   natsStatus s =
-      natsConnection_Subscribe(&sub, to_conn(conn_), subject.c_str(), nats_msg_handler, ctx);
+      natsConnection_Subscribe(&sub, to_conn(conn_), subject.c_str(), nats_msg_handler, raw);
   if (s != NATS_OK) {
     std::cerr << "[nats] subscribe error on " << subject << ": " << natsStatus_GetText(s) << "\n";
-    delete ctx;  // NOLINT(cppcoreguidelines-owning-memory)
+    delete raw;  // NOLINT(cppcoreguidelines-owning-memory) — reclaiming from failed C API transfer
     return false;
   }
   return true;
