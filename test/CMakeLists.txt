@@ -34,7 +34,7 @@ target_include_directories(${PROJECT_NAME}_tests
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src)
 
-# Suppress warnings from external headers (httplib, nlohmann, nats) in test target.
+# Suppress warnings from external headers in test binary
 target_compile_options(${PROJECT_NAME}_tests PRIVATE
   -Wno-old-style-cast
   -Wno-useless-cast
@@ -53,11 +53,8 @@ target_link_libraries(${PROJECT_NAME}_tests
     GTest::gtest_main
     httplib::httplib
     nlohmann_json::nlohmann_json
-    agamemnon_peer_discovery
-    nats_static
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    Threads::Threads)
+    GTest::gtest_main
+    GTest::gmock)
 
 target_compile_options(${PROJECT_NAME}_tests PRIVATE
   -Wno-old-style-cast

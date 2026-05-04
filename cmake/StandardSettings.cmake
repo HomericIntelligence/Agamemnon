@@ -3,3 +3,8 @@ option(${PROJECT_NAME}_ENABLE_DOXYGEN "Enable Doxygen documentation" OFF)
 option(${PROJECT_NAME}_ENABLE_SANITIZERS "Enable sanitizers" OFF)
 option(${PROJECT_NAME}_ENABLE_COVERAGE "Enable coverage reporting" OFF)
 option(${PROJECT_NAME}_WARNINGS_AS_ERRORS "Treat warnings as errors" ON)
+
+if(${PROJECT_NAME}_ENABLE_COVERAGE)
+  add_compile_options(-O0 --coverage)
+  add_link_options(--coverage)
+endif()
