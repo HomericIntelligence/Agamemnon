@@ -31,6 +31,7 @@ target_include_directories(${PROJECT_NAME}_tests
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src)
 
+# Suppress warnings from external headers (httplib, nlohmann, nats) in test target.
 target_compile_options(${PROJECT_NAME}_tests PRIVATE
   -Wno-old-style-cast
   -Wno-useless-cast
@@ -39,7 +40,8 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
   -Wno-shadow
   -Wno-format-nonliteral
   -Wno-double-promotion
-  -Wno-cast-align)
+  -Wno-cast-align
+)
 
 target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE

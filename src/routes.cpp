@@ -6,8 +6,10 @@
 
 // cpp-httplib — single-header, no SSL needed for internal mesh traffic
 #define CPPHTTPLIB_NO_EXCEPTIONS
+#include <algorithm>
 #include <iostream>
 #include <string>
+#include <unordered_set>
 
 #include "httplib.h"
 #include "nlohmann/json.hpp"
@@ -45,6 +47,68 @@ static bool parse_body(const httplib::Request& req, httplib::Response& res, json
     reply_bad_request(res, std::string("invalid JSON: ") + e.what());
     return false;
   }
+}
+
+// ── Validation allowlists ─────────────────────────────────────────────────────
+
+static const std::unordered_set<std::string> kValidAgentStatuses = {
+    "offline", "online", "error"};
+static const std::unordered_set<std::string> kValidTaskStatuses = {
+    "pending", "running", "completed", "failed", "blocked"};
+static const std::unordered_set<std::string> kValidTaskTypes = {
+    "general", "research", "implementation", "review", "testing"};
+static const std::unordered_set<std::string> kValidChaosTypes = {
+    "latency", "partition", "crash", "corruption", "throttle"};
+
+// ── Validation helpers ────────────────────────────────────────────────────────
+
+// Returns false and sets 400 if value is empty or all-whitespace.
+static bool require_nonempty_string(httplib::Response& res, const std::string& value,
+                                    const std::string& field_name) {
+  bool all_space = std::all_of(value.begin(), value.end(),
+                               [](unsigned char c) { return std::isspace(c); });
+  if (value.empty() || all_space) {
+    reply_bad_request(res, "'" + field_name + "' must be a non-empty string");
+    return false;
+  }
+  return true;
+}
+
+// Returns false and sets 400 if value is not in the allowlist.
+static bool require_enum(httplib::Response& res, const std::string& value,
+                         const std::string& field_name,
+                         const std::unordered_set<std::string>& allowed) {
+  if (allowed.find(value) == allowed.end()) {
+    reply_bad_request(res, "'" + field_name + "' has invalid value '" + value + "'");
+    return false;
+  }
+  return true;
+}
+
+// Returns false and sets 400 if body[field] is present but not a string.
+static bool require_string_if_present(httplib::Response& res, const json& body,
+                                      const std::string& field_name) {
+  if (body.contains(field_name) && !body[field_name].is_string()) {
+    reply_bad_request(res, "'" + field_name + "' must be a string");
+    return false;
+  }
+  return true;
+}
+
+// Returns false and sets 400 if any element of a JSON array is not a string.
+static bool require_string_array(httplib::Response& res, const json& arr,
+                                 const std::string& field_name) {
+  if (!arr.is_array()) {
+    reply_bad_request(res, "'" + field_name + "' must be an array");
+    return false;
+  }
+  for (const auto& elem : arr) {
+    if (!elem.is_string()) {
+      reply_bad_request(res, "'" + field_name + "' elements must be strings");
+      return false;
+    }
+  }
+  return true;
 }
 
 // ── Route registration ────────────────────────────────────────────────────────
@@ -104,6 +168,11 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   server.Post("/v1/agents/docker", [sp, np](const httplib::Request& req, httplib::Response& res) {
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_string_if_present(res, body, "name")) return;
+    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
+    if (body.contains("status") && body["status"].is_string() &&
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
+      return;
     // Docker agents are created the same way but with hostId and image fields
     json result = sp->create_agent(body);
     auto& agent = result["agent"];
@@ -121,6 +190,11 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   server.Post("/v1/agents", [sp, np](const httplib::Request& req, httplib::Response& res) {
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_string_if_present(res, body, "name")) return;
+    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
+    if (body.contains("status") && body["status"].is_string() &&
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
+      return;
     json result = sp->create_agent(body);
     auto& agent = result["agent"];
     std::string host = agent.value("host", "local");
@@ -192,6 +266,14 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
                  std::string id = req.matches[1];
                  json body;
                  if (!parse_body(req, res, body)) return;
+                 if (!require_string_if_present(res, body, "name")) return;
+                 if (body.contains("name") &&
+                     !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+                   return;
+                 if (body.contains("status") && body["status"].is_string() &&
+                     !require_enum(res, body["status"].get<std::string>(), "status",
+                                   kValidAgentStatuses))
+                   return;
                  json result = sp->update_agent(id, body);
                  if (result.is_null()) {
                    reply_not_found(res, "agent");
@@ -229,6 +311,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   server.Post("/v1/teams", [sp, np](const httplib::Request& req, httplib::Response& res) {
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_string_if_present(res, body, "name")) return;
+    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
+    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds")) return;
+    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids")) return;
     json result = sp->create_team(body);
     np->publish("hi.agents.team.created", result.dump());
     reply_json(res, 201, result);
@@ -250,6 +336,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     std::string id = req.matches[1];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_string_if_present(res, body, "name")) return;
+    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
+    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds")) return;
+    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids")) return;
     json result = sp->update_team(id, body);
     if (result.is_null()) {
       reply_not_found(res, "team");
@@ -291,6 +381,16 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
         std::string team_id = req.matches[1];
         json body;
         if (!parse_body(req, res, body)) return;
+        if (!require_string_if_present(res, body, "subject")) return;
+        if (body.contains("subject") &&
+            !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
+          return;
+        if (body.contains("type") && body["type"].is_string() &&
+            !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
+          return;
+        if (body.contains("blockedBy") &&
+            !require_string_array(res, body["blockedBy"], "blockedBy"))
+          return;
         json result = sp->create_task(team_id, body);
         np->publish("hi.tasks.created", result.dump());
 
@@ -334,6 +434,15 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     std::string task_id = req.matches[2];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (body.contains("status") && body["status"].is_string() &&
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
+      return;
+    if (body.contains("type") && body["type"].is_string() &&
+        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
+      return;
+    if (body.contains("blockedBy") &&
+        !require_string_array(res, body["blockedBy"], "blockedBy"))
+      return;
     json result = sp->update_task(team_id, task_id, body);
     if (result.is_null()) {
       reply_not_found(res, "task");
@@ -371,6 +480,7 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   server.Post(R"(/v1/chaos/([^/]+))",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
                 std::string type = req.matches[1];
+                if (!require_enum(res, type, "type", kValidChaosTypes)) return;
                 json result = sp->create_fault(type);
                 np->publish("hi.agents.chaos.injected", result.dump());
                 reply_json(res, 201, result);
