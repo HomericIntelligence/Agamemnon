@@ -1,4 +1,5 @@
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/peer_discovery.hpp"
 #include "projectagamemnon/port_parse.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
@@ -24,7 +25,20 @@ int main() {
 
   // ── NATS client ──────────────────────────────────────────────────────────
   const char* nats_url_env = std::getenv("NATS_URL");
-  std::string nats_url = nats_url_env ? nats_url_env : "nats://localhost:4222";
+  std::string nats_url;
+  if (nats_url_env) {
+    nats_url = nats_url_env;
+  } else {
+    std::cout << "[agamemnon] NATS_URL not set — attempting Tailscale peer discovery\n";
+    nats_url = projectagamemnon::discover_nats_url();
+    if (nats_url.empty()) {
+      nats_url = "nats://localhost:4222";
+      std::cout << "[agamemnon] no Tailscale NATS peer found, falling back to " << nats_url
+                << "\n";
+    } else {
+      std::cout << "[agamemnon] discovered NATS peer: " << nats_url << "\n";
+    }
+  }
 
   projectagamemnon::NatsClient nats(nats_url);
   if (nats.connect()) {

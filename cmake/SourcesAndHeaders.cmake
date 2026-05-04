@@ -10,4 +10,5 @@ set(sources
 
 set(headers
     include/projectagamemnon/version.hpp
-    include/projectagamemnon/store.hpp)
+    include/projectagamemnon/store.hpp
+    include/projectagamemnon/peer_discovery.hpp)

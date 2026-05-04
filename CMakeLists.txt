@@ -60,11 +60,25 @@ target_link_libraries(
 
 set_project_warnings(${PROJECT_NAME})
 
+# ── Peer discovery (object lib — shared by server and tests) ─────────────────
+add_library(agamemnon_peer_discovery OBJECT src/peer_discovery.cpp)
+target_compile_features(agamemnon_peer_discovery PUBLIC cxx_std_20)
+set_target_properties(agamemnon_peer_discovery PROPERTIES CXX_EXTENSIONS OFF)
+target_include_directories(agamemnon_peer_discovery PUBLIC
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
+target_link_libraries(agamemnon_peer_discovery PUBLIC nlohmann_json::nlohmann_json)
+target_compile_options(agamemnon_peer_discovery PRIVATE
+  -Wno-old-style-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+)
+
 # ── Server executable ────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_server
   src/server_main.cpp
   src/routes.cpp
   src/nats_client.cpp
+  $<TARGET_OBJECTS:agamemnon_peer_discovery>
 )
 
 target_compile_features(${PROJECT_NAME}_server PRIVATE cxx_std_20)
@@ -86,6 +100,7 @@ target_link_libraries(
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
+    agamemnon_peer_discovery
 )
 
 # Suppress warnings from external headers on the server target
