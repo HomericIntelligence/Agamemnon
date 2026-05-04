@@ -14,3 +14,6 @@ _deps/
 CMakeUserPresets.json
 pixi.lock
 !clients/python/pixi.lock
+__pycache__/
+*.py[cod]
+*.egg-info/
