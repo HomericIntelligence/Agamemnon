@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Verify all prerequisites are in place before pushing a v* tag.
+# Usage: check-release-readiness.sh [VERSION]   e.g. check-release-readiness.sh 0.2.0
+# VERSION defaults to 0.1.0 if omitted (preserves original standalone behaviour).
 # Exits non-zero if any check fails.
 set -euo pipefail
+
+VERSION="${1:-0.1.0}"
 
 REPO="HomericIntelligence/ProjectAgamemnon"
 WORKFLOW="python-client-release.yml"
@@ -42,18 +46,18 @@ print(tags[0]['name'] if tags else '')
     fi
 fi
 
-# 3. No existing v0.1.0 tag
-if git ls-remote --tags origin "refs/tags/v0.1.0" | grep -q v0.1.0; then
-    warn "Tag v0.1.0 already exists on origin — was the release already pushed?"
+# 3. No existing tag for this version
+if git ls-remote --tags origin "refs/tags/v${VERSION}" | grep -q "v${VERSION}"; then
+    warn "Tag v${VERSION} already exists on origin — was the release already pushed?"
 else
-    ok "Tag v0.1.0 does not yet exist (ready to publish)"
+    ok "Tag v${VERSION} does not yet exist (ready to publish)"
 fi
 
 # 4. PyPI package not yet published (pending publisher required for first push)
-if pip index versions "${PYPI_PACKAGE}" 2>/dev/null | grep -q "0.1.0"; then
-    warn "${PYPI_PACKAGE}==0.1.0 is already on PyPI — release may already be complete"
+if pip index versions "${PYPI_PACKAGE}" 2>/dev/null | grep -q "${VERSION}"; then
+    warn "${PYPI_PACKAGE}==${VERSION} is already on PyPI — release may already be complete"
 else
-    ok "${PYPI_PACKAGE}==0.1.0 not yet on PyPI (publish pending)"
+    ok "${PYPI_PACKAGE}==${VERSION} not yet on PyPI (publish pending)"
 fi
 
 # 5. Local main is up-to-date
@@ -85,5 +89,4 @@ echo "  https://pypi.org/manage/account/publishing/"
 echo "  (cannot be verified programmatically)"
 echo ""
 echo "When ready, run:"
-echo "  git tag -s v0.1.0 -m 'release: v0.1.0'"
-echo "  git push origin v0.1.0"
+echo "  just release ${VERSION}"

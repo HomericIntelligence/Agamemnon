@@ -37,3 +37,18 @@ docs-validate:
 
 ci:
   cmake --preset ci && cmake --build --preset ci && ctest --preset ci
+
+# Cut a release: bump version, commit, tag, and push
+release VERSION:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if ! [[ "{{VERSION}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "error: VERSION must be X.Y.Z (got '{{VERSION}}')" >&2
+    exit 1
+  fi
+  ./scripts/check-release-readiness.sh "{{VERSION}}"
+  python3 scripts/bump-version.py "{{VERSION}}"
+  git add clients/python/pyproject.toml
+  git commit -S -m "chore: bump version to v{{VERSION}}"
+  git tag -s "v{{VERSION}}" -m "v{{VERSION}}"
+  git push --follow-tags
