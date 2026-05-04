@@ -30,7 +30,7 @@ include(FetchContent)
 FetchContent_Declare(
   nats_c
   GIT_REPOSITORY https://github.com/nats-io/nats.c.git
-  GIT_TAG        v3.9.1
+  GIT_TAG        v3.12.0
   GIT_SHALLOW    TRUE
 )
 set(NATS_BUILD_STREAMING OFF CACHE BOOL "" FORCE)
