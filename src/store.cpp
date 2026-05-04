@@ -3,7 +3,9 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
+#include <mutex>
 #include <random>
+#include <shared_mutex>
 #include <sstream>
 
 namespace projectagamemnon {
@@ -51,7 +53,7 @@ std::string now_iso8601() {
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 json Store::create_agent(const json& body) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   std::string id = generate_uuid();
   json agent;
   agent["id"] = id;
@@ -72,14 +74,14 @@ json Store::create_agent(const json& body) {
 }
 
 json Store::get_agent(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   return it->second;
 }
 
 json Store::get_agent_by_name(const std::string& name) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   for (auto& [id, agent] : agents_) {
     if (agent.value("name", "") == name) return agent;
   }
@@ -87,14 +89,14 @@ json Store::get_agent_by_name(const std::string& name) {
 }
 
 json Store::list_agents() {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   json arr = json::array();
   for (auto& [id, agent] : agents_) arr.push_back(agent);
   return {{"agents", arr}};
 }
 
 json Store::update_agent(const std::string& id, const json& fields) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   for (auto& [key, val] : fields.items()) {
@@ -104,12 +106,12 @@ json Store::update_agent(const std::string& id, const json& fields) {
 }
 
 bool Store::delete_agent(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   return agents_.erase(id) > 0;
 }
 
 json Store::start_agent(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   it->second["status"] = "online";
@@ -117,7 +119,7 @@ json Store::start_agent(const std::string& id) {
 }
 
 json Store::stop_agent(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   it->second["status"] = "offline";
@@ -127,7 +129,7 @@ json Store::stop_agent(const std::string& id) {
 // ── Teams ─────────────────────────────────────────────────────────────────────
 
 json Store::create_team(const json& body) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   std::string id = generate_uuid();
   json team;
   team["id"] = id;
@@ -140,21 +142,21 @@ json Store::create_team(const json& body) {
 }
 
 json Store::get_team(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   return it->second;
 }
 
 json Store::list_teams() {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   json arr = json::array();
   for (auto& [id, team] : teams_) arr.push_back(team);
   return {{"teams", arr}};
 }
 
 json Store::update_team(const std::string& id, const json& body) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   if (body.contains("agentIds"))
@@ -166,14 +168,14 @@ json Store::update_team(const std::string& id, const json& body) {
 }
 
 bool Store::delete_team(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   return teams_.erase(id) > 0;
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
 json Store::create_task(const std::string& team_id, const json& body) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   std::string id = generate_uuid();
   json task;
   task["id"] = id;
@@ -191,7 +193,7 @@ json Store::create_task(const std::string& team_id, const json& body) {
 }
 
 json Store::get_task(const std::string& team_id, const std::string& task_id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (!team_id.empty() && it->second.value("teamId", "") != team_id) return nullptr;
@@ -199,7 +201,7 @@ json Store::get_task(const std::string& team_id, const std::string& task_id) {
 }
 
 json Store::update_task(const std::string& team_id, const std::string& task_id, const json& body) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (!team_id.empty() && it->second.value("teamId", "") != team_id) return nullptr;
@@ -214,7 +216,7 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
 }
 
 json Store::list_tasks_for_team(const std::string& team_id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   json arr = json::array();
   for (auto& [id, task] : tasks_) {
     if (task.value("teamId", "") == team_id) arr.push_back(task);
@@ -223,14 +225,14 @@ json Store::list_tasks_for_team(const std::string& team_id) {
 }
 
 json Store::list_all_tasks() {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   json arr = json::array();
   for (auto& [id, task] : tasks_) arr.push_back(task);
   return {{"tasks", arr}};
 }
 
 void Store::mark_task_completed(const std::string& task_id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = tasks_.find(task_id);
   if (it != tasks_.end()) {
     it->second["status"] = "completed";
@@ -241,14 +243,14 @@ void Store::mark_task_completed(const std::string& task_id) {
 // ── Chaos faults ──────────────────────────────────────────────────────────────
 
 json Store::list_faults() {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   json arr = json::array();
   for (auto& [id, fault] : faults_) arr.push_back(fault);
   return {{"faults", arr}};
 }
 
 json Store::create_fault(const std::string& type) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   std::string id = generate_uuid();
   json fault;
   fault["id"] = id;
@@ -260,7 +262,7 @@ json Store::create_fault(const std::string& type) {
 }
 
 bool Store::remove_fault(const std::string& id) {
-  std::lock_guard<std::mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   return faults_.erase(id) > 0;
 }
 

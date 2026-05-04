@@ -53,13 +53,17 @@ target_include_directories(
          $<INSTALL_INTERFACE:include>
   PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
+target_link_libraries(
+  ${PROJECT_NAME}
+  PRIVATE
+    nlohmann_json::nlohmann_json)
+
 set_project_warnings(${PROJECT_NAME})
 
 # ── Server executable ────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_server
   src/server_main.cpp
   src/routes.cpp
-  src/store.cpp
   src/nats_client.cpp
 )
 
@@ -76,6 +80,7 @@ target_include_directories(
 target_link_libraries(
   ${PROJECT_NAME}_server
   PRIVATE
+    ${PROJECT_NAME}::${PROJECT_NAME}
     httplib::httplib
     nlohmann_json::nlohmann_json
     nats_static
