@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Callable, Coroutine
+from collections.abc import Coroutine
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -103,9 +104,7 @@ class TaskClaimer:
             if this call was coalesced.
         """
         if team_id in self._advancing:
-            logger.info(
-                "advance_dag already in-flight for team %s -- skipping", team_id
-            )
+            logger.info("advance_dag already in-flight for team %s -- skipping", team_id)
             self._coalesced_count[team_id] = self._coalesced_count.get(team_id, 0) + 1
             return []
 
@@ -134,9 +133,7 @@ class TaskClaimer:
         Returns:
             The asyncio.Task wrapping the advance_dag coroutine.
         """
-        task: asyncio.Task[Any] = asyncio.get_event_loop().create_task(
-            self.advance_dag(team_id)
-        )
+        task: asyncio.Task[Any] = asyncio.get_event_loop().create_task(self.advance_dag(team_id))
         self._in_flight.add(task)
         task.add_done_callback(self._in_flight.discard)
         return task

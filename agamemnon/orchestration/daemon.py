@@ -1,4 +1,4 @@
-"""Keystone daemon — routes messages between publishers and subscribers."""
+"""Agamemnon orchestration daemon — routes messages between publishers and subscribers."""
 
 from __future__ import annotations
 
@@ -11,11 +11,11 @@ import time
 from typing import Any
 
 from agamemnon.orchestration.config import Settings, load_settings
-from agamemnon.orchestration.logging import KeystoneLogger, configure_logging, get_logger
+from agamemnon.orchestration.logging import AgamemnonLogger, configure_logging, get_logger
 from agamemnon.orchestration.nats_listener import NATSListener
 from agamemnon.orchestration.task_claimer import TaskClaimer
 
-logger: KeystoneLogger = get_logger(component="daemon")
+logger: AgamemnonLogger = get_logger(component="daemon")
 
 _shutdown_event: asyncio.Event | None = None
 

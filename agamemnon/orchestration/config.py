@@ -1,4 +1,4 @@
-"""Configuration settings for the Keystone daemon."""
+"""Configuration settings for the Agamemnon orchestration daemon."""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Settings:
-    """Runtime configuration for the Keystone daemon.
+    """Runtime configuration for the Agamemnon orchestration daemon.
 
     All values can be overridden via environment variables.
     """
 
-    log_level: str = field(default_factory=lambda: os.environ.get("KEYSTONE_LOG_LEVEL", "INFO"))
+    log_level: str = field(default_factory=lambda: os.environ.get("AGAMEMNON_LOG_LEVEL", "INFO"))
     poll_interval: float = field(
-        default_factory=lambda: float(os.environ.get("KEYSTONE_POLL_INTERVAL", "1.0"))
+        default_factory=lambda: float(os.environ.get("AGAMEMNON_POLL_INTERVAL", "1.0"))
     )
     shutdown_timeout: float = field(
-        default_factory=lambda: float(os.environ.get("KEYSTONE_SHUTDOWN_TIMEOUT", "30.0"))
+        default_factory=lambda: float(os.environ.get("AGAMEMNON_SHUTDOWN_TIMEOUT", "30.0"))
     )
 
 
