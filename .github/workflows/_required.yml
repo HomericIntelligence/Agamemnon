@@ -315,9 +315,9 @@ jobs:
 
       - name: Validate GitHub Actions workflow schemas
         run: |
-          find .github/workflows -name "*.yml" | \
+          find .github/workflows -name "*.yml" | sort | \
             xargs check-jsonschema \
-              --schemafile https://json.schemastore.org/github-workflow
+              --schemafile .github/schemas/github-workflow.json
 
   # ── 8. deps/version-sync ───────────────────────────────────────────────────
   deps-version-sync:
