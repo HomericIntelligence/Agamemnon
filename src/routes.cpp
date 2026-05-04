@@ -1,5 +1,6 @@
 #include "projectagamemnon/routes.hpp"
 
+#include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/store.hpp"
@@ -118,29 +119,38 @@ static bool require_string_array(httplib::Response& res, const json& arr,
 // Both store and nats are owned by main() and outlive the server.
 
 void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
-                     RateLimiter& rate_limiter) {
+                     RateLimiter& rate_limiter, AuthMiddleware& auth) {
   Store* sp = &store;
   NatsClient* np = &nats;
   RateLimiter* rl = &rate_limiter;
+  AuthMiddleware* ap = &auth;
 
-  // Enforce per-IP rate limit on every request except health checks.
-  server.set_pre_routing_handler([rl](const httplib::Request& req, httplib::Response& res) {
-    // Health endpoints are exempt — they must remain reachable for liveness probes.
-    if (req.path == "/health" || req.path == "/v1/health") {
-      return httplib::Server::HandlerResponse::Unhandled;
-    }
-    if (!rl->allow(req.remote_addr)) {
-      double retry = rl->retry_after_seconds(req.remote_addr);
-      int retry_int = static_cast<int>(retry) + 1;
-      res.status = 429;
-      res.set_header("Retry-After", std::to_string(retry_int));
-      res.set_content(R"({"error":"rate limit exceeded","retry_after_seconds":)" +
-                          std::to_string(retry_int) + "}",
-                      "application/json");
-      return httplib::Server::HandlerResponse::Handled;
-    }
-    return httplib::Server::HandlerResponse::Unhandled;
-  });
+  // Enforce per-IP rate limit and API key auth on every request.
+  // Health endpoints are exempt from rate limiting but still require auth.
+  server.set_pre_routing_handler(
+      [rl, ap](const httplib::Request& req, httplib::Response& res) {
+        // Authenticate first.
+        if (!ap->validate(req)) {
+          res.status = 401;
+          res.set_content(R"({"error":"unauthorized"})", "application/json");
+          return httplib::Server::HandlerResponse::Handled;
+        }
+        // Health endpoints are exempt from rate limiting.
+        if (req.path == "/health" || req.path == "/v1/health") {
+          return httplib::Server::HandlerResponse::Unhandled;
+        }
+        if (!rl->allow(req.remote_addr)) {
+          double retry = rl->retry_after_seconds(req.remote_addr);
+          int retry_int = static_cast<int>(retry) + 1;
+          res.status = 429;
+          res.set_header("Retry-After", std::to_string(retry_int));
+          res.set_content(R"({"error":"rate limit exceeded","retry_after_seconds":)" +
+                              std::to_string(retry_int) + "}",
+                          "application/json");
+          return httplib::Server::HandlerResponse::Handled;
+        }
+        return httplib::Server::HandlerResponse::Unhandled;
+      });
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {

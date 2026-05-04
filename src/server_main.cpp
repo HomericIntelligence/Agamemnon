@@ -1,4 +1,4 @@
-#include "projectagamemnon/github_client.hpp"
+#include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/peer_discovery.hpp"
 #include "projectagamemnon/port_parse.hpp"
@@ -95,6 +95,14 @@ int main() {
   std::cout << "[agamemnon] rate limiting: " << rate_limit_rps << " req/s, burst "
             << rate_limit_burst << "\n";
 
+  // ── API key (fail-secure: refuse to start if unset) ──────────────────────
+  const char* api_key_env = std::getenv("AGAMEMNON_API_KEY");
+  if (!api_key_env || std::string(api_key_env).empty()) {
+    std::cerr << "[agamemnon] FATAL: AGAMEMNON_API_KEY is not set. Refusing to start.\n";
+    return 1;
+  }
+  projectagamemnon::AuthMiddleware auth(api_key_env);
+
   // ── HTTP server ───────────────────────────────────────────────────────────
   auto env_int = [](const char* name, int def) -> int {
     const char* v = std::getenv(name);
@@ -110,7 +118,7 @@ int main() {
   server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
                                 1024UL * 1024UL);
 
-  projectagamemnon::register_routes(server, store, nats, rate_limiter);
+  projectagamemnon::register_routes(server, store, nats, rate_limiter, auth);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;

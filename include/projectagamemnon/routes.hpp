@@ -10,11 +10,12 @@ namespace projectagamemnon {
 class Store;
 class NatsClient;
 class RateLimiter;
+class AuthMiddleware;
 
 /// Register all /v1/ route handlers on the given server.
-/// Store, NatsClient, and RateLimiter are passed by reference; they must
-/// outlive the server (they are owned by main).
+/// Store, NatsClient, RateLimiter, and AuthMiddleware are passed by reference;
+/// they must outlive the server (they are owned by main).
 void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
-                     RateLimiter& rate_limiter);
+                     RateLimiter& rate_limiter, AuthMiddleware& auth);
 
 }  // namespace projectagamemnon

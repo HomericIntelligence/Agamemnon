@@ -1,3 +1,4 @@
+#include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
@@ -20,13 +21,14 @@ class RoutesTest : public ::testing::Test {
  protected:
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:4222"};  // disconnected — all publish() are no-ops
-  RateLimiter rate_limiter_{1e9, 1e9};        // effectively unlimited for tests
+  RateLimiter rate_limiter_{1e9, 1e9};   // effectively unlimited for tests
+  AuthMiddleware auth_{""};              // empty key — all requests pass auth in test
   httplib::Server server_;
   std::thread server_thread_;
   std::unique_ptr<httplib::Client> client_;
 
   void SetUp() override {
-    register_routes(server_, store_, nats_, rate_limiter_);
+    register_routes(server_, store_, nats_, rate_limiter_, auth_);
     int port = server_.bind_to_any_port("127.0.0.1");
     ASSERT_GT(port, 0);
     server_thread_ = std::thread([this] { server_.listen_after_bind(); });
