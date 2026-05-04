@@ -70,6 +70,15 @@ void NatsClient::close() {
 void NatsClient::ensure_streams() {
   if (!connected_ || !js_) return;
 
+  auto env_int64 = [](const char* name, int64_t def) -> int64_t {
+    const char* v = std::getenv(name);
+    return v ? static_cast<int64_t>(std::stoll(v)) : def;
+  };
+  const int64_t max_bytes =
+      env_int64("NATS_STREAM_MAX_BYTES_MB", 50) * 1024LL * 1024LL;
+  const int64_t max_age =
+      env_int64("NATS_STREAM_MAX_AGE_SEC", 3600) * 1000000000LL;  // nanoseconds
+
   struct StreamDef {
     const char* name;
     const char* subject;
@@ -89,6 +98,9 @@ void NatsClient::ensure_streams() {
     cfg.SubjectsLen = 1;
     cfg.Storage = js_FileStorage;
     cfg.Retention = js_LimitsPolicy;
+    cfg.MaxBytes = max_bytes;
+    cfg.MaxAge = static_cast<uint64_t>(max_age);
+    cfg.MaxMsgs = -1;
 
     jsStreamInfo* info = nullptr;
     jsErrCode jerr = static_cast<jsErrCode>(0);
