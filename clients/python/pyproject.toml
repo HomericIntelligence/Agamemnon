@@ -36,6 +36,9 @@ packages = ["agamemnon_client"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:pytest_asyncio",
+]
 
 [tool.coverage.run]
 source = ["agamemnon_client"]
