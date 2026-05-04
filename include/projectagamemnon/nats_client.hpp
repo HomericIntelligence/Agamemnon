@@ -7,6 +7,7 @@
 #include <string>
 
 #include "nlohmann/json.hpp"
+#include "projectagamemnon/nats_publisher.hpp"
 
 namespace projectagamemnon {
 
@@ -20,7 +21,7 @@ namespace projectagamemnon {
 /// Designed for graceful degradation: if the NATS server is unavailable,
 /// connect() returns false and is_connected() returns false.  All publish /
 /// subscribe calls are no-ops when not connected.
-class NatsClient {
+class NatsClient : public NatsPublisher {
  public:
   static constexpr int kMaxRetries = 3;
   static constexpr int kBaseRetryMs = 50;
@@ -58,7 +59,7 @@ class NatsClient {
   /// Publish a structured log event to hi.logs.agamemnon.<event> (ADR-005).
   /// Fire-and-forget: NATS failures are logged but do not propagate.
   void publish_log(const std::string& subject, const std::string& level, const std::string& message,
-                   const nlohmann::json& metadata);
+                   const nlohmann::json& metadata) override;
 
   /// Access the dead-letter queue (for drain/clear endpoints).
   DeadLetterQueue& dead_letter_queue() { return dlq_; }
