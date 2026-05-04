@@ -95,7 +95,7 @@ When you report a vulnerability:
 ### In Scope
 
 - C++ source code (routes, store, NATS client)
-- REST API endpoints (`/v1/tasks`, `/v1/agents`, `/v1/chaos/*`, `/v1/workflows`)
+- REST API endpoints (`/v1/tasks`, `/v1/agents`, `/v1/chaos/*`)
 - CMake build configuration
 - Dockerfile and container configuration
 
