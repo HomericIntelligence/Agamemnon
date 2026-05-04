@@ -1,5 +1,7 @@
 #include "projectagamemnon/nats_client.hpp"
 
+#include "projectagamemnon/metrics.hpp"
+
 // NOLINTNEXTLINE(misc-include-cleaner) — nats.h brings in its own transitive includes
 #include <chrono>
 #include <iostream>
@@ -64,10 +66,12 @@ bool NatsClient::connect() {
     std::cerr << "[nats] WARNING: could not connect to " << url_ << " — " << natsStatus_GetText(s)
               << " (NATS events will be skipped)\n";
     connected_ = false;
+    if (metrics_) metrics_->set_nats_connected(false);
     return false;
   }
   conn_ = c;
   connected_ = true;
+  if (metrics_) metrics_->set_nats_connected(true);
 
   // Obtain a JetStream context
   jsCtx* js = nullptr;
@@ -96,6 +100,7 @@ void NatsClient::close() {
     conn_ = nullptr;
   }
   connected_ = false;
+  if (metrics_) metrics_->set_nats_connected(false);
 }
 
 // ── ensure_streams ────────────────────────────────────────────────────────────
@@ -229,6 +234,7 @@ namespace {
 
 struct CallbackContext {
   NatsClient::MessageCallback cb;
+  MetricsRegistry* metrics = nullptr;
 };
 
 // nats.c requires a C-style callback signature.
@@ -240,6 +246,7 @@ extern "C" void nats_msg_handler(natsConnection* /*nc*/, natsSubscription* /*sub
   const char* data = static_cast<const char*>(natsMsg_GetData(msg));
   int datLen = natsMsg_GetDataLength(msg);
   std::string payload(data ? data : "", data ? static_cast<std::size_t>(datLen) : 0);
+  if (ctx->metrics) ctx->metrics->record_nats_receive(subject);
   ctx->cb(subject, payload);
   natsMsg_Destroy(msg);
 }
@@ -249,11 +256,9 @@ extern "C" void nats_msg_handler(natsConnection* /*nc*/, natsSubscription* /*sub
 bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
   if (!connected_ || !conn_) return false;
 
-  // Ownership transfers to the C library on successful subscribe; the callback
-  // deletes the context when the subscription fires or is destroyed.
-  auto ctx = std::make_unique<CallbackContext>(CallbackContext{std::move(cb)});
-  CallbackContext* raw = ctx.release();  // NOLINT(cppcoreguidelines-owning-memory) — ownership
-                                         // transfer to nats.c C API
+  // Heap-allocate the context; it lives for the lifetime of the subscription.
+  // For this server the subscription lives for the lifetime of the process.
+  auto* ctx = new CallbackContext{std::move(cb), metrics_};  // NOLINT(cppcoreguidelines-owning-memory)
 
   natsSubscription* sub = nullptr;
   natsStatus s =

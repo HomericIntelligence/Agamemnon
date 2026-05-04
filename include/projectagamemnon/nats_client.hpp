@@ -11,6 +11,8 @@
 
 namespace projectagamemnon {
 
+class MetricsRegistry;
+
 /// Thin wrapper around the nats.c client library with JetStream support.
 ///
 /// Includes:
@@ -33,6 +35,9 @@ class NatsClient : public NatsPublisher {
   // Non-copyable, non-movable (holds raw pointers).
   NatsClient(const NatsClient&) = delete;
   NatsClient& operator=(const NatsClient&) = delete;
+
+  /// Attach a MetricsRegistry for instrumentation (nullable; pass nullptr to disable).
+  void set_metrics(MetricsRegistry* metrics) noexcept { metrics_ = metrics; }
 
   /// Connect to the NATS server.  Returns false and logs a warning on failure.
   bool connect();
@@ -69,6 +74,7 @@ class NatsClient : public NatsPublisher {
   const CircuitBreaker& circuit_breaker() const { return breaker_; }
 
  private:
+  MetricsRegistry* metrics_ = nullptr;
   std::string url_;
   void* conn_ = nullptr;  // natsConnection*  (opaque to avoid header leak)
   void* js_ = nullptr;    // jsCtx*
