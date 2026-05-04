@@ -303,9 +303,8 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
                reply_json(res, 200, {{"task", task}});
              });
 
-  // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
-  server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np](const httplib::Request& req,
-                                                            httplib::Response& res) {
+  // Shared handler for PUT and PATCH /v1/teams/:team_id/tasks/:task_id
+  auto update_task_handler = [sp, np](const httplib::Request& req, httplib::Response& res) {
     std::string team_id = req.matches[1];
     std::string task_id = req.matches[2];
     json body;
@@ -328,34 +327,13 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
                        {"assignee", assignee}});
     }
     reply_json(res, 200, {{"task", result}});
-  });
+  };
+
+  // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
+  server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
   // PATCH /v1/teams/:team_id/tasks/:task_id
-  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np](const httplib::Request& req,
-                                                              httplib::Response& res) {
-    std::string team_id = req.matches[1];
-    std::string task_id = req.matches[2];
-    json body;
-    if (!parse_body(req, res, body)) return;
-    json result = sp->update_task(team_id, task_id, body);
-    if (result.is_null()) {
-      reply_not_found(res, "task");
-      return;
-    }
-    const auto& task = result["task"].is_null() ? result : result["task"];
-    std::string status = task.value("status", "");
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", result.dump());
-    if (status == "completed") {
-      std::string task_type = task.value("type", "unknown");
-      std::string assignee = task.value("assigneeAgentId", "");
-      np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
-                      {{"task_id", task_id},
-                       {"team_id", team_id},
-                       {"type", task_type},
-                       {"assignee", assignee}});
-    }
-    reply_json(res, 200, {{"task", result}});
-  });
+  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
   // ── Workflows ────────────────────────────────────────────────────────────
 
