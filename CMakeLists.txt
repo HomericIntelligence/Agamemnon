@@ -73,13 +73,45 @@ target_compile_options(agamemnon_peer_discovery PRIVATE
   -Wno-sign-conversion
 )
 
-# ── Server executable ────────────────────────────────────────────────────────
-add_executable(${PROJECT_NAME}_server
-  src/server_main.cpp
+# ── agamemnon_lib — shared by server executable and tests ────────────────────
+# Excludes server_main.cpp so gtest_main doesn't conflict with main().
+add_library(agamemnon_lib STATIC
   src/routes.cpp
   src/nats_client.cpp
-  $<TARGET_OBJECTS:agamemnon_peer_discovery>
+  src/circuit_breaker.cpp
+  src/dead_letter_queue.cpp
 )
+
+target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
+set_target_properties(agamemnon_lib PROPERTIES CXX_EXTENSIONS OFF)
+
+target_include_directories(agamemnon_lib
+  PUBLIC  ${PROJECT_SOURCE_DIR}/include
+  PRIVATE ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(agamemnon_lib
+  PUBLIC
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    nats_static
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_compile_options(agamemnon_lib PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align
+)
+
+# ── Server executable ────────────────────────────────────────────────────────
+add_executable(${PROJECT_NAME}_server src/server_main.cpp)
 
 target_compile_features(${PROJECT_NAME}_server PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_server PROPERTIES CXX_EXTENSIONS OFF)
@@ -91,17 +123,7 @@ target_include_directories(
     ${PROJECT_SOURCE_DIR}/src
 )
 
-target_link_libraries(
-  ${PROJECT_NAME}_server
-  PRIVATE
-    ${PROJECT_NAME}::${PROJECT_NAME}
-    httplib::httplib
-    nlohmann_json::nlohmann_json
-    nats_static
-    OpenSSL::SSL
-    OpenSSL::Crypto
-    agamemnon_peer_discovery
-)
+target_link_libraries(${PROJECT_NAME}_server PRIVATE agamemnon_lib agamemnon_peer_discovery)
 
 # Suppress warnings from external headers on the server target
 target_compile_options(${PROJECT_NAME}_server PRIVATE
