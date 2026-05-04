@@ -20,6 +20,13 @@ namespace projectagamemnon {
 
 using json = nlohmann::json;
 
+// ── Input length limits ───────────────────────────────────────────────────────
+static constexpr std::size_t kMaxNameLen        = 256;
+static constexpr std::size_t kMaxLabelLen       = 256;
+static constexpr std::size_t kMaxDescriptionLen = 4096;
+static constexpr std::size_t kMaxSubjectLen     = 512;
+static constexpr std::size_t kMaxProgramLen     = 1024;
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 static void reply_json(httplib::Response& res, int status, const json& body) {
@@ -34,6 +41,17 @@ static void reply_not_found(httplib::Response& res, const std::string& what) {
 
 static void reply_bad_request(httplib::Response& res, const std::string& msg) {
   reply_json(res, 400, {{"error", msg}});
+}
+
+/// Returns false and sets 400 if value exceeds max_len.
+static bool check_field_length(httplib::Response& res, const std::string& field_name,
+                                const std::string& value, std::size_t max_len) {
+  if (value.size() > max_len) {
+    reply_bad_request(res, "field '" + field_name + "' exceeds maximum length of " +
+                               std::to_string(max_len));
+    return false;
+  }
+  return true;
 }
 
 /// Parse JSON body; returns false and sets 400 on parse error.
@@ -151,6 +169,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     return httplib::Server::HandlerResponse::Unhandled;
   });
 
+  // ── Global transport-layer body size limit (1 MB) ───────────────────────
+  static constexpr std::size_t kMaxBodyBytes = 1U << 20U;
+  server.set_payload_max_length(kMaxBodyBytes);
+
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
     reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
@@ -202,6 +224,19 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
       return;
+    if (body.contains("name") &&
+        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+      return;
+    if (body.contains("label") &&
+        !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
+      return;
+    if (body.contains("program") &&
+        !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
+      return;
+    if (body.contains("taskDescription") &&
+        !check_field_length(res, "taskDescription",
+                            body["taskDescription"].get<std::string>(), kMaxDescriptionLen))
+      return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
       return;
@@ -225,6 +260,19 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     if (!require_string_if_present(res, body, "name")) return;
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+      return;
+    if (body.contains("name") &&
+        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+      return;
+    if (body.contains("label") &&
+        !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
+      return;
+    if (body.contains("program") &&
+        !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
+      return;
+    if (body.contains("taskDescription") &&
+        !check_field_length(res, "taskDescription",
+                            body["taskDescription"].get<std::string>(), kMaxDescriptionLen))
       return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
@@ -304,6 +352,19 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
         if (body.contains("name") &&
             !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
           return;
+        if (body.contains("name") &&
+            !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+          return;
+        if (body.contains("label") &&
+            !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
+          return;
+        if (body.contains("program") &&
+            !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
+          return;
+        if (body.contains("taskDescription") &&
+            !check_field_length(res, "taskDescription",
+                                body["taskDescription"].get<std::string>(), kMaxDescriptionLen))
+          return;
         if (body.contains("status") && body["status"].is_string() &&
             !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
           return;
@@ -348,6 +409,9 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
       return;
+    if (body.contains("name") &&
+        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+      return;
     if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
       return;
     if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids"))
@@ -376,6 +440,9 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     if (!require_string_if_present(res, body, "name")) return;
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+      return;
+    if (body.contains("name") &&
+        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
       return;
     if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
       return;
@@ -426,6 +493,13 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     if (body.contains("subject") &&
         !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
       return;
+    if (body.contains("subject") &&
+        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+      return;
+    if (body.contains("description") &&
+        !check_field_length(res, "description", body["description"].get<std::string>(),
+                            kMaxDescriptionLen))
+      return;
     if (body.contains("type") && body["type"].is_string() &&
         !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
       return;
@@ -474,6 +548,13 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     std::string task_id = req.matches[2];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (body.contains("subject") &&
+        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+      return;
+    if (body.contains("description") &&
+        !check_field_length(res, "description", body["description"].get<std::string>(),
+                            kMaxDescriptionLen))
+      return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
       return;
@@ -506,7 +587,38 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
   // PATCH /v1/teams/:team_id/tasks/:task_id
-  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
+  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np](const httplib::Request& req,
+                                                              httplib::Response& res) {
+    std::string team_id = req.matches[1];
+    std::string task_id = req.matches[2];
+    json body;
+    if (!parse_body(req, res, body)) return;
+    if (body.contains("subject") &&
+        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+      return;
+    if (body.contains("description") &&
+        !check_field_length(res, "description", body["description"].get<std::string>(),
+                            kMaxDescriptionLen))
+      return;
+    json result = sp->update_task(team_id, task_id, body);
+    if (result.is_null()) {
+      reply_not_found(res, "task");
+      return;
+    }
+    const auto& task = result["task"].is_null() ? result : result["task"];
+    std::string status = task.value("status", "");
+    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", result.dump());
+    if (status == "completed") {
+      std::string task_type = task.value("type", "unknown");
+      std::string assignee = task.value("assigneeAgentId", "");
+      np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
+                      {{"task_id", task_id},
+                       {"team_id", team_id},
+                       {"type", task_type},
+                       {"assignee", assignee}});
+    }
+    reply_json(res, 200, {{"task", result}});
+  });
 
   // ── Chaos ────────────────────────────────────────────────────────────────
 

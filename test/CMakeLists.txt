@@ -69,3 +69,4 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME}_tests DISCOVERY_TIMEOUT 120)
+gtest_discover_tests(${PROJECT_NAME}_routes_tests)
