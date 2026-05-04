@@ -8,12 +8,31 @@
 #include "projectagamemnon/version.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
+#include <atomic>
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
 
 #include "httplib.h"
+
+// File-scope pointers used by the signal trampoline.
+// Set before sigaction(), nulled after cleanup to guard against late signals.
+namespace {
+std::atomic<bool>* g_shutdown_flag =
+    nullptr;                          // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+httplib::Server* g_server = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+void shutdown_handler(int /*sig*/) {
+  if (g_shutdown_flag) {
+    g_shutdown_flag->store(true, std::memory_order_relaxed);
+  }
+  if (g_server) {
+    g_server->stop();
+  }
+}
+}  // namespace
 
 int main() {
   // Disable stdout buffering for container logging
@@ -132,8 +151,28 @@ int main() {
     }
   }
 
+  // ── Signal handling ───────────────────────────────────────────────────────
+  std::atomic<bool> shutdown_requested{false};
+  g_shutdown_flag = &shutdown_requested;
+  g_server = &server;
+
+  struct sigaction sa{};
+  sa.sa_handler = shutdown_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  sigaction(SIGTERM, &sa, nullptr);
+  sigaction(SIGINT, &sa, nullptr);
+
   std::cout << "[agamemnon] listening on 0.0.0.0:" << port << "\n";
-  server.listen("0.0.0.0", port);
+  server.listen("0.0.0.0", port);  // blocks until server.stop() is called
+
+  // Null the static pointers before any further work so late signals are no-ops.
+  g_server = nullptr;
+  g_shutdown_flag = nullptr;
+
+  if (shutdown_requested.load()) {
+    std::cout << "[agamemnon] shutdown signal received — draining complete\n";
+  }
 
   nats.close();
   return 0;
