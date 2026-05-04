@@ -1,0 +1,8 @@
+title = "ProjectAgamemnon Gitleaks Config"
+
+[allowlist]
+  description = "Test fixtures and CI tooling"
+  paths = [
+    '''tests/fixtures/''',
+    '''hephaestus/''',
+  ]
