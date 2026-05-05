@@ -2,6 +2,7 @@
 
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/store.hpp"
+#include "projectagamemnon/version.hpp"
 
 // cpp-httplib — single-header, no SSL needed for internal mesh traffic
 #define CPPHTTPLIB_NO_EXCEPTIONS
@@ -65,7 +66,7 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   });
 
   server.Get("/v1/version", [](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, {{"version", "0.1.0"}, {"name", "ProjectAgamemnon"}});
+    reply_json(res, 200, {{"version", std::string(kVersion)}, {"name", std::string(kProjectName)}});
   });
 
   // ── Agents ──────────────────────────────────────────────────────────────
