@@ -9,6 +9,12 @@ repos:
       - id: check-merge-conflict
       - id: mixed-line-ending
 
+  - repo: https://github.com/editorconfig-checker/editorconfig-checker.python
+    rev: 3.2.0
+    hooks:
+      - id: editorconfig-checker
+        exclude: '^(build/|install/|\.git/)'
+
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v17.0.6
     hooks:
