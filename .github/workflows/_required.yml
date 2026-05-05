@@ -282,6 +282,9 @@ jobs:
   security-dependency-scan:
     name: security/dependency-scan
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -308,6 +311,48 @@ jobs:
 
       - name: Trivy filesystem scan
         run: trivy fs --exit-code 1 --severity HIGH,CRITICAL --scanners vuln .
+
+      - name: Install Conan
+        run: pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Generate Conan lock file
+        run: conan lock create conanfile.py --lockfile-out=conan.lock --build=missing
+
+      - name: Install Syft
+        run: |
+          SYFT_VERSION=1.4.1
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin "v${SYFT_VERSION}"
+          syft version
+
+      - name: Install Grype
+        run: |
+          GRYPE_VERSION=0.87.0
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sh -s -- -b /usr/local/bin "v${GRYPE_VERSION}"
+          grype version
+
+      - name: Generate SBOM from Conan lock
+        run: syft . --override-default-catalogers conan -o cyclonedx-json=conan-sbom.cdx.json
+
+      - name: Scan Conan SBOM for CVEs
+        run: grype sbom:conan-sbom.cdx.json --fail-on high --output table
+
+      - name: Scan FetchContent deps (nats.c) for CVEs
+        run: grype sbom:.github/cpp-fetchcontent-deps.cdx.json --fail-on high --output table
+
+      - name: Upload C++ SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-sbom
+          path: |
+            conan-sbom.cdx.json
+            .github/cpp-fetchcontent-deps.cdx.json
+          retention-days: 90
 
   # ── 5. security/secrets-scan ───────────────────────────────────────────────
   security-secrets-scan:
