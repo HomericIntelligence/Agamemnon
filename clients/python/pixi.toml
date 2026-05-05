@@ -27,5 +27,12 @@ lint = "ruff check src/ tests/"
 format = "ruff format src/ tests/"
 typecheck = "mypy src/"
 
+[feature.lint.pypi-dependencies]
+pip-audit = ">=2.8"
+
+[feature.lint.tasks]
+audit = "pip-audit --skip-editable"
+
 [environments]
 default = { features = ["dev"], solve-group = "default" }
+lint    = { features = ["lint"], solve-group = "default" }
