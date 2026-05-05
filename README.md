@@ -27,3 +27,9 @@ ctest --preset debug
 ## License
 
 MIT
+
+## Data & Privacy
+
+ProjectAgamemnon processes infrastructure metadata only (agent IDs, Tailscale host
+identifiers, task state). It does not collect personal data. See
+[SECURITY.md](SECURITY.md) for the full data and privacy policy.

@@ -107,6 +107,52 @@ When you report a vulnerability:
 - Social engineering attacks
 - Physical security
 
+## Data & Privacy
+
+### What Agamemnon Processes
+
+- **Agent ownership records** — agent ID, host Tailscale IP (100.x.x.x), agent type, and
+  registration timestamp. Stored as GitHub Issues/Projects items.
+- **Task metadata** — task ID, assigned agent, state transitions, and timestamps. Stored as
+  GitHub Issues/Projects items.
+- **Host identifiers** — Tailscale 100.x.x.x addresses used transiently for peer discovery.
+  Not logged to persistent storage by default.
+- **No end-user PII** — data describes infrastructure agents, not natural persons.
+
+### GDPR Applicability
+
+As an internal mesh service operating on infrastructure metadata, ProjectAgamemnon does not
+process personal data of natural persons in the GDPR sense under normal deployment conditions.
+
+If deployed in a context where agent IDs or host records could be linked to a natural person
+(e.g., developer workstations serving as agent hosts), the **deployer** is responsible for
+compliance with applicable data protection regulations.
+
+### Data Retention
+
+- Task and agent records live as GitHub Issues/Projects items; retention follows the GitHub
+  repository's own retention and deletion settings.
+- No local disk persistence beyond build artifacts — there is no embedded database or local
+  log file containing identifiers by default.
+- Log output (stdout/stderr) may include agent IDs and host IPs; deployers should apply
+  appropriate log rotation and retention policies.
+
+### Data Deletion
+
+To remove records:
+
+- **Agent or task records** — close or delete the corresponding GitHub Issue or Project item.
+- **NATS JetStream subjects** — use the NATS CLI to delete the relevant stream
+  (`hi.tasks.>`, `hi.pipeline.>`, `hi.myrmidon.{type}.>`).
+- **Data questions** — contact <4211002+mvillmow@users.noreply.github.com>.
+
+### Data Minimization
+
+- Agamemnon stores only the identifiers necessary for orchestration. No passwords, tokens,
+  or credentials are recorded in task or agent state.
+- Tailscale IPs are used transiently for peer discovery and are not written to persistent
+  storage by default.
+
 ## Security Best Practices
 
 When contributing to ProjectAgamemnon:
