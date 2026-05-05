@@ -15,6 +15,8 @@ User <-> Odysseus <-> Nestor <-> Agamemnon <-> agentic pipeline loop -> completi
 It receives researched briefs from ProjectNestor and coordinates the full planning and
 execution pipeline using a HMAS 4-layer agentic hierarchy.
 
+See [AGENTS.md](AGENTS.md) for multi-agent handoff protocols.
+
 ## Building
 
 ```bash
