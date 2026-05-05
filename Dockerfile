@@ -41,17 +41,17 @@ RUN cmake -B build -G Ninja \
     -DProjectAgamemnon_ENABLE_CLANG_TIDY=OFF \
     -DProjectAgamemnon_ENABLE_CPPCHECK=OFF \
     -DProjectAgamemnon_WARNINGS_AS_ERRORS=OFF \
-    && cmake --build build --target ProjectAgamemnon_server
+    && cmake --build build --target ProjectAgamemnon_server ProjectAgamemnon_healthcheck
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
 FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/build/ProjectAgamemnon_server /usr/local/bin/ProjectAgamemnon_server
+COPY --from=builder /src/build/ProjectAgamemnon_healthcheck /usr/local/bin/ProjectAgamemnon_healthcheck
 
 EXPOSE 8080
 
@@ -59,7 +59,7 @@ ENV NATS_URL=nats://localhost:4222
 ENV PORT=8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:${PORT}/v1/health || exit 1
+    CMD ["/usr/local/bin/ProjectAgamemnon_healthcheck"]
 
 RUN useradd -r -s /usr/sbin/nologin agamemnon
 USER agamemnon

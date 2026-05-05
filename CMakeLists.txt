@@ -95,6 +95,40 @@ target_compile_options(${PROJECT_NAME}_server PRIVATE
   -Wno-cast-align
 )
 
+# ── Healthcheck binary ───────────────────────────────────────────────────────
+add_executable(${PROJECT_NAME}_healthcheck src/healthcheck_main.cpp)
+
+target_compile_features(${PROJECT_NAME}_healthcheck PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_healthcheck PROPERTIES CXX_EXTENSIONS OFF)
+
+target_include_directories(
+  ${PROJECT_NAME}_healthcheck
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(
+  ${PROJECT_NAME}_healthcheck
+  PRIVATE
+    httplib::httplib
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_compile_options(${PROJECT_NAME}_healthcheck PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-double-promotion
+  -Wno-cast-align
+)
+
+install(TARGETS ${PROJECT_NAME}_healthcheck
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 # ── Tests ────────────────────────────────────────────────────────────────────
 if(${PROJECT_NAME}_BUILD_TESTING)
   enable_testing()
