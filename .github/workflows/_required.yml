@@ -18,6 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-clang-debug-
+            fetchcontent-${{ runner.os }}-clang-
+            fetchcontent-${{ runner.os }}-
+
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
 
@@ -154,6 +173,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -183,6 +221,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -282,6 +339,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
