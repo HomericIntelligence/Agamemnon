@@ -44,7 +44,7 @@ RUN cmake -B build -G Ninja \
     && cmake --build build --target ProjectAgamemnon_server ProjectAgamemnon_healthcheck
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
-FROM ubuntu:24.04
+FROM debian:12-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
