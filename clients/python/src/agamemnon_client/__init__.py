@@ -5,6 +5,8 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 
 from agamemnon_client.client import AgamemnonClient as AgamemnonClient
+from agamemnon_client.config import Settings as Settings
+from agamemnon_client.config import load_settings as load_settings
 from agamemnon_client.errors import AgamemnonAPIError as AgamemnonAPIError
 from agamemnon_client.errors import AgamemnonConnectionError as AgamemnonConnectionError
 from agamemnon_client.errors import AgamemnonError as AgamemnonError
@@ -51,4 +53,6 @@ __all__ = [
     "FailureSpec",
     "InjectionResult",
     "ChaosEntry",
+    "Settings",
+    "load_settings",
 ]

@@ -12,6 +12,26 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-debug-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
+
       - name: Install dependencies
         run: |
           sudo apt-get install -y ninja-build gcovr
@@ -31,13 +51,7 @@ jobs:
         run: ./scripts/coverage.sh
       - name: Check threshold
         run: |
-          LINE_COV=$(python3 -c "
-import xml.etree.ElementTree as ET
-tree = ET.parse('build/coverage-report/coverage.xml')
-root = tree.getroot()
-rate = float(root.attrib.get('line-rate', 0)) * 100
-print(f'{rate:.1f}')
-")
+          LINE_COV=$(python3 -c "import xml.etree.ElementTree as ET; root = ET.parse('build/coverage-report/coverage.xml').getroot(); print(f\"{float(root.attrib.get('line-rate', 0)) * 100:.1f}\")")
           echo "Line coverage: ${LINE_COV}%"
           python3 -c "import sys; cov=float('${LINE_COV}'); sys.exit(0 if cov >= 80 else 1)"
 

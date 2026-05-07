@@ -1,0 +1,13 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.4",
+  "version": 1,
+  "components": [
+    {
+      "type": "library",
+      "name": "nats.c",
+      "version": "3.9.1",
+      "purl": "pkg:github/nats-io/nats.c@v3.9.1"
+    }
+  ]
+}

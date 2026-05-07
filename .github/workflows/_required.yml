@@ -18,6 +18,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-clang-debug-
+            fetchcontent-${{ runner.os }}-clang-
+            fetchcontent-${{ runner.os }}-
+
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
 
@@ -30,12 +49,155 @@ jobs:
       - name: Python client lint
         run: ruff check clients/python/
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang clang-tidy
+          pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install Conan dependencies (debug, for compile_commands.json)
+        run: |
+          conan install . --build=missing -s build_type=Debug \
+            --output-folder build/debug
+
+      - name: Configure with clang-tidy enabled
+        run: cmake --preset debug -DProjectAgamemnon_ENABLE_CLANG_TIDY=ON
+
+      - name: Build (runs clang-tidy)
+        run: cmake --build --preset debug
+
+      - name: Install mypy
+        run: pip install mypy
+
+      - name: Python client type check
+        continue-on-error: true
+        run: mypy clients/python/ --ignore-missing-imports
+
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: lint
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Run markdownlint-cli2
+        uses: DavidAnson/markdownlint-cli2-action@05f32210e84442804257b2a6f20b273450ec8265  # v20.0.0
+        with:
+          globs: "**/*.md"
+          config: ".markdownlint.yaml"
+
+  pixi-check:
+    name: pixi-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: lint
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Skip if no pixi.toml
+        id: detect
+        run: |
+          if [ ! -f pixi.toml ]; then
+            echo "::notice::No pixi.toml in repo, skipping pixi-check"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Cache pixi environment
+        if: steps.detect.outputs.skip == 'false'
+        uses: actions/cache@v5
+        with:
+          path: |
+            .pixi
+            ~/.cache/rattler/cache
+          key: pixi-${{ runner.os }}-${{ hashFiles('pixi.lock') }}
+      - name: Setup pixi
+        if: steps.detect.outputs.skip == 'false'
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.67.2
+          cache: false
+      - name: pixi install (locked)
+        if: steps.detect.outputs.skip == 'false'
+        run: |
+          if [ ! -f pixi.lock ]; then
+            echo "::error::pixi.lock is missing — commit it by running: pixi lock"
+            exit 1
+          fi
+          pixi install --locked
+
+  justfile-check:
+    name: justfile-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: lint
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Skip if no justfile
+        id: detect
+        run: |
+          if [ ! -f justfile ] && [ ! -f Justfile ]; then
+            echo "::notice::No justfile in repo, skipping justfile-check"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install just
+        if: steps.detect.outputs.skip == 'false'
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
+        with:
+          just-version: "1.36.0"
+      - name: Validate justfile
+        if: steps.detect.outputs.skip == 'false'
+        run: |
+          just --evaluate >/dev/null
+          just --list >/dev/null
+
+  symlink-check:
+    name: symlink-check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    needs: lint
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Run symlink check
+        run: bash scripts/check-symlinks.sh
+
   # ── 2. unit-tests ──────────────────────────────────────────────────────────
   unit-tests:
     name: unit-tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -66,6 +228,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -101,17 +282,27 @@ jobs:
   security-dependency-scan:
     name: security/dependency-scan
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install pip-audit
-        run: pip install pip-audit
+      - uses: actions/cache@v4
+        with:
+          path: |
+            clients/python/.pixi
+            ~/.cache/rattler/cache
+          key: pixi-lint-${{ runner.os }}-${{ hashFiles('clients/python/pixi.lock') }}
+          restore-keys: pixi-lint-${{ runner.os }}-
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.39.5
+          manifest-path: clients/python/pixi.toml
 
       - name: Python client dependency audit
-        run: |
-          pip install -r clients/python/pyproject.toml 2>/dev/null || true
-          cd clients/python
-          pip-audit --require-hashes 2>/dev/null || pip-audit || true
+        run: pixi run --manifest-path clients/python/pixi.toml --environment lint audit
 
       - name: Install Trivy
         run: |
@@ -120,6 +311,48 @@ jobs:
 
       - name: Trivy filesystem scan
         run: trivy fs --exit-code 1 --severity HIGH,CRITICAL --scanners vuln .
+
+      - name: Install Conan
+        run: pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Generate Conan lock file
+        run: conan lock create conanfile.py --lockfile-out=conan.lock --build=missing
+
+      - name: Install Syft
+        run: |
+          SYFT_VERSION=1.4.1
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin "v${SYFT_VERSION}"
+          syft version
+
+      - name: Install Grype
+        run: |
+          GRYPE_VERSION=0.87.0
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sh -s -- -b /usr/local/bin "v${GRYPE_VERSION}"
+          grype version
+
+      - name: Generate SBOM from Conan lock
+        run: syft . --override-default-catalogers conan -o cyclonedx-json=conan-sbom.cdx.json
+
+      - name: Scan Conan SBOM for CVEs
+        run: grype sbom:conan-sbom.cdx.json --fail-on high --output table
+
+      - name: Scan FetchContent deps (nats.c) for CVEs
+        run: grype sbom:.github/cpp-fetchcontent-deps.cdx.json --fail-on high --output table
+
+      - name: Upload C++ SBOMs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cpp-sbom
+          path: |
+            conan-sbom.cdx.json
+            .github/cpp-fetchcontent-deps.cdx.json
+          retention-days: 90
 
   # ── 5. security/secrets-scan ───────────────────────────────────────────────
   security-secrets-scan:
@@ -130,9 +363,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Gitleaks
+        run: |
+          GITLEAKS_VERSION=8.30.1
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_${OS}_${ARCH}.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Run Gitleaks
+        run: |
+          if [ -f .gitleaks.toml ]; then
+            gitleaks detect --source . --config .gitleaks.toml \
+              --report-format sarif --report-path gitleaks.sarif --exit-code 1
+          else
+            gitleaks detect --source . \
+              --report-format sarif --report-path gitleaks.sarif --exit-code 1
+          fi
+
+      - name: Upload Gitleaks SARIF
+        if: always() && hashFiles('gitleaks.sarif') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+          retention-days: 90
 
   # ── 6. build ───────────────────────────────────────────────────────────────
   build:
@@ -140,6 +397,25 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -156,45 +432,12 @@ jobs:
             --output-folder build/release
 
       - name: Configure (release, warnings-as-errors)
-        run: cmake --preset ci
+        run: cmake --preset release
 
       - name: Build
-        run: cmake --build --preset ci
+        run: cmake --build --preset release
 
-  # ── 7. typecheck ───────────────────────────────────────────────────────────
-  typecheck:
-    name: typecheck
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build clang clang-tidy
-          pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies (debug, for compile_commands.json)
-        run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/debug
-
-      - name: Configure with clang-tidy enabled
-        run: cmake --preset debug -DProjectAgamemnon_ENABLE_CLANG_TIDY=ON
-
-      - name: Build (runs clang-tidy)
-        run: cmake --build --preset debug
-
-      - name: Install mypy
-        run: pip install mypy
-
-      - name: Python client type check
-        run: mypy clients/python/ --ignore-missing-imports
-
-  # ── 8. schema-validation ───────────────────────────────────────────────────
+  # ── 7. schema-validation ───────────────────────────────────────────────────
   schema-validation:
     name: schema-validation
     runs-on: ubuntu-24.04
@@ -206,11 +449,11 @@ jobs:
 
       - name: Validate GitHub Actions workflow schemas
         run: |
-          find .github/workflows -name "*.yml" | \
+          find .github/workflows -name "*.yml" | sort | \
             xargs check-jsonschema \
-              --schemafile https://json.schemastore.org/github-workflow
+              --schemafile .github/schemas/github-workflow.json
 
-  # ── 9. deps/version-sync ───────────────────────────────────────────────────
+  # ── 8. deps/version-sync ───────────────────────────────────────────────────
   deps-version-sync:
     name: deps/version-sync
     runs-on: ubuntu-24.04

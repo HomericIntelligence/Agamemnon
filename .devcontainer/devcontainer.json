@@ -1,0 +1,23 @@
+{
+  "name": "ProjectAgamemnon",
+  "dockerFile": "../Dockerfile",
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind",
+  "postCreateCommand": "pixi install && just deps",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "ms-vscode.cmake-tools",
+        "EditorConfig.EditorConfig",
+        "tamasfe.even-better-toml",
+        "redhat.vscode-yaml"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "clangd.arguments": ["--compile-commands-dir=build/debug"],
+        "cmake.configureOnOpen": false
+      }
+    }
+  }
+}

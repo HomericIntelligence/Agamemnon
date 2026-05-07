@@ -1,6 +1,9 @@
+# syntax=docker/dockerfile:1
 FROM ubuntu:24.04 AS builder
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     ninja-build \
     make \
@@ -12,14 +15,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --break-system-packages conan && conan profile detect
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip3 install --break-system-packages conan && conan profile detect
 
 WORKDIR /src
 
 # Copy Conan files first for dependency caching.
 COPY conanfile.py ./
 COPY conan/ conan/
-RUN conan install . \
+RUN --mount=type=cache,target=/root/.conan2/p,sharing=locked \
+    conan install . \
     --output-folder=build \
     --profile=conan/profiles/default \
     --build=missing
@@ -41,17 +46,19 @@ RUN cmake -B build -G Ninja \
     -DProjectAgamemnon_ENABLE_CLANG_TIDY=OFF \
     -DProjectAgamemnon_ENABLE_CPPCHECK=OFF \
     -DProjectAgamemnon_WARNINGS_AS_ERRORS=OFF \
-    && cmake --build build --target ProjectAgamemnon_server
+    && cmake --build build --target ProjectAgamemnon_server ProjectAgamemnon_healthcheck
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
-FROM ubuntu:24.04
+FROM debian:12-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /src/build/ProjectAgamemnon_server /usr/local/bin/ProjectAgamemnon_server
+COPY --from=builder /src/build/ProjectAgamemnon_healthcheck /usr/local/bin/ProjectAgamemnon_healthcheck
 
 EXPOSE 8080
 
@@ -59,7 +66,7 @@ ENV NATS_URL=nats://localhost:4222
 ENV PORT=8080
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:${PORT}/v1/health || exit 1
+    CMD ["/usr/local/bin/ProjectAgamemnon_healthcheck"]
 
 RUN useradd -r -s /usr/sbin/nologin agamemnon
 USER agamemnon

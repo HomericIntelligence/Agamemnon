@@ -5,7 +5,9 @@
 # would conflict with GTest::gtest_main when the test binary links against
 # this library.
 set(sources
-    src/version_info.cpp)
+    src/version_info.cpp
+    src/store.cpp)
 
 set(headers
-    include/projectagamemnon/version.hpp)
+    include/projectagamemnon/version.hpp
+    include/projectagamemnon/store.hpp)

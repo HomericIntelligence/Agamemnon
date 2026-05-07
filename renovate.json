@@ -15,6 +15,12 @@
   ],
   "packageRules": [
     {
+      "matchManagers": ["regex"],
+      "matchPackageNames": ["nats-io/nats.c"],
+      "groupName": "nats.c FetchContent pin",
+      "automerge": false
+    },
+    {
       "matchManagers": ["conan"],
       "groupName": "C++ Conan dependencies"
     },

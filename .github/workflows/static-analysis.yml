@@ -22,6 +22,26 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-clang-debug-
+            fetchcontent-${{ runner.os }}-clang-
+            fetchcontent-${{ runner.os }}-
+
       - name: Install dependencies
         run: |
           sudo apt-get install -y ninja-build clang clang-tidy

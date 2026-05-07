@@ -15,6 +15,8 @@ User <-> Odysseus <-> Nestor <-> Agamemnon <-> agentic pipeline loop -> completi
 It receives researched briefs from ProjectNestor and coordinates the full planning and
 execution pipeline using a HMAS 4-layer agentic hierarchy.
 
+See [AGENTS.md](AGENTS.md) for multi-agent handoff protocols.
+
 ## Building
 
 ```bash
@@ -27,3 +29,9 @@ ctest --preset debug
 ## License
 
 MIT
+
+## Data & Privacy
+
+ProjectAgamemnon processes infrastructure metadata only (agent IDs, Tailscale host
+identifiers, task state). It does not collect personal data. See
+[SECURITY.md](SECURITY.md) for the full data and privacy policy.

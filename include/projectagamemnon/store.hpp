@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 
@@ -50,7 +50,7 @@ class Store {
   bool remove_fault(const std::string& id);
 
  private:
-  std::mutex mutex_;
+  mutable std::shared_mutex mutex_;
   std::unordered_map<std::string, json> agents_;
   std::unordered_map<std::string, json> teams_;
   std::unordered_map<std::string, json> tasks_;

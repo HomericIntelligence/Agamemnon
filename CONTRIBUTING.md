@@ -65,6 +65,9 @@ just ci
 
 ## What You Can Contribute
 
+See [ROADMAP.md](ROADMAP.md) for the full list of planned features and their acceptance
+criteria. Good first targets are the deferred features with clear acceptance criteria.
+
 - **REST API routes** — New endpoints under `/v1/` for task, agent, or workflow management
 - **Store implementations** — Persistent or in-memory data store improvements
 - **NATS client features** — Subject routing, consumer groups, message handling
@@ -81,6 +84,8 @@ Before starting work:
 - Browse [existing issues](https://github.com/HomericIntelligence/ProjectAgamemnon/issues)
 - Comment on an issue to claim it before starting work
 - Create a new issue if one doesn't exist for your contribution
+
+Use the provided issue templates (bug report, feature request) when opening new issues — they pre-fill the required fields.
 
 ### 2. Branch Naming Convention
 
@@ -240,6 +245,11 @@ Include: clear title, steps to reproduce, expected vs actual behavior, compiler/
 
 **Do not open public issues for security vulnerabilities.**
 See [SECURITY.md](SECURITY.md) for the responsible disclosure process.
+
+### Data & Privacy
+
+For questions about what data this service stores or requests to delete records,
+see the [Data & Privacy](SECURITY.md#data--privacy) section of SECURITY.md.
 
 ## Code of Conduct
 

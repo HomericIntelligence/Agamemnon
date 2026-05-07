@@ -19,6 +19,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-${{ matrix.build_type }}-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-
+            fetchcontent-${{ runner.os }}-${{ matrix.compiler }}-
+            fetchcontent-${{ runner.os }}-
+
       - name: Install dependencies
         run: |
           sudo apt-get update

@@ -39,6 +39,23 @@ jobs:
       - name: Run ruff
         run: pixi run --manifest-path clients/python/pixi.toml lint
 
+      - name: Track deprecated KEYSTONE_* env var names
+        run: |
+          count=$(grep -rn --include="*.py" \
+            "KEYSTONE_LOG_LEVEL\|KEYSTONE_POLL_INTERVAL\|KEYSTONE_SHUTDOWN_TIMEOUT" \
+            clients/python/src \
+            | grep -v '^\s*#' \
+            | wc -l)
+          if [ "$count" -gt 0 ]; then
+            echo "::warning::Found $count reference(s) to deprecated KEYSTONE_* env vars in src/ - should be 0 before shim removal"
+            grep -rn --include="*.py" \
+              "KEYSTONE_LOG_LEVEL\|KEYSTONE_POLL_INTERVAL\|KEYSTONE_SHUTDOWN_TIMEOUT" \
+              clients/python/src \
+              | grep -v '^\s*#' || true
+          else
+            echo "PASSED: No deprecated KEYSTONE_* references found in src/"
+          fi
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-24.04

@@ -1,0 +1,21 @@
+# Normalize line endings to LF on commit
+* text=auto eol=lf
+
+# Force binary treatment for compiled artifacts
+*.a binary
+*.so binary
+*.o binary
+
+# Explicitly text
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h   text eol=lf
+*.cmake text eol=lf
+CMakeLists.txt text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+*.sh   text eol=lf
+justfile text eol=lf

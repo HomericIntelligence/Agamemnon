@@ -30,7 +30,7 @@ include(FetchContent)
 FetchContent_Declare(
   nats_c
   GIT_REPOSITORY https://github.com/nats-io/nats.c.git
-  GIT_TAG        v3.9.1
+  GIT_TAG        v3.12.0
   GIT_SHALLOW    TRUE
 )
 set(NATS_BUILD_STREAMING OFF CACHE BOOL "" FORCE)
@@ -53,13 +53,17 @@ target_include_directories(
          $<INSTALL_INTERFACE:include>
   PRIVATE ${PROJECT_SOURCE_DIR}/src)
 
+target_link_libraries(
+  ${PROJECT_NAME}
+  PRIVATE
+    nlohmann_json::nlohmann_json)
+
 set_project_warnings(${PROJECT_NAME})
 
 # ── Server executable ────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_server
   src/server_main.cpp
   src/routes.cpp
-  src/store.cpp
   src/nats_client.cpp
 )
 
@@ -76,6 +80,7 @@ target_include_directories(
 target_link_libraries(
   ${PROJECT_NAME}_server
   PRIVATE
+    ${PROJECT_NAME}::${PROJECT_NAME}
     httplib::httplib
     nlohmann_json::nlohmann_json
     nats_static
@@ -94,6 +99,40 @@ target_compile_options(${PROJECT_NAME}_server PRIVATE
   -Wno-double-promotion
   -Wno-cast-align
 )
+
+# ── Healthcheck binary ───────────────────────────────────────────────────────
+add_executable(${PROJECT_NAME}_healthcheck src/healthcheck_main.cpp)
+
+target_compile_features(${PROJECT_NAME}_healthcheck PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_healthcheck PROPERTIES CXX_EXTENSIONS OFF)
+
+target_include_directories(
+  ${PROJECT_NAME}_healthcheck
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src
+)
+
+target_link_libraries(
+  ${PROJECT_NAME}_healthcheck
+  PRIVATE
+    httplib::httplib
+    OpenSSL::SSL
+    OpenSSL::Crypto
+)
+
+target_compile_options(${PROJECT_NAME}_healthcheck PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-double-promotion
+  -Wno-cast-align
+)
+
+install(TARGETS ${PROJECT_NAME}_healthcheck
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 
 # ── Tests ────────────────────────────────────────────────────────────────────
 if(${PROJECT_NAME}_BUILD_TESTING)
