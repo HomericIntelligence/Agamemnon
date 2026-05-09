@@ -1,11 +1,12 @@
 #pragma once
 
+#include "projectagamemnon/circuit_breaker.hpp"
+#include "projectagamemnon/dead_letter_queue.hpp"
+
 #include <functional>
 #include <string>
 
 #include "nlohmann/json.hpp"
-#include "projectagamemnon/circuit_breaker.hpp"
-#include "projectagamemnon/dead_letter_queue.hpp"
 
 namespace projectagamemnon {
 
