@@ -4,27 +4,189 @@ Planning, coordination, and agentic orchestration for the HomericIntelligence di
 
 Part of [Odysseus](https://github.com/HomericIntelligence/Odysseus) — the HomericIntelligence meta-repo.
 
-## Role
+## What This Is
 
-Agamemnon sits at the center of the HomericIntelligence pipeline:
+Agamemnon is the central coordinator in the HomericIntelligence pipeline:
 
 ```
 User <-> Odysseus <-> Nestor <-> Agamemnon <-> agentic pipeline loop -> completion
 ```
 
-It receives researched briefs from ProjectNestor and coordinates the full planning and
-execution pipeline using a HMAS 4-layer agentic hierarchy.
+It receives researched briefs from ProjectNestor and manages the full planning and execution
+pipeline using a HMAS 4-layer agentic hierarchy. Agamemnon enqueues work for Myrmidons to
+pull when ready (pull-based, `MaxAckPending=1`). It does **not** do research (that is Nestor's
+role) and does not provide a user interface (that is Odysseus's role).
 
 See [AGENTS.md](AGENTS.md) for multi-agent handoff protocols.
 
-## Building
+## Architecture
+
+All inter-component communication flows through **ProjectKeystone** (invisible transport layer).
+Agamemnon publishes and subscribes to the following NATS subjects:
+
+| Subject | Direction | Consumers |
+|---|---|---|
+| `hi.tasks.>` | pub/sub | Odysseus (reads task state updates) |
+| `hi.pipeline.>` | pub/sub | Odysseus (reads pipeline state) |
+| `hi.myrmidon.{type}.>` | PULL consumers | Myrmidons pull work from here |
+| `hi.logs.agamemnon.*` | pub | Observability |
+| `hi.agents.*` | pub/sub | Agent lifecycle events |
+
+Local intra-host transport uses BlazingMQ + C++20 MessageBus. Cross-host transport uses
+NATS JetStream via nats.c v3.9.1 over Tailscale.
+
+## Prerequisites
+
+| Tool | Minimum Version | Notes |
+|---|---|---|
+| CMake | 3.20 | |
+| Ninja | 1.11 | |
+| GCC or Clang | GCC 12+ / Clang 15+ | C++20 support required, no compiler extensions |
+| Conan | 2.0 | Package manager for cpp-httplib, nlohmann_json, gtest |
+| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` |
+| pixi | any | Recommended; provides a reproducible dev environment |
+
+## Quick Start
 
 ```bash
-# Prerequisites: cmake >= 3.20, ninja, GCC or Clang with C++20 support
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+git clone https://github.com/HomericIntelligence/ProjectAgamemnon.git
+cd ProjectAgamemnon
+
+# Recommended: use pixi for a reproducible environment
+pixi install
+
+# Install Conan dependencies
+just deps
+
+# Configure + build (debug)
+just build
+
+# Run tests
+just test
+
+# Run the server
+NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
 ```
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `NATS_URL` | `nats://localhost:4222` | NATS server connection URL |
+| `PORT` | `8080` | TCP port the HTTP server listens on |
+
+## API Endpoints
+
+### Health
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness check (returns `{status: ok, service: ProjectAgamemnon}`) |
+| `GET` | `/v1/health` | Versioned health check (returns `{status: ok}`) |
+| `GET` | `/v1/version` | Service version (returns `{version, name}`) |
+
+### Agents
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/agents` | List all agents |
+| `POST` | `/v1/agents` | Create a generic agent |
+| `POST` | `/v1/agents/docker` | Create a Docker agent |
+| `GET` | `/v1/agents/by-name/<name>` | Get agent by name |
+| `GET` | `/v1/agents/<id>` | Get agent by ID |
+| `POST` | `/v1/agents/<id>/start` | Start agent |
+| `POST` | `/v1/agents/<id>/stop` | Stop agent |
+| `PATCH` | `/v1/agents/<id>` | Update agent |
+| `DELETE` | `/v1/agents/<id>` | Delete agent |
+
+### Teams
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/teams` | List all teams |
+| `POST` | `/v1/teams` | Create a team |
+| `GET` | `/v1/teams/<id>` | Get team by ID |
+| `PUT` | `/v1/teams/<id>` | Replace team |
+| `DELETE` | `/v1/teams/<id>` | Delete team |
+
+### Tasks
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/tasks` | List all tasks across all teams |
+| `GET` | `/v1/teams/<team_id>/tasks` | List tasks for a team |
+| `POST` | `/v1/teams/<team_id>/tasks` | Create a task |
+| `GET` | `/v1/teams/<team_id>/tasks/<task_id>` | Get task by ID |
+| `PUT` | `/v1/teams/<team_id>/tasks/<task_id>` | Replace task |
+| `PATCH` | `/v1/teams/<team_id>/tasks/<task_id>` | Update task fields |
+
+### Chaos (fault injection — for ProjectCharybdis)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/v1/chaos` | List all active faults |
+| `POST` | `/v1/chaos/<type>` | Inject a fault |
+| `DELETE` | `/v1/chaos/<id>` | Remove a fault |
+
+## Docker
+
+```bash
+# Build the image
+docker build -t projectagamemnon .
+
+# Run the server
+docker run -p 8080:8080 \
+  -e NATS_URL=nats://your-nats-host:4222 \
+  projectagamemnon
+```
+
+The image uses a non-root `agamemnon` user and includes a health check against `GET /v1/health`
+(interval 10s, timeout 3s, 3 retries). The exposed port is `8080`.
+
+## Development
+
+```bash
+just lint          # Run clang-tidy
+just format        # Run clang-format (in-place)
+just format-check  # Check formatting without modifying files
+just coverage      # Build + run coverage report
+just clean         # Remove build/ and install/
+```
+
+Pre-commit hooks enforce formatting and [conventional commits](https://www.conventionalcommits.org/).
+Run `pixi run pre-commit install` once after cloning to activate them. Never bypass hooks with
+`--no-verify`.
+
+## Project Structure
+
+```
+.
+├── src/          C++ source (server_main.cpp, routes.cpp, store.cpp, nats_client.cpp, …)
+├── include/      Public headers (projectagamemnon/)
+├── test/         GoogleTest unit and integration tests
+├── clients/      Client libraries (python/)
+├── cmake/        CMake modules and profiles
+├── conan/        Conan profiles
+├── scripts/      lint.sh, format.sh, coverage.sh
+├── Dockerfile    Multi-stage build (ubuntu:24.04 builder → runtime)
+├── justfile      Developer task runner
+└── pixi.toml     Reproducible dev environment
+```
+
+## Dependencies
+
+| Library | Version | Purpose |
+|---|---|---|
+| [cpp-httplib](https://github.com/yhirose/cpp-httplib) | 0.18.3 | Embedded HTTP server |
+| [nats.c](https://github.com/nats-io/nats.c) | 3.9.1 | NATS JetStream client |
+| [nlohmann_json](https://github.com/nlohmann/json) | 3.11.3 | JSON serialization |
+| [GoogleTest](https://github.com/google/googletest) | 1.14.0 | Unit and integration testing |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit message conventions, and
+the pull request process. Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before
+participating. To report a security vulnerability, follow [SECURITY.md](SECURITY.md).
 
 ## License
 
