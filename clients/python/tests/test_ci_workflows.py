@@ -1,6 +1,5 @@
 """Regression smoke tests for CI workflow hardening — Gitleaks secrets scan gate."""
 
-import re
 from pathlib import Path
 
 import yaml
