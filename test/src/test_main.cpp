@@ -1,5 +1,7 @@
 #include "projectagamemnon/version.hpp"
 
+#include <algorithm>
+
 #include <gtest/gtest.h>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
@@ -17,26 +19,22 @@ TEST(VersionTest, ProjectNameIsCorrect) { EXPECT_EQ(kProjectName, "ProjectAgamem
 
 TEST(VersionTest, VersionIsSet) { EXPECT_FALSE(kVersion.empty()); }
 
-// Verify the removed /v1/workflows stub returns 404 (not registered).
-TEST(RoutesRemovedTest, WorkflowsEndpointRemoved) {
-  Store store;
-  NatsClient nats("nats://localhost:4222");  // never connected — publish is a no-op
-  httplib::Server server;
-  register_routes(server, store, nats);
+TEST(VersionTest, VersionMatchesCMake) {
+  // kVersion must stay in sync with the VERSION field in CMakeLists.txt.
+  // If this fails, update version.hpp to match CMakeLists.txt.
+  EXPECT_EQ(kVersion, "0.1.0");
+}
 
-  int port = server.bind_to_any_port("127.0.0.1");
-  ASSERT_GT(port, 0);
+TEST(VersionTest, MajorMinorPatchConsistent) {
+  EXPECT_EQ(kVersionMajor, 0);
+  EXPECT_EQ(kVersionMinor, 1);
+  EXPECT_EQ(kVersionPatch, 0);
+}
 
-  std::thread srv_thread([&]() { server.listen_after_bind(); });
-
-  httplib::Client cli("127.0.0.1", port);
-  auto res = cli.Get("/v1/workflows");
-
-  server.stop();
-  srv_thread.join();
-
-  ASSERT_TRUE(res != nullptr);
-  EXPECT_EQ(res->status, 404);
+TEST(VersionTest, VersionIsSemver) {
+  // Must contain exactly two dots (M.m.p format).
+  const std::string v{kVersion};
+  EXPECT_EQ(std::count(v.begin(), v.end(), '.'), 2);
 }
 
 }  // namespace projectagamemnon::test

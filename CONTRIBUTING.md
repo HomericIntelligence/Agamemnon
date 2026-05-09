@@ -235,6 +235,18 @@ All documentation files must follow these standards:
 - Lists must be surrounded by blank lines
 - Headings must be surrounded by blank lines
 
+## API Versioning
+
+See [docs/api-versioning.md](docs/api-versioning.md) for the full API versioning and
+backwards-compatibility policy.
+
+Key rules:
+
+- `/v1/` endpoints are stable — no breaking changes within the same major version
+- Breaking changes require a new prefix (`/v2/`)
+- All responses carry `X-API-Version: <semver>`
+- Deprecated endpoints require a 2-release notice in `CHANGELOG.md` before removal
+
 ## Reporting Issues
 
 ### Bug Reports

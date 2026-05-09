@@ -20,6 +20,7 @@ using json = nlohmann::json;
 
 static void reply_json(httplib::Response& res, int status, const json& body) {
   res.status = status;
+  res.set_header("X-API-Version", std::string(kVersion));
   res.set_content(body.dump(), "application/json");
 }
 
