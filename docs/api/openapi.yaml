@@ -1,0 +1,1181 @@
+openapi: "3.1.0"
+
+info:
+  title: ProjectAgamemnon API
+  version: "0.1.0"
+  description: |
+    REST API for ProjectAgamemnon — the planning, coordination, and agentic orchestration
+    service for the HomericIntelligence distributed agent mesh.
+
+    **Authentication:** Phase 1 has no authentication. All endpoints are unauthenticated.
+    Authentication will be added in a future phase.
+
+    **Transport:** Internal mesh traffic only (no TLS). Intended to be reached over Tailscale
+    (100.x.x.x) or localhost.
+
+    **NATS side-effects:** Mutating endpoints publish events to NATS subjects. See the
+    `x-nats-events` extension field on each operation and `docs/api/nats-events.md` for the
+    full reference.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development (default port; override with PORT env var)
+
+tags:
+  - name: health
+    description: Health and version checks
+  - name: agents
+    description: Agent lifecycle management
+  - name: teams
+    description: Team management
+  - name: tasks
+    description: Task management (scoped to teams)
+  - name: workflows
+    description: Workflow management (placeholder — not yet implemented)
+  - name: chaos
+    description: Chaos fault injection (for ProjectCharybdis integration)
+
+paths:
+
+  # ── Health / version ──────────────────────────────────────────────────────────
+
+  /health:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Root health check
+      description: Unauthenticated liveness probe. Returns service name.
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RootHealth"
+              example:
+                status: ok
+                service: ProjectAgamemnon
+
+  /v1/health:
+    get:
+      operationId: getV1Health
+      tags: [health]
+      summary: Versioned health check
+      description: Preferred liveness probe for v1 clients.
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+              example:
+                status: ok
+
+  /v1/version:
+    get:
+      operationId: getVersion
+      tags: [health]
+      summary: Service version
+      responses:
+        "200":
+          description: Current service version
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Version"
+              example:
+                version: "0.1.0"
+                name: ProjectAgamemnon
+
+  # ── Agents ────────────────────────────────────────────────────────────────────
+
+  /v1/agents:
+    get:
+      operationId: listAgents
+      tags: [agents]
+      summary: List all agents
+      responses:
+        "200":
+          description: Array of all registered agents
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentList"
+
+    post:
+      operationId: createAgent
+      tags: [agents]
+      summary: Create a generic agent
+      description: |
+        Creates a new agent and stores it in-memory. The agent's initial `status` is always
+        `offline` regardless of what is supplied in the request body.
+
+        Publishes to NATS: `hi.agents.{host}.{name}.created`
+      x-nats-events:
+        - subject: "hi.agents.{host}.{name}.created"
+          trigger: always
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCreate"
+            example:
+              name: my-agent
+              role: worker
+              host: local
+      responses:
+        "201":
+          description: Agent created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/agents/docker:
+    post:
+      operationId: createDockerAgent
+      tags: [agents]
+      summary: Create a Docker agent
+      description: |
+        Functionally identical to `POST /v1/agents` but semantically typed for Docker-hosted
+        agents. Expects `host` and `image` fields in the body.
+
+        **Registration order:** This route is registered in cpp-httplib *before* the generic
+        `POST /v1/agents`, so requests to `/v1/agents/docker` are correctly routed here rather
+        than matching a generic handler.
+
+        Publishes to NATS: `hi.agents.{host}.{name}.created`
+      x-nats-events:
+        - subject: "hi.agents.{host}.{name}.created"
+          trigger: always
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCreate"
+            example:
+              name: docker-worker
+              host: docker
+              program: python
+              programArgs: [worker.py]
+      responses:
+        "201":
+          description: Docker agent created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentCreateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/agents/by-name/{name}:
+    get:
+      operationId: getAgentByName
+      tags: [agents]
+      summary: Get agent by name
+      description: |
+        Looks up an agent by its `name` field. Returns 404 if no agent has that name.
+
+        **Registration order:** Registered before the generic `GET /v1/agents/{id}` route in
+        cpp-httplib, so `/v1/agents/by-name/foo` is not misrouted.
+      parameters:
+        - $ref: "#/components/parameters/AgentName"
+      responses:
+        "200":
+          description: Agent found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWrapper"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/agents/{id}:
+    get:
+      operationId: getAgent
+      tags: [agents]
+      summary: Get agent by ID
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agent found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWrapper"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      operationId: updateAgent
+      tags: [agents]
+      summary: Partially update agent fields
+      description: |
+        Merges the supplied fields into the stored agent. The `id` and `createdAt` fields are
+        immutable and are silently ignored if present in the body.
+
+        Publishes to NATS: `hi.agents.{host}.{name}.updated`
+      x-nats-events:
+        - subject: "hi.agents.{host}.{name}.updated"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentPatch"
+      responses:
+        "200":
+          description: Agent updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentWrapper"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      operationId: deleteAgent
+      tags: [agents]
+      summary: Delete agent
+      description: |
+        Removes the agent from the in-memory store.
+
+        Publishes to NATS: `hi.agents.{host}.{name}.deleted`
+      x-nats-events:
+        - subject: "hi.agents.{host}.{name}.deleted"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agent deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deleted"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/agents/{id}/start:
+    post:
+      operationId: startAgent
+      tags: [agents]
+      summary: Start agent
+      description: |
+        Sets the agent's `status` to `online`.
+
+        Publishes to NATS: `hi.agents.{host}.{name}.updated`
+      x-nats-events:
+        - subject: "hi.agents.{host}.{name}.updated"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agent started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStatusResponse"
+              example:
+                status: online
+                id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/agents/{id}/stop:
+    post:
+      operationId: stopAgent
+      tags: [agents]
+      summary: Stop agent
+      description: |
+        Sets the agent's `status` to `offline`.
+
+        Publishes to NATS: `hi.agents.{host}.{name}.updated`
+      x-nats-events:
+        - subject: "hi.agents.{host}.{name}.updated"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agent stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentStatusResponse"
+              example:
+                status: offline
+                id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Teams ─────────────────────────────────────────────────────────────────────
+
+  /v1/teams:
+    get:
+      operationId: listTeams
+      tags: [teams]
+      summary: List all teams
+      responses:
+        "200":
+          description: Array of all teams
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamList"
+
+    post:
+      operationId: createTeam
+      tags: [teams]
+      summary: Create a team
+      description: |
+        Publishes to NATS: `hi.agents.team.created`
+      x-nats-events:
+        - subject: "hi.agents.team.created"
+          trigger: always
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamCreate"
+            example:
+              name: alpha-team
+              agentIds:
+                - "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+      responses:
+        "201":
+          description: Team created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamWrapper"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/teams/{id}:
+    get:
+      operationId: getTeam
+      tags: [teams]
+      summary: Get team by ID
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamWrapper"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      operationId: updateTeam
+      tags: [teams]
+      summary: Replace team fields
+      description: |
+        Updates `name` and/or `agentIds` on the team. Accepts both `agentIds` (camelCase) and
+        `agent_ids` (snake_case) for the agent list field; the stored value is always `agentIds`.
+
+        Only `name` and `agentIds` are updatable; other fields are ignored.
+
+        Publishes to NATS: `hi.agents.team.updated`
+      x-nats-events:
+        - subject: "hi.agents.team.updated"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TeamUpdate"
+      responses:
+        "200":
+          description: Team updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TeamWrapper"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      operationId: deleteTeam
+      tags: [teams]
+      summary: Delete team
+      description: |
+        Publishes to NATS: `hi.agents.team.deleted`
+      x-nats-events:
+        - subject: "hi.agents.team.deleted"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Team deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deleted"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Tasks ─────────────────────────────────────────────────────────────────────
+
+  /v1/tasks:
+    get:
+      operationId: listAllTasks
+      tags: [tasks]
+      summary: List all tasks across all teams
+      responses:
+        "200":
+          description: Array of all tasks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskList"
+
+  /v1/teams/{team_id}/tasks:
+    get:
+      operationId: listTeamTasks
+      tags: [tasks]
+      summary: List tasks for a team
+      parameters:
+        - $ref: "#/components/parameters/TeamIdPath"
+      responses:
+        "200":
+          description: Array of tasks belonging to this team
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskList"
+
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create a task
+      description: |
+        Creates a new task scoped to the team. The task's initial `status` is always `pending`
+        and `completedAt` is always `null`.
+
+        After creation two NATS publishes occur:
+        1. `hi.tasks.created` — full task payload
+        2. `hi.myrmidon.{type}.{task_id}` — dispatches work to myrmidon pull queue
+      x-nats-events:
+        - subject: "hi.tasks.created"
+          trigger: always
+        - subject: "hi.myrmidon.{type}.{task_id}"
+          trigger: always
+          description: Dispatches task to the myrmidon work queue (PULL consumer, MaxAckPending=1)
+      parameters:
+        - $ref: "#/components/parameters/TeamIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreate"
+            example:
+              subject: Implement login endpoint
+              description: Add POST /auth/login with JWT response
+              type: implementation
+              assigneeAgentId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+      responses:
+        "201":
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskWrapper"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/teams/{team_id}/tasks/{task_id}:
+    get:
+      operationId: getTask
+      tags: [tasks]
+      summary: Get task by ID
+      parameters:
+        - $ref: "#/components/parameters/TeamIdPath"
+        - $ref: "#/components/parameters/TaskIdPath"
+      responses:
+        "200":
+          description: Task found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskWrapper"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      operationId: updateTaskFull
+      tags: [tasks]
+      summary: Update task (full merge)
+      description: |
+        Merges all supplied fields into the stored task. The `id`, `teamId`, and `createdAt`
+        fields are immutable and silently ignored.
+
+        If `status` is set to `completed` and `completedAt` is currently `null`, `completedAt`
+        is automatically set to the current UTC timestamp.
+
+        **Used by Telemachy** (the myrmidon completion protocol) to report task results.
+
+        Publishes to NATS: `hi.tasks.{team_id}.{task_id}.updated`
+        If `status == "completed"`, also logs to: `hi.logs.agamemnon.task_completed`
+      x-nats-events:
+        - subject: "hi.tasks.{team_id}.{task_id}.updated"
+          trigger: always
+        - subject: "hi.logs.agamemnon.task_completed"
+          trigger: "when status == completed"
+      parameters:
+        - $ref: "#/components/parameters/TeamIdPath"
+        - $ref: "#/components/parameters/TaskIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdate"
+            example:
+              status: completed
+      responses:
+        "200":
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskWrapper"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      operationId: patchTask
+      tags: [tasks]
+      summary: Partially update task fields
+      description: |
+        Identical merge semantics to `PUT /v1/teams/{team_id}/tasks/{task_id}`. The HTTP method
+        distinction (PUT vs PATCH) is preserved for semantic clarity but the server-side
+        implementation is the same.
+
+        Publishes to NATS: `hi.tasks.{team_id}.{task_id}.updated`
+        If `status == "completed"`, also logs to: `hi.logs.agamemnon.task_completed`
+      x-nats-events:
+        - subject: "hi.tasks.{team_id}.{task_id}.updated"
+          trigger: always
+        - subject: "hi.logs.agamemnon.task_completed"
+          trigger: "when status == completed"
+      parameters:
+        - $ref: "#/components/parameters/TeamIdPath"
+        - $ref: "#/components/parameters/TaskIdPath"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskUpdate"
+      responses:
+        "200":
+          description: Task updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskWrapper"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Workflows ─────────────────────────────────────────────────────────────────
+
+  /v1/workflows:
+    get:
+      operationId: listWorkflows
+      tags: [workflows]
+      summary: List workflows (stub)
+      description: |
+        **Not yet implemented.** Returns an empty array. This endpoint is a placeholder for
+        future workflow orchestration support.
+      x-not-implemented: true
+      responses:
+        "200":
+          description: Empty workflow list (stub response)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowList"
+              example:
+                workflows: []
+
+  # ── Chaos ─────────────────────────────────────────────────────────────────────
+
+  /v1/chaos:
+    get:
+      operationId: listFaults
+      tags: [chaos]
+      summary: List active chaos faults
+      responses:
+        "200":
+          description: Array of active faults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaultList"
+
+  /v1/chaos/{type}:
+    post:
+      operationId: injectFault
+      tags: [chaos]
+      summary: Inject a chaos fault
+      description: |
+        Creates a new fault of the given type. The fault is immediately active.
+
+        Publishes to NATS: `hi.agents.chaos.injected`
+      x-nats-events:
+        - subject: "hi.agents.chaos.injected"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/FaultType"
+      responses:
+        "201":
+          description: Fault injected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaultWrapper"
+
+  /v1/chaos/{id}:
+    delete:
+      operationId: removeFault
+      tags: [chaos]
+      summary: Remove a chaos fault
+      description: |
+        Removes the fault by ID, deactivating it.
+
+        Publishes to NATS: `hi.agents.chaos.removed`
+      x-nats-events:
+        - subject: "hi.agents.chaos.removed"
+          trigger: always
+      parameters:
+        - $ref: "#/components/parameters/FaultId"
+      responses:
+        "200":
+          description: Fault removed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Deleted"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+# ── Components ────────────────────────────────────────────────────────────────
+
+components:
+
+  parameters:
+    AgentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Agent UUID
+
+    AgentName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Agent name (exact match)
+
+    TeamId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Team UUID
+
+    TeamIdPath:
+      name: team_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Team UUID
+
+    TaskIdPath:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Task UUID
+
+    FaultType:
+      name: type
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Fault type identifier (e.g. `latency`, `drop`, `corrupt`)
+
+    FaultId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Fault UUID
+
+  responses:
+    BadRequest:
+      description: Invalid JSON body or missing required field
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "invalid JSON: ..."
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "agent not found"
+
+  schemas:
+
+    # ── Health ──────────────────────────────────────────────────────────────
+
+    RootHealth:
+      type: object
+      required: [status, service]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        service:
+          type: string
+          example: ProjectAgamemnon
+
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    Version:
+      type: object
+      required: [version, name]
+      properties:
+        version:
+          type: string
+          example: "0.1.0"
+        name:
+          type: string
+          example: ProjectAgamemnon
+
+    # ── Shared ──────────────────────────────────────────────────────────────
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Deleted:
+      type: object
+      required: [deleted]
+      properties:
+        deleted:
+          type: string
+          description: ID of the deleted resource
+
+    # ── Agents ──────────────────────────────────────────────────────────────
+
+    Agent:
+      type: object
+      required: [id, name, status, createdAt]
+      properties:
+        id:
+          type: string
+          description: UUID v4 assigned at creation
+        name:
+          type: string
+          default: unnamed
+        label:
+          type: string
+          default: ""
+        program:
+          type: string
+          description: Executable path or command
+          default: ""
+        workingDirectory:
+          type: string
+          default: ""
+        programArgs:
+          type: array
+          items:
+            type: string
+          default: []
+        taskDescription:
+          type: string
+          default: ""
+        tags:
+          type: array
+          items:
+            type: string
+          default: []
+        owner:
+          type: string
+          default: ""
+        role:
+          type: string
+          default: worker
+        host:
+          type: string
+          description: "Host identifier; `docker` for Docker agents"
+          default: local
+        status:
+          type: string
+          enum: [online, offline]
+          description: Set to `offline` at creation; changed by /start and /stop
+        createdAt:
+          type: string
+          format: date-time
+          description: ISO 8601 UTC timestamp
+
+    AgentCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          default: unnamed
+        label:
+          type: string
+        program:
+          type: string
+        workingDirectory:
+          type: string
+        programArgs:
+          type: array
+          items:
+            type: string
+        taskDescription:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        owner:
+          type: string
+        role:
+          type: string
+          default: worker
+        host:
+          type: string
+          default: local
+
+    AgentPatch:
+      type: object
+      description: Any Agent fields except `id` and `createdAt`
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        program:
+          type: string
+        workingDirectory:
+          type: string
+        programArgs:
+          type: array
+          items:
+            type: string
+        taskDescription:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        owner:
+          type: string
+        role:
+          type: string
+        host:
+          type: string
+        status:
+          type: string
+          enum: [online, offline]
+
+    AgentWrapper:
+      type: object
+      required: [agent]
+      properties:
+        agent:
+          $ref: "#/components/schemas/Agent"
+
+    AgentCreateResponse:
+      type: object
+      required: [id, agent]
+      properties:
+        id:
+          type: string
+          description: UUID of the created agent
+        agent:
+          $ref: "#/components/schemas/Agent"
+
+    AgentStatusResponse:
+      type: object
+      required: [status, id]
+      properties:
+        status:
+          type: string
+          enum: [online, offline]
+        id:
+          type: string
+
+    AgentList:
+      type: object
+      required: [agents]
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+
+    # ── Teams ───────────────────────────────────────────────────────────────
+
+    Team:
+      type: object
+      required: [id, name, agentIds, createdAt]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+          default: unnamed-team
+        agentIds:
+          type: array
+          items:
+            type: string
+          description: UUIDs of agents assigned to this team
+          default: []
+        createdAt:
+          type: string
+          format: date-time
+
+    TeamCreate:
+      type: object
+      properties:
+        name:
+          type: string
+          default: unnamed-team
+        agentIds:
+          type: array
+          items:
+            type: string
+          description: Also accepted as `agent_ids` (snake_case alias)
+        agent_ids:
+          type: array
+          items:
+            type: string
+          description: Snake_case alias for `agentIds`
+
+    TeamUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        agentIds:
+          type: array
+          items:
+            type: string
+          description: Also accepted as `agent_ids`
+        agent_ids:
+          type: array
+          items:
+            type: string
+
+    TeamWrapper:
+      type: object
+      required: [team]
+      properties:
+        team:
+          $ref: "#/components/schemas/Team"
+
+    TeamList:
+      type: object
+      required: [teams]
+      properties:
+        teams:
+          type: array
+          items:
+            $ref: "#/components/schemas/Team"
+
+    # ── Tasks ───────────────────────────────────────────────────────────────
+
+    Task:
+      type: object
+      required: [id, teamId, subject, status, createdAt]
+      properties:
+        id:
+          type: string
+        teamId:
+          type: string
+        subject:
+          type: string
+          default: ""
+        description:
+          type: string
+          default: ""
+        assigneeAgentId:
+          type: string
+          description: UUID of the assigned agent (empty string if unassigned)
+          default: ""
+        blockedBy:
+          type: array
+          items:
+            type: string
+          description: Task IDs this task is blocked by
+          default: []
+        type:
+          type: string
+          description: Task type; used to route to myrmidon work queue (`hi.myrmidon.{type}.{id}`)
+          default: general
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+          default: pending
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+          format: date-time
+          description: Set automatically when `status` transitions to `completed`
+
+    TaskCreate:
+      type: object
+      properties:
+        subject:
+          type: string
+        description:
+          type: string
+        assigneeAgentId:
+          type: string
+        blockedBy:
+          type: array
+          items:
+            type: string
+        type:
+          type: string
+          default: general
+
+    TaskUpdate:
+      type: object
+      description: Any Task fields except `id`, `teamId`, and `createdAt`
+      properties:
+        subject:
+          type: string
+        description:
+          type: string
+        assigneeAgentId:
+          type: string
+        blockedBy:
+          type: array
+          items:
+            type: string
+        type:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, completed, failed]
+
+    TaskWrapper:
+      type: object
+      required: [task]
+      properties:
+        task:
+          $ref: "#/components/schemas/Task"
+
+    TaskList:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+
+    # ── Workflows ───────────────────────────────────────────────────────────
+
+    WorkflowList:
+      type: object
+      required: [workflows]
+      properties:
+        workflows:
+          type: array
+          items: {}
+          description: Always empty in Phase 1
+
+    # ── Chaos ───────────────────────────────────────────────────────────────
+
+    Fault:
+      type: object
+      required: [id, type, active, createdAt]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          description: Fault type (e.g. `latency`, `drop`, `corrupt`)
+        active:
+          type: boolean
+          default: true
+        createdAt:
+          type: string
+          format: date-time
+
+    FaultWrapper:
+      type: object
+      required: [fault]
+      properties:
+        fault:
+          $ref: "#/components/schemas/Fault"
+
+    FaultList:
+      type: object
+      required: [faults]
+      properties:
+        faults:
+          type: array
+          items:
+            $ref: "#/components/schemas/Fault"

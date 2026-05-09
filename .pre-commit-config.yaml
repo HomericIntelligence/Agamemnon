@@ -26,3 +26,12 @@ repos:
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      - id: validate-openapi
+        name: Validate OpenAPI spec
+        language: script
+        entry: scripts/validate-openapi.sh
+        files: ^docs/api/openapi\.yaml$
+        pass_filenames: false

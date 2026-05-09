@@ -32,5 +32,8 @@ coverage:
 clean:
   rm -rf build install
 
+docs-validate:
+  ./scripts/validate-openapi.sh
+
 ci:
   cmake --preset ci && cmake --build --preset ci && ctest --preset ci

@@ -35,6 +35,20 @@ Agamemnon publishes and subscribes to the following NATS subjects:
 Local intra-host transport uses BlazingMQ + C++20 MessageBus. Cross-host transport uses
 NATS JetStream via nats.c v3.9.1 over Tailscale.
 
+## API Documentation
+
+The REST API exposes 25 endpoints across agents, teams, tasks, workflows, and chaos injection.
+
+- **[docs/api/README.md](docs/api/README.md)** — Human-readable endpoint reference with request/response tables
+- **[docs/api/openapi.yaml](docs/api/openapi.yaml)** — OpenAPI 3.1 specification (machine-readable)
+- **[docs/api/nats-events.md](docs/api/nats-events.md)** — NATS subject reference for all published/subscribed events
+
+Validate the spec locally:
+
+```bash
+just docs-validate
+```
+
 ## Prerequisites
 
 | Tool | Minimum Version | Notes |
@@ -46,7 +60,7 @@ NATS JetStream via nats.c v3.9.1 over Tailscale.
 | OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` |
 | pixi | any | Recommended; provides a reproducible dev environment |
 
-## Quick Start
+## Building
 
 ```bash
 git clone https://github.com/HomericIntelligence/ProjectAgamemnon.git
