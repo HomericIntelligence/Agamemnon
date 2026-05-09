@@ -1,13 +1,12 @@
 #pragma once
 
 #include <chrono>
-#include <string>
-
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
 #include <prometheus/registry.h>
 #include <prometheus/text_serializer.h>
+#include <string>
 
 namespace projectagamemnon {
 

@@ -27,7 +27,7 @@ TEST(MetricsRegistryCounterTest, RequestCounterIncrements) {
 
 TEST(MetricsRegistryCounterTest, ErrorCounterOnlyFor4xxAnd5xx) {
   MetricsRegistry reg;
-  reg.record_request("GET", "/v1/agents", 200, 0.001);  // not an error
+  reg.record_request("GET", "/v1/agents", 200, 0.001);      // not an error
   reg.record_request("GET", "/v1/agents/bad", 404, 0.001);  // error
 
   std::string output = reg.serialize();
@@ -41,8 +41,7 @@ TEST(MetricsRegistryCounterTest, NoErrorCounterFor2xx) {
   std::string output = reg.serialize();
   // hi_http_errors_total TYPE line may still be present, but there must be no
   // data line with status="201"
-  EXPECT_FALSE(contains(output, "hi_http_errors_total{") &&
-               contains(output, "status=\"201\""));
+  EXPECT_FALSE(contains(output, "hi_http_errors_total{") && contains(output, "status=\"201\""));
 }
 
 // ── Histogram tests ───────────────────────────────────────────────────────────

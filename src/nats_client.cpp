@@ -258,14 +258,15 @@ bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
 
   // Heap-allocate the context; it lives for the lifetime of the subscription.
   // For this server the subscription lives for the lifetime of the process.
-  auto* ctx = new CallbackContext{std::move(cb), metrics_};  // NOLINT(cppcoreguidelines-owning-memory)
+  auto* ctx =
+      new CallbackContext{std::move(cb), metrics_};  // NOLINT(cppcoreguidelines-owning-memory)
 
   natsSubscription* sub = nullptr;
   natsStatus s =
-      natsConnection_Subscribe(&sub, to_conn(conn_), subject.c_str(), nats_msg_handler, raw);
+      natsConnection_Subscribe(&sub, to_conn(conn_), subject.c_str(), nats_msg_handler, ctx);
   if (s != NATS_OK) {
     std::cerr << "[nats] subscribe error on " << subject << ": " << natsStatus_GetText(s) << "\n";
-    delete raw;  // NOLINT(cppcoreguidelines-owning-memory) — reclaiming from failed C API transfer
+    delete ctx;  // NOLINT(cppcoreguidelines-owning-memory) — reclaiming from failed C API transfer
     return false;
   }
   return true;

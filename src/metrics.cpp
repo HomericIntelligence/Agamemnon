@@ -27,11 +27,10 @@ MetricsRegistry::MetricsRegistry()
                                .Help("Total HTTP requests handled")
                                .Register(*registry_)),
 
-      http_request_duration_seconds_(
-          prometheus::BuildHistogram()
-              .Name("hi_http_request_duration_seconds")
-              .Help("HTTP request latency in seconds")
-              .Register(*registry_)),
+      http_request_duration_seconds_(prometheus::BuildHistogram()
+                                         .Name("hi_http_request_duration_seconds")
+                                         .Help("HTTP request latency in seconds")
+                                         .Register(*registry_)),
 
       http_errors_total_(prometheus::BuildCounter()
                              .Name("hi_http_errors_total")
