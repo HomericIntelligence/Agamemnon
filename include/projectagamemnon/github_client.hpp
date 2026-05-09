@@ -30,20 +30,16 @@ class GitHubClient {
   bool is_enabled() const { return enabled_; }
 
   /// Create a GitHub issue.  Returns the issue number on success, -1 on failure.
-  int create_issue(const std::string& title,
-                   const std::string& body,
+  int create_issue(const std::string& title, const std::string& body,
                    const std::vector<std::string>& labels);
 
   /// Update an existing issue.  Returns true on success.
-  bool update_issue(int number,
-                    const std::string& title,
-                    const std::string& body,
+  bool update_issue(int number, const std::string& title, const std::string& body,
                     const std::vector<std::string>& labels,
                     const std::string& state);  // "open" | "closed"
 
   /// List issues filtered by a label.  Returns empty array on failure or disabled.
-  nlohmann::json list_issues(const std::string& label,
-                             const std::string& state = "all");
+  nlohmann::json list_issues(const std::string& label, const std::string& state = "all");
 
  private:
   Config cfg_;

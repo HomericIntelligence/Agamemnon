@@ -110,8 +110,7 @@ nlohmann::json GitHubClient::do_patch(const std::string& path, const nlohmann::j
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-int GitHubClient::create_issue(const std::string& title,
-                               const std::string& body,
+int GitHubClient::create_issue(const std::string& title, const std::string& body,
                                const std::vector<std::string>& labels) {
   if (!enabled_) return -1;
 
@@ -126,11 +125,8 @@ int GitHubClient::create_issue(const std::string& title,
   return resp["number"].get<int>();
 }
 
-bool GitHubClient::update_issue(int number,
-                                const std::string& title,
-                                const std::string& body,
-                                const std::vector<std::string>& labels,
-                                const std::string& state) {
+bool GitHubClient::update_issue(int number, const std::string& title, const std::string& body,
+                                const std::vector<std::string>& labels, const std::string& state) {
   if (!enabled_) return false;
 
   nlohmann::json payload;
@@ -139,8 +135,7 @@ bool GitHubClient::update_issue(int number,
   payload["labels"] = labels;
   payload["state"] = state;
 
-  std::string path =
-      "/repos/" + cfg_.owner + "/" + cfg_.repo + "/issues/" + std::to_string(number);
+  std::string path = "/repos/" + cfg_.owner + "/" + cfg_.repo + "/issues/" + std::to_string(number);
   auto resp = do_patch(path, payload);
   return !resp.is_null();
 }
