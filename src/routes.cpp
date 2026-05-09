@@ -134,10 +134,9 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
       int retry_int = static_cast<int>(retry) + 1;
       res.status = 429;
       res.set_header("Retry-After", std::to_string(retry_int));
-      res.set_content(
-          R"({"error":"rate limit exceeded","retry_after_seconds":)" + std::to_string(retry_int) +
-              "}",
-          "application/json");
+      res.set_content(R"({"error":"rate limit exceeded","retry_after_seconds":)" +
+                          std::to_string(retry_int) + "}",
+                      "application/json");
       return httplib::Server::HandlerResponse::Handled;
     }
     return httplib::Server::HandlerResponse::Unhandled;
