@@ -46,7 +46,9 @@ description = "no version here"
 """
 
 
-def _run(version: str, toml_content: str | None = None, *, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+def _run(
+    version: str, toml_content: str | None = None, *, tmp_path: Path
+) -> subprocess.CompletedProcess[str]:
     toml = tmp_path / "pyproject.toml"
     content = toml_content if toml_content is not None else MINIMAL_TOML
     toml.write_text(content, encoding="utf-8")
