@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from agamemnon.orchestration.models import Agent, Task
 
 
@@ -13,7 +11,7 @@ def make_agent(
     session_status: str = "online",
     task_description: str = "",
     program: str = "",
-    current_task_id: Optional[str] = None,
+    current_task_id: str | None = None,
 ) -> Agent:
     """Create an Agent test fixture with sensible defaults."""
     return Agent(
@@ -32,8 +30,8 @@ def make_task(
     id: str = "task-1",
     title: str = "Task 1",
     status: str = "pending",
-    dependencies: Optional[list[str]] = None,
-    assigned_agent_id: Optional[str] = None,
+    dependencies: list[str] | None = None,
+    assigned_agent_id: str | None = None,
 ) -> Task:
     """Create a Task test fixture with sensible defaults."""
     return Task(

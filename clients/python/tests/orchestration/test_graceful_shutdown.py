@@ -11,7 +11,6 @@ import pytest
 from agamemnon.orchestration.nats_listener import NATSListener
 from agamemnon.orchestration.task_claimer import TaskClaimer
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

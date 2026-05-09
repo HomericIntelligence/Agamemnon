@@ -9,7 +9,6 @@ from typing import Any, Protocol
 
 import nats.errors
 import nats.js.errors
-
 from pydantic import ValidationError
 
 from agamemnon.orchestration.models import TaskEvent
@@ -21,7 +20,7 @@ logger = logging.getLogger(__name__)
 class TaskClaimer(Protocol):
     """Protocol for objects that can handle advance_dag_tracked calls."""
 
-    def advance_dag_tracked(self, team_id: str) -> None:
+    def advance_dag_tracked(self, team_id: str) -> asyncio.Task[Any]:
         ...
 
 
@@ -233,7 +232,8 @@ class NATSListener:
         parts = subject.split(".")
         if len(parts) != NATSListener._SUBJECT_PART_COUNT:
             raise ValueError(
-                f"Expected {NATSListener._SUBJECT_PART_COUNT} subject parts, got {len(parts)}: {subject!r}"
+                f"Expected {NATSListener._SUBJECT_PART_COUNT} subject parts,"
+                f" got {len(parts)}: {subject!r}"
             )
         return parts[2], parts[3]  # team_id, task_id
 

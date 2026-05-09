@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from agamemnon.orchestration.models import Agent, Task, TERMINAL_STATUSES
+from agamemnon.orchestration.models import TERMINAL_STATUSES, Agent, Task
 
 logger = logging.getLogger(__name__)
 
@@ -16,14 +16,14 @@ class DAGWalker:
         self,
         tasks: list[Task],
         agents: list[Agent],
-        client: Optional[Any] = None,
+        client: Any | None = None,
         scan_interval: float = 60.0,
     ) -> None:
         self.tasks = tasks
         self.agents = agents
         self.client = client
         self.scan_interval = scan_interval
-        self._scan_task: Optional[asyncio.Task[None]] = None
+        self._scan_task: asyncio.Task[None] | None = None
 
     def get_available_agents(self) -> list[Agent]:
         """Return agents that are active, online, and not currently assigned a task."""
@@ -204,7 +204,7 @@ class DAGWalker:
 
     def start_background_scan(
         self, stop_event: asyncio.Event
-    ) -> "asyncio.Task[None]":
+    ) -> asyncio.Task[None]:
         """Schedule a background scan loop and return the created task (issue #98).
 
         The caller is responsible for cancelling or awaiting the returned task on

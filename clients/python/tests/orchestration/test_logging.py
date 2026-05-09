@@ -10,14 +10,12 @@ from datetime import datetime
 from io import StringIO
 from unittest.mock import patch
 
-
 from agamemnon.orchestration.logging import (
     JsonFormatter,
     KeystoneLogger,
     configure_logging,
     get_logger,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -87,7 +87,9 @@ class TestTaskEventMissingFields:
             TaskEvent.model_validate({"status": "done", "unknownField": "ignored"})
 
     def test_task_id_and_team_id_populated(self) -> None:
-        event = TaskEvent.model_validate({"taskId": "t-42", "teamId": "team-1", "status": "completed"})
+        event = TaskEvent.model_validate(
+            {"taskId": "t-42", "teamId": "team-1", "status": "completed"}
+        )
         assert event.taskId == "t-42"
         assert event.teamId == "team-1"
         assert event.effective_status == "completed"

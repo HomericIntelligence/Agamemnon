@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, model_validator
-
 
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "error", "cancelled"})
 
 
 def resolve_event_status(
     status: str | None,
-    data: dict | None,
+    data: dict[str, Any] | None,
     new_status: str | None,
 ) -> str | None:
     """Resolve effective status from three possible sources in priority order.
@@ -32,7 +31,7 @@ class Task:
     title: str
     status: str
     dependencies: list[str] = field(default_factory=list)
-    assigned_agent_id: Optional[str] = None
+    assigned_agent_id: str | None = None
 
 
 @dataclass
@@ -44,7 +43,7 @@ class Agent:
     session_status: str = "online"
     task_description: str = ""
     program: str = ""
-    current_task_id: Optional[str] = None
+    current_task_id: str | None = None
 
 
 class TaskEvent(BaseModel):
@@ -63,7 +62,7 @@ class TaskEvent(BaseModel):
 
     status: str | None = None
     newStatus: str | None = None  # noqa: N815 — matches camelCase JSON payload
-    data: dict | None = None
+    data: dict[str, Any] | None = None
     taskId: str | None = None  # noqa: N815
     teamId: str | None = None  # noqa: N815
     effective_status: str | None = None

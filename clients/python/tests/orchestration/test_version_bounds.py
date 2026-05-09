@@ -1,9 +1,9 @@
 """Regression test: all pypi dependencies in pixi.toml must have bounded version specs."""
 
-import tomllib
 from pathlib import Path
 
 import pytest
+import tomllib
 
 PIXI_TOML = Path(__file__).resolve().parents[2] / "pixi.toml"
 
