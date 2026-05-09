@@ -4,7 +4,6 @@
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "httplib.h"
-
 #include <gtest/gtest.h>
 
 namespace projectagamemnon::test {

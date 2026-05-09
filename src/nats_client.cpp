@@ -74,10 +74,8 @@ void NatsClient::ensure_streams() {
     const char* v = std::getenv(name);
     return v ? static_cast<int64_t>(std::stoll(v)) : def;
   };
-  const int64_t max_bytes =
-      env_int64("NATS_STREAM_MAX_BYTES_MB", 50) * 1024LL * 1024LL;
-  const int64_t max_age =
-      env_int64("NATS_STREAM_MAX_AGE_SEC", 3600) * 1000000000LL;  // nanoseconds
+  const int64_t max_bytes = env_int64("NATS_STREAM_MAX_BYTES_MB", 50) * 1024LL * 1024LL;
+  const int64_t max_age = env_int64("NATS_STREAM_MAX_AGE_SEC", 3600) * 1000000000LL;  // nanoseconds
 
   struct StreamDef {
     const char* name;
