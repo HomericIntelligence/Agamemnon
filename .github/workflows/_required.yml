@@ -109,7 +109,14 @@ jobs:
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Cache pixi environment
+      - name: Assert pixi.lock is committed
+        if: steps.detect.outputs.skip == 'false'
+        run: |
+          if [ ! -f pixi.lock ]; then
+            echo "::error::pixi.lock is missing. Run 'pixi install' locally and commit pixi.lock."
+            exit 1
+          fi
+      - name: Restore pixi cache
         if: steps.detect.outputs.skip == 'false'
         uses: actions/cache@v5
         with:
@@ -117,20 +124,16 @@ jobs:
             .pixi
             ~/.cache/rattler/cache
           key: pixi-${{ runner.os }}-${{ hashFiles('pixi.lock') }}
+          restore-keys: pixi-${{ runner.os }}-
       - name: Setup pixi
         if: steps.detect.outputs.skip == 'false'
         uses: prefix-dev/setup-pixi@v0.9.5
         with:
           pixi-version: v0.67.2
           cache: false
-      - name: pixi install (locked)
+      - name: pixi install --locked
         if: steps.detect.outputs.skip == 'false'
-        run: |
-          if [ ! -f pixi.lock ]; then
-            echo "::error::pixi.lock is missing — commit it by running: pixi lock"
-            exit 1
-          fi
-          pixi install --locked
+        run: pixi install --locked
 
   justfile-check:
     name: justfile-check
