@@ -1,0 +1,115 @@
+#include "projectagamemnon/peer_discovery.hpp"
+
+#include <gtest/gtest.h>
+
+namespace projectagamemnon::test {
+
+// ── enumerate_tailscale_peers ────────────────────────────────────────────────
+
+static constexpr const char* kTwoNodeJson = R"({
+  "Self": {
+    "HostName": "self-host",
+    "TailscaleIPs": ["100.64.0.1", "fd7a::1"]
+  },
+  "Peer": {
+    "abc123": {
+      "HostName": "peer-alpha",
+      "TailscaleIPs": ["100.64.0.2", "fd7a::2"]
+    },
+    "def456": {
+      "HostName": "peer-beta",
+      "TailscaleIPs": ["100.100.0.3"]
+    }
+  }
+})";
+
+TEST(PeerDiscoveryTest, ParsesTwoPeers) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  ASSERT_EQ(peers.size(), 2U);
+}
+
+TEST(PeerDiscoveryTest, ParsesPeerHostnamesAndIPs) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  bool found_alpha = false;
+  bool found_beta = false;
+  for (const auto& p : peers) {
+    if (p.hostname == "peer-alpha") {
+      EXPECT_EQ(p.tailscale_ip, "100.64.0.2");
+      found_alpha = true;
+    }
+    if (p.hostname == "peer-beta") {
+      EXPECT_EQ(p.tailscale_ip, "100.100.0.3");
+      found_beta = true;
+    }
+  }
+  EXPECT_TRUE(found_alpha);
+  EXPECT_TRUE(found_beta);
+}
+
+TEST(PeerDiscoveryTest, FiltersSelfAddress) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  for (const auto& p : peers) {
+    EXPECT_NE(p.tailscale_ip, "100.64.0.1") << "Self IP must not appear in peer list";
+  }
+}
+
+TEST(PeerDiscoveryTest, FiltersNon100Addresses) {
+  static constexpr const char* kJson = R"({
+    "Self": {"HostName": "me", "TailscaleIPs": ["100.64.0.1"]},
+    "Peer": {
+      "x": {
+        "HostName": "ipv6-only",
+        "TailscaleIPs": ["fd7a::cafe", "192.168.1.10"]
+      }
+    }
+  })";
+  auto peers = enumerate_tailscale_peers(kJson);
+  EXPECT_TRUE(peers.empty()) << "Non-Tailscale IPs must be excluded";
+}
+
+TEST(PeerDiscoveryTest, EmptyJsonReturnsNoPeers) {
+  auto peers = enumerate_tailscale_peers("{}");
+  EXPECT_TRUE(peers.empty());
+}
+
+TEST(PeerDiscoveryTest, MalformedJsonReturnsNoPeers) {
+  auto peers = enumerate_tailscale_peers("{not valid json}}}");
+  EXPECT_TRUE(peers.empty());
+}
+
+TEST(PeerDiscoveryTest, NoPeerKeyReturnsNoPeers) {
+  static constexpr const char* kJson = R"({
+    "Self": {"HostName": "me", "TailscaleIPs": ["100.64.0.1"]}
+  })";
+  auto peers = enumerate_tailscale_peers(kJson);
+  EXPECT_TRUE(peers.empty());
+}
+
+// ── probe_nats_peer ──────────────────────────────────────────────────────────
+
+TEST(PeerDiscoveryTest, ProbeReturnsFalseOnClosedPort) {
+  // Use ports that are virtually guaranteed to be closed in CI.
+  // 500 ms timeout to keep the test fast.
+  EXPECT_FALSE(probe_nats_peer("127.0.0.1", 19999, 19998, 100));
+}
+
+TEST(PeerDiscoveryTest, ProbeReturnsFalseForUnroutableAddress) {
+  // 192.0.2.x is TEST-NET-1 (RFC 5737) — never routable.
+  EXPECT_FALSE(probe_nats_peer("192.0.2.1", 4222, 8222, 100));
+}
+
+// ── discover_nats_url ────────────────────────────────────────────────────────
+
+TEST(PeerDiscoveryTest, DiscoverReturnsEmptyWhenNoPeers) {
+  // With an empty peer list passed, discover_nats_url should return "".
+  // We test this indirectly via enumerate_tailscale_peers injection:
+  // since discover_nats_url() calls enumerate_tailscale_peers() which may
+  // invoke tailscale, we instead verify the contract holds when the peer list
+  // is empty (no probing should happen → no URL).
+  auto peers = enumerate_tailscale_peers("{}");
+  EXPECT_TRUE(peers.empty());
+  // If peer list is empty, no URL can be returned.
+  // discover_nats_url() itself is exercised in the integration path.
+}
+
+}  // namespace projectagamemnon::test

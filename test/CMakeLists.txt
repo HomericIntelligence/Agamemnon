@@ -13,6 +13,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
   src/test_routes_malformed.cpp
+  src/test_peer_discovery.cpp
   ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/routes.cpp
   ${PROJECT_SOURCE_DIR}/src/nats_client.cpp)
@@ -41,6 +42,7 @@ target_link_libraries(${PROJECT_NAME}_tests
     GTest::gtest_main
     httplib::httplib
     nlohmann_json::nlohmann_json
+    agamemnon_peer_discovery
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
