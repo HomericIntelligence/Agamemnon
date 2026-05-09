@@ -1,8 +1,11 @@
 title = "ProjectAgamemnon Gitleaks Config"
 
 [allowlist]
-  description = "Test fixtures and CI tooling"
+  description = "Allowlist for test fixtures and example data containing sample keys"
   paths = [
     '''tests/fixtures/''',
     '''hephaestus/''',
+    '''test/''',
+    '''clients/python/tests/''',
+    '''docs/''',
   ]
