@@ -14,6 +14,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_store_concurrent.cpp
   src/test_routes_malformed.cpp
   src/test_peer_discovery.cpp
+  src/test_server_limits.cpp
   ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/routes.cpp
   ${PROJECT_SOURCE_DIR}/src/nats_client.cpp)

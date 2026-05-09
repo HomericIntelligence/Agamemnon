@@ -70,7 +70,20 @@ int main() {
   }
 
   // ── HTTP server ───────────────────────────────────────────────────────────
+  auto env_int = [](const char* name, int def) -> int {
+    const char* v = std::getenv(name);
+    return v ? std::stoi(v) : def;
+  };
+
   httplib::Server server;
+  server.new_task_queue = [&env_int]() {
+    return new httplib::ThreadPool(env_int("SERVER_THREAD_COUNT", 8));
+  };
+  server.set_read_timeout(env_int("SERVER_READ_TIMEOUT_SEC", 10));
+  server.set_write_timeout(env_int("SERVER_WRITE_TIMEOUT_SEC", 10));
+  server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
+                                1024UL * 1024UL);
+
   projectagamemnon::register_routes(server, store, nats);
 
   const char* port_env = std::getenv("PORT");
