@@ -8,10 +8,9 @@
 #include <string>
 #include <thread>
 
-#include <gtest/gtest.h>
-
 #include "httplib.h"
 #include "nlohmann/json.hpp"
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -162,7 +161,8 @@ TEST_F(ValidationTest, TeamRejectsNonStringAgentId) {
 }
 
 TEST_F(ValidationTest, TeamAcceptsStringAgentIds) {
-  auto [status, body] = Post("/v1/teams", {{"name", "t2"}, {"agentIds", json::array({"id-1", "id-2"})}});
+  auto [status, body] =
+      Post("/v1/teams", {{"name", "t2"}, {"agentIds", json::array({"id-1", "id-2"})}});
   EXPECT_EQ(status, 201);
 }
 
@@ -235,8 +235,7 @@ TEST_F(ValidationTest, TaskPutRejectsInvalidStatus) {
   ASSERT_EQ(s1, 201);
   std::string task_id = b1["task"].value("id", "");
 
-  auto [status, body] =
-      Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "flying"}});
+  auto [status, body] = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "flying"}});
   EXPECT_EQ(status, 400);
 }
 
@@ -257,8 +256,7 @@ TEST_F(ValidationTest, TaskPutAcceptsAllValidStatuses) {
     auto [s1, b1] = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "task-" + s}});
     ASSERT_EQ(s1, 201);
     std::string task_id = b1["task"].value("id", "");
-    auto [status, body] =
-        Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", s}});
+    auto [status, body] = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", s}});
     EXPECT_EQ(status, 200) << "expected 200 for status=" << s;
   }
 }
@@ -291,8 +289,7 @@ TEST_F(ValidationTest, TaskPatchRejectsInvalidType) {
   ASSERT_EQ(s1, 201);
   std::string task_id = b1["task"].value("id", "");
 
-  auto [status, body] =
-      Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"type", "bogus"}});
+  auto [status, body] = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"type", "bogus"}});
   EXPECT_EQ(status, 400);
 }
 

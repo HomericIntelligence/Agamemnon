@@ -51,22 +51,21 @@ static bool parse_body(const httplib::Request& req, httplib::Response& res, json
 
 // ── Validation allowlists ─────────────────────────────────────────────────────
 
-static const std::unordered_set<std::string> kValidAgentStatuses = {
-    "offline", "online", "error"};
+static const std::unordered_set<std::string> kValidAgentStatuses = {"offline", "online", "error"};
 static const std::unordered_set<std::string> kValidTaskStatuses = {
     "pending", "running", "completed", "failed", "blocked"};
 static const std::unordered_set<std::string> kValidTaskTypes = {
     "general", "research", "implementation", "review", "testing"};
-static const std::unordered_set<std::string> kValidChaosTypes = {
-    "latency", "partition", "crash", "corruption", "throttle"};
+static const std::unordered_set<std::string> kValidChaosTypes = {"latency", "partition", "crash",
+                                                                 "corruption", "throttle"};
 
 // ── Validation helpers ────────────────────────────────────────────────────────
 
 // Returns false and sets 400 if value is empty or all-whitespace.
 static bool require_nonempty_string(httplib::Response& res, const std::string& value,
                                     const std::string& field_name) {
-  bool all_space = std::all_of(value.begin(), value.end(),
-                               [](unsigned char c) { return std::isspace(c); });
+  bool all_space =
+      std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isspace(c); });
   if (value.empty() || all_space) {
     reply_bad_request(res, "'" + field_name + "' must be a non-empty string");
     return false;
@@ -169,7 +168,9 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
-    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
+    if (body.contains("name") &&
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+      return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
       return;
@@ -191,7 +192,9 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
-    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
+    if (body.contains("name") &&
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+      return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
       return;
@@ -261,29 +264,28 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   });
 
   // PATCH /v1/agents/:id
-  server.Patch(R"(/v1/agents/([^/]+))",
-               [sp, np](const httplib::Request& req, httplib::Response& res) {
-                 std::string id = req.matches[1];
-                 json body;
-                 if (!parse_body(req, res, body)) return;
-                 if (!require_string_if_present(res, body, "name")) return;
-                 if (body.contains("name") &&
-                     !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
-                   return;
-                 if (body.contains("status") && body["status"].is_string() &&
-                     !require_enum(res, body["status"].get<std::string>(), "status",
-                                   kValidAgentStatuses))
-                   return;
-                 json result = sp->update_agent(id, body);
-                 if (result.is_null()) {
-                   reply_not_found(res, "agent");
-                   return;
-                 }
-                 std::string host = result.value("host", "local");
-                 std::string name = result.value("name", "unknown");
-                 np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
-                 reply_json(res, 200, {{"agent", result}});
-               });
+  server.Patch(
+      R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
+        std::string id = req.matches[1];
+        json body;
+        if (!parse_body(req, res, body)) return;
+        if (!require_string_if_present(res, body, "name")) return;
+        if (body.contains("name") &&
+            !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+          return;
+        if (body.contains("status") && body["status"].is_string() &&
+            !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
+          return;
+        json result = sp->update_agent(id, body);
+        if (result.is_null()) {
+          reply_not_found(res, "agent");
+          return;
+        }
+        std::string host = result.value("host", "local");
+        std::string name = result.value("name", "unknown");
+        np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
+        reply_json(res, 200, {{"agent", result}});
+      });
 
   // DELETE /v1/agents/:id
   server.Delete(
@@ -312,9 +314,13 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
-    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
-    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds")) return;
-    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids")) return;
+    if (body.contains("name") &&
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+      return;
+    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
+      return;
+    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids"))
+      return;
     json result = sp->create_team(body);
     np->publish("hi.agents.team.created", result.dump());
     reply_json(res, 201, result);
@@ -337,9 +343,13 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
-    if (body.contains("name") && !require_nonempty_string(res, body["name"].get<std::string>(), "name")) return;
-    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds")) return;
-    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids")) return;
+    if (body.contains("name") &&
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+      return;
+    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
+      return;
+    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids"))
+      return;
     json result = sp->update_team(id, body);
     if (result.is_null()) {
       reply_not_found(res, "team");
@@ -376,44 +386,43 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
              });
 
   // POST /v1/teams/:team_id/tasks
-  server.Post(
-      R"(/v1/teams/([^/]+)/tasks)", [sp, np](const httplib::Request& req, httplib::Response& res) {
-        std::string team_id = req.matches[1];
-        json body;
-        if (!parse_body(req, res, body)) return;
-        if (!require_string_if_present(res, body, "subject")) return;
-        if (body.contains("subject") &&
-            !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
-          return;
-        if (body.contains("type") && body["type"].is_string() &&
-            !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
-          return;
-        if (body.contains("blockedBy") &&
-            !require_string_array(res, body["blockedBy"], "blockedBy"))
-          return;
-        json result = sp->create_task(team_id, body);
-        np->publish("hi.tasks.created", result.dump());
+  server.Post(R"(/v1/teams/([^/]+)/tasks)", [sp, np](const httplib::Request& req,
+                                                     httplib::Response& res) {
+    std::string team_id = req.matches[1];
+    json body;
+    if (!parse_body(req, res, body)) return;
+    if (!require_string_if_present(res, body, "subject")) return;
+    if (body.contains("subject") &&
+        !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
+      return;
+    if (body.contains("type") && body["type"].is_string() &&
+        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
+      return;
+    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
+      return;
+    json result = sp->create_task(team_id, body);
+    np->publish("hi.tasks.created", result.dump());
 
-        // Dispatch to myrmidon work queue: hi.myrmidon.{type}.{task_id}
-        const auto& task = result["task"];
-        std::string task_type = task.value("type", "general");
-        std::string task_id = task.value("id", "unknown");
-        std::string myrmidon_subject = "hi.myrmidon." + task_type + "." + task_id;
-        json myrmidon_payload = {{"task_id", task_id},
-                                 {"team_id", team_id},
-                                 {"subject", task.value("subject", "")},
-                                 {"description", task.value("description", "")},
-                                 {"type", task_type},
-                                 {"assignee", task.value("assigneeAgentId", "")}};
-        np->publish(myrmidon_subject, myrmidon_payload.dump());
-        np->publish_log("hi.logs.agamemnon.task_dispatched", "info", "Task dispatched: " + task_id,
-                        {{"task_id", task_id},
-                         {"team_id", team_id},
-                         {"type", task_type},
-                         {"subject", myrmidon_subject}});
+    // Dispatch to myrmidon work queue: hi.myrmidon.{type}.{task_id}
+    const auto& task = result["task"];
+    std::string task_type = task.value("type", "general");
+    std::string task_id = task.value("id", "unknown");
+    std::string myrmidon_subject = "hi.myrmidon." + task_type + "." + task_id;
+    json myrmidon_payload = {{"task_id", task_id},
+                             {"team_id", team_id},
+                             {"subject", task.value("subject", "")},
+                             {"description", task.value("description", "")},
+                             {"type", task_type},
+                             {"assignee", task.value("assigneeAgentId", "")}};
+    np->publish(myrmidon_subject, myrmidon_payload.dump());
+    np->publish_log("hi.logs.agamemnon.task_dispatched", "info", "Task dispatched: " + task_id,
+                    {{"task_id", task_id},
+                     {"team_id", team_id},
+                     {"type", task_type},
+                     {"subject", myrmidon_subject}});
 
-        reply_json(res, 201, result);
-      });
+    reply_json(res, 201, result);
+  });
 
   // GET /v1/teams/:team_id/tasks/:task_id
   server.Get(R"(/v1/teams/([^/]+)/tasks/([^/]+))",
@@ -440,8 +449,7 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     if (body.contains("type") && body["type"].is_string() &&
         !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
       return;
-    if (body.contains("blockedBy") &&
-        !require_string_array(res, body["blockedBy"], "blockedBy"))
+    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
       return;
     json result = sp->update_task(team_id, task_id, body);
     if (result.is_null()) {
