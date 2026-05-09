@@ -1,3 +1,5 @@
+#include "projectagamemnon/store.hpp"
+
 #include <algorithm>
 #include <regex>
 #include <set>
@@ -6,8 +8,6 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-
-#include "projectagamemnon/store.hpp"
 
 namespace projectagamemnon::test {
 
@@ -44,8 +44,9 @@ class StoreTest : public ::testing::Test {
 // ── Agent CRUD ───────────────────────────────────────────────────────────────
 
 TEST_F(StoreTest, CreateAgentFullBody) {
-  json body = {{"name", "agent1"},  {"role", "architect"}, {"host", "worker-1"},
-               {"label", "lbl"},    {"program", "prog"},   {"workingDirectory", "/tmp"},
+  json body = {{"name", "agent1"},          {"role", "architect"},
+               {"host", "worker-1"},        {"label", "lbl"},
+               {"program", "prog"},         {"workingDirectory", "/tmp"},
                {"programArgs", {"--flag"}}, {"tags", {"tagA"}}};
   json result = store_.create_agent(body);
   ASSERT_FALSE(result.is_null());
@@ -136,9 +137,7 @@ TEST_F(StoreTest, DeleteAgentSuccess) {
   EXPECT_TRUE(store_.get_agent(id).is_null());
 }
 
-TEST_F(StoreTest, DeleteAgentNotFound) {
-  EXPECT_FALSE(store_.delete_agent("phantom"));
-}
+TEST_F(StoreTest, DeleteAgentNotFound) { EXPECT_FALSE(store_.delete_agent("phantom")); }
 
 TEST_F(StoreTest, StartAgentSetsOnline) {
   std::string id = store_.create_agent({{"name", "sleeper"}})["id"];
@@ -149,9 +148,7 @@ TEST_F(StoreTest, StartAgentSetsOnline) {
   EXPECT_EQ(store_.get_agent(id)["status"], "online");
 }
 
-TEST_F(StoreTest, StartAgentNotFound) {
-  EXPECT_TRUE(store_.start_agent("ghost").is_null());
-}
+TEST_F(StoreTest, StartAgentNotFound) { EXPECT_TRUE(store_.start_agent("ghost").is_null()); }
 
 TEST_F(StoreTest, StopAgentSetsOffline) {
   std::string id = store_.create_agent({{"name", "runner"}})["id"];
@@ -162,9 +159,7 @@ TEST_F(StoreTest, StopAgentSetsOffline) {
   EXPECT_EQ(store_.get_agent(id)["status"], "offline");
 }
 
-TEST_F(StoreTest, StopAgentNotFound) {
-  EXPECT_TRUE(store_.stop_agent("ghost").is_null());
-}
+TEST_F(StoreTest, StopAgentNotFound) { EXPECT_TRUE(store_.stop_agent("ghost").is_null()); }
 
 // ── Team CRUD ────────────────────────────────────────────────────────────────
 
@@ -190,9 +185,7 @@ TEST_F(StoreTest, GetTeamFound) {
   EXPECT_EQ(team["id"], id);
 }
 
-TEST_F(StoreTest, GetTeamNotFound) {
-  EXPECT_TRUE(store_.get_team("no-team").is_null());
-}
+TEST_F(StoreTest, GetTeamNotFound) { EXPECT_TRUE(store_.get_team("no-team").is_null()); }
 
 TEST_F(StoreTest, ListTeams) {
   store_.create_team({{"name", "t1"}});
@@ -226,9 +219,7 @@ TEST_F(StoreTest, DeleteTeamSuccess) {
   EXPECT_TRUE(store_.get_team(id).is_null());
 }
 
-TEST_F(StoreTest, DeleteTeamNotFound) {
-  EXPECT_FALSE(store_.delete_team("gone"));
-}
+TEST_F(StoreTest, DeleteTeamNotFound) { EXPECT_FALSE(store_.delete_team("gone")); }
 
 // ── Task CRUD ────────────────────────────────────────────────────────────────
 
@@ -259,14 +250,13 @@ TEST_F(StoreTest, GetTaskTeamIdMismatch) {
   EXPECT_TRUE(task.is_null());
 }
 
-TEST_F(StoreTest, GetTaskNotFound) {
-  EXPECT_TRUE(store_.get_task("team", "no-task").is_null());
-}
+TEST_F(StoreTest, GetTaskNotFound) { EXPECT_TRUE(store_.get_task("team", "no-task").is_null()); }
 
 TEST_F(StoreTest, UpdateTaskMergesFields) {
   std::string team_id = store_.create_team({{"name", "t"}})["team"]["id"];
   std::string task_id = store_.create_task(team_id, {{"subject", "old"}})["task"]["id"];
-  json result = store_.update_task(team_id, task_id, {{"subject", "new"}, {"status", "in_progress"}});
+  json result =
+      store_.update_task(team_id, task_id, {{"subject", "new"}, {"status", "in_progress"}});
   ASSERT_FALSE(result.is_null());
   EXPECT_EQ(result["subject"], "new");
   EXPECT_EQ(result["status"], "in_progress");
@@ -352,9 +342,7 @@ TEST_F(StoreTest, RemoveFaultSuccess) {
   EXPECT_EQ(store_.list_faults()["faults"].size(), 0u);
 }
 
-TEST_F(StoreTest, RemoveFaultNotFound) {
-  EXPECT_FALSE(store_.remove_fault("not-there"));
-}
+TEST_F(StoreTest, RemoveFaultNotFound) { EXPECT_FALSE(store_.remove_fault("not-there")); }
 
 // ── Thread safety ─────────────────────────────────────────────────────────────
 

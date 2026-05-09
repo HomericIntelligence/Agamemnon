@@ -1,8 +1,8 @@
+#include "projectagamemnon/nats_client.hpp"
+
 #include <string>
 
 #include <gtest/gtest.h>
-
-#include "projectagamemnon/nats_client.hpp"
 
 namespace projectagamemnon::test {
 
@@ -31,9 +31,8 @@ TEST(NatsClientTest, PublishReturnsFalseWhenNotConnected) {
 TEST(NatsClientTest, SubscribeReturnsFalseWhenNotConnected) {
   NatsClient client{kDeadUrl};
   bool called = false;
-  EXPECT_FALSE(client.subscribe("hi.tasks.>", [&called](const std::string&, const std::string&) {
-    called = true;
-  }));
+  EXPECT_FALSE(client.subscribe(
+      "hi.tasks.>", [&called](const std::string&, const std::string&) { called = true; }));
   EXPECT_FALSE(called);
 }
 

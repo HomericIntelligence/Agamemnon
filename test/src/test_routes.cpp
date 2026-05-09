@@ -6,12 +6,12 @@
 #include <gtest/gtest.h>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "httplib.h"
-#include "nlohmann/json.hpp"
-
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
+
+#include "httplib.h"
+#include "nlohmann/json.hpp"
 
 namespace projectagamemnon::test {
 
@@ -246,9 +246,7 @@ TEST_F(RoutesTest, GetTeamFound) {
   EXPECT_EQ(json::parse(res->body)["team"]["id"], id);
 }
 
-TEST_F(RoutesTest, GetTeamNotFound) {
-  EXPECT_EQ(Get("/v1/teams/no-id")->status, 404);
-}
+TEST_F(RoutesTest, GetTeamNotFound) { EXPECT_EQ(Get("/v1/teams/no-id")->status, 404); }
 
 TEST_F(RoutesTest, UpdateTeam) {
   std::string id = json::parse(Post("/v1/teams", {{"name", "old"}})->body)["team"]["id"];
@@ -271,9 +269,7 @@ TEST_F(RoutesTest, DeleteTeam) {
   EXPECT_EQ(Get("/v1/teams/" + id)->status, 404);
 }
 
-TEST_F(RoutesTest, DeleteTeamNotFound) {
-  EXPECT_EQ(Delete("/v1/teams/ghost")->status, 404);
-}
+TEST_F(RoutesTest, DeleteTeamNotFound) { EXPECT_EQ(Delete("/v1/teams/ghost")->status, 404); }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
@@ -285,8 +281,7 @@ TEST_F(RoutesTest, ListAllTasksEmpty) {
 }
 
 TEST_F(RoutesTest, CreateTask) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "team"}})->body)["team"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "team"}})->body)["team"]["id"];
   auto res = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "build"}, {"type", "build"}});
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 201);
@@ -297,8 +292,7 @@ TEST_F(RoutesTest, CreateTask) {
 }
 
 TEST_F(RoutesTest, ListTasksForTeam) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
   Post("/v1/teams/" + team_id + "/tasks", {{"subject", "s1"}});
   Post("/v1/teams/" + team_id + "/tasks", {{"subject", "s2"}});
   auto res = Get("/v1/teams/" + team_id + "/tasks");
@@ -308,8 +302,7 @@ TEST_F(RoutesTest, ListTasksForTeam) {
 }
 
 TEST_F(RoutesTest, GetTask) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
   std::string task_id =
       json::parse(Post("/v1/teams/" + team_id + "/tasks", {{"subject", "x"}})->body)["task"]["id"];
   auto res = Get("/v1/teams/" + team_id + "/tasks/" + task_id);
@@ -319,16 +312,14 @@ TEST_F(RoutesTest, GetTask) {
 }
 
 TEST_F(RoutesTest, GetTaskNotFound) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
   EXPECT_EQ(Get("/v1/teams/" + team_id + "/tasks/missing")->status, 404);
 }
 
 TEST_F(RoutesTest, PatchTask) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
-  std::string task_id =
-      json::parse(Post("/v1/teams/" + team_id + "/tasks", {{"subject", "old"}})->body)["task"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "old"}})->body)["task"]["id"];
   auto res = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"subject", "new"}});
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 200);
@@ -336,16 +327,14 @@ TEST_F(RoutesTest, PatchTask) {
 }
 
 TEST_F(RoutesTest, PatchTaskNotFound) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
   EXPECT_EQ(Patch("/v1/teams/" + team_id + "/tasks/nope", {{"subject", "x"}})->status, 404);
 }
 
 TEST_F(RoutesTest, PutTask) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
-  std::string task_id =
-      json::parse(Post("/v1/teams/" + team_id + "/tasks", {{"subject", "work"}})->body)["task"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "work"}})->body)["task"]["id"];
   auto res = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "in_progress"}});
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 200);
@@ -353,8 +342,7 @@ TEST_F(RoutesTest, PutTask) {
 }
 
 TEST_F(RoutesTest, PutTaskNotFound) {
-  std::string team_id =
-      json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
+  std::string team_id = json::parse(Post("/v1/teams", {{"name", "t"}})->body)["team"]["id"];
   EXPECT_EQ(Put("/v1/teams/" + team_id + "/tasks/nope", {})->status, 404);
 }
 
@@ -385,8 +373,6 @@ TEST_F(RoutesTest, DeleteFault) {
   EXPECT_EQ(json::parse(res->body)["deleted"], id);
 }
 
-TEST_F(RoutesTest, DeleteFaultNotFound) {
-  EXPECT_EQ(Delete("/v1/chaos/missing")->status, 404);
-}
+TEST_F(RoutesTest, DeleteFaultNotFound) { EXPECT_EQ(Delete("/v1/chaos/missing")->status, 404); }
 
 }  // namespace projectagamemnon::test
