@@ -5,12 +5,12 @@
 #include <thread>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "httplib.h"
-#include "nlohmann/json.hpp"
 #include "projectagamemnon/fake_nats_publisher.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
 
+#include "httplib.h"
+#include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
 
 namespace projectagamemnon::test {

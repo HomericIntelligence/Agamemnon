@@ -1,7 +1,6 @@
-#include "server_fixture.hpp"
-
-#include <gtest/gtest.h>
 #include "nlohmann/json.hpp"
+#include "server_fixture.hpp"
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -44,7 +43,8 @@ TEST_F(TaskLifecycleTest, CreateTaskReturns201AndDispatchesToMyrmidon) {
   std::string team_id = make_team("dispatch-team");
   ASSERT_FALSE(team_id.empty());
 
-  json body = {{"subject", "Implement feature X"}, {"type", "coding"}, {"description", "Write the code"}};
+  json body = {
+      {"subject", "Implement feature X"}, {"type", "coding"}, {"description", "Write the code"}};
   auto res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 201);
@@ -64,7 +64,8 @@ TEST_F(TaskLifecycleTest, GetTaskByTeamAndId) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {{"subject", "Get task test"}, {"type", "general"}};
-  auto create_res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
+  auto create_res =
+      client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(create_res, nullptr);
   ASSERT_EQ(create_res->status, 201);
   std::string task_id = json::parse(create_res->body)["task"]["id"].get<std::string>();
@@ -81,7 +82,8 @@ TEST_F(TaskLifecycleTest, ListTasksForTeam) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {{"subject", "Listed task"}, {"type", "general"}};
-  auto create_res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
+  auto create_res =
+      client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(create_res, nullptr);
   ASSERT_EQ(create_res->status, 201);
 
@@ -99,7 +101,8 @@ TEST_F(TaskLifecycleTest, ListAllTasks) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {{"subject", "Global task"}, {"type", "general"}};
-  auto create_res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
+  auto create_res =
+      client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(create_res, nullptr);
   ASSERT_EQ(create_res->status, 201);
 
@@ -117,13 +120,15 @@ TEST_F(TaskLifecycleTest, PutTaskUpdatesStatus) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {{"subject", "Update task"}, {"type", "general"}};
-  auto create_res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
+  auto create_res =
+      client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(create_res, nullptr);
   ASSERT_EQ(create_res->status, 201);
   std::string task_id = json::parse(create_res->body)["task"]["id"].get<std::string>();
 
   json update = {{"status", "in_progress"}, {"subject", "Update task"}};
-  auto res = client().Put("/v1/teams/" + team_id + "/tasks/" + task_id, update.dump(), "application/json");
+  auto res =
+      client().Put("/v1/teams/" + team_id + "/tasks/" + task_id, update.dump(), "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 200);
 
@@ -135,13 +140,15 @@ TEST_F(TaskLifecycleTest, PatchTaskPartialUpdate) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {{"subject", "Patch task"}, {"type", "general"}};
-  auto create_res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
+  auto create_res =
+      client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(create_res, nullptr);
   ASSERT_EQ(create_res->status, 201);
   std::string task_id = json::parse(create_res->body)["task"]["id"].get<std::string>();
 
   json patch = {{"status", "in_progress"}};
-  auto res = client().Patch("/v1/teams/" + team_id + "/tasks/" + task_id, patch.dump(), "application/json");
+  auto res = client().Patch("/v1/teams/" + team_id + "/tasks/" + task_id, patch.dump(),
+                            "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 200);
   EXPECT_TRUE(nats().has_subject_prefix("hi.tasks." + team_id + "." + task_id + ".updated"));
@@ -152,14 +159,16 @@ TEST_F(TaskLifecycleTest, TaskCompletionSetsCompletedAt) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {{"subject", "Complete task"}, {"type", "general"}};
-  auto create_res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
+  auto create_res =
+      client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(create_res, nullptr);
   ASSERT_EQ(create_res->status, 201);
   std::string task_id = json::parse(create_res->body)["task"]["id"].get<std::string>();
 
   // update_task returns the task object directly (not wrapped in {"task": ...})
   json patch = {{"status", "completed"}};
-  auto res = client().Patch("/v1/teams/" + team_id + "/tasks/" + task_id, patch.dump(), "application/json");
+  auto res = client().Patch("/v1/teams/" + team_id + "/tasks/" + task_id, patch.dump(),
+                            "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 200);
 

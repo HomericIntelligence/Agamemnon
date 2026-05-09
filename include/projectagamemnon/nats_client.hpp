@@ -7,7 +7,6 @@
 #include <string>
 
 #include "nlohmann/json.hpp"
-#include "projectagamemnon/nats_publisher.hpp"
 
 namespace projectagamemnon {
 

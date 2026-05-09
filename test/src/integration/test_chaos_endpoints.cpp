@@ -1,7 +1,6 @@
-#include "server_fixture.hpp"
-
-#include <gtest/gtest.h>
 #include "nlohmann/json.hpp"
+#include "server_fixture.hpp"
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 

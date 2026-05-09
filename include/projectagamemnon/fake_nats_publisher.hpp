@@ -1,11 +1,12 @@
 #pragma once
 
+#include "projectagamemnon/nats_publisher.hpp"
+
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "nlohmann/json.hpp"
-#include "projectagamemnon/nats_publisher.hpp"
 
 namespace projectagamemnon {
 

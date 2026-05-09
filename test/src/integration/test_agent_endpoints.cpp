@@ -1,7 +1,6 @@
-#include "server_fixture.hpp"
-
-#include <gtest/gtest.h>
 #include "nlohmann/json.hpp"
+#include "server_fixture.hpp"
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -148,7 +147,8 @@ TEST_F(AgentEndpointTest, DeleteAgentReturns200ThenGetReturns404) {
 }
 
 TEST_F(AgentEndpointTest, CreateDockerAgentReturns201) {
-  json body = {{"name", "docker-agent"}, {"type", "worker"}, {"host", "docker"}, {"image", "ubuntu:22.04"}};
+  json body = {
+      {"name", "docker-agent"}, {"type", "worker"}, {"host", "docker"}, {"image", "ubuntu:22.04"}};
   auto res = client().Post("/v1/agents/docker", body.dump(), "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 201);
