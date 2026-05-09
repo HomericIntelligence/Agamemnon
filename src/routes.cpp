@@ -62,8 +62,31 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
     reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
   });
 
-  server.Get("/v1/health", [](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, {{"status", "ok"}});
+  server.Get("/v1/health", [np](const httplib::Request&, httplib::Response& res) {
+    reply_json(res, 200,
+               {{"status", "ok"},
+                {"nats_circuit", np->circuit_breaker().state_label()},
+                {"dlq_depth", np->dead_letter_queue().size()}});
+  });
+
+  // GET /v1/dead-letter — drain and return all dead-lettered messages
+  // np is owned by main() and outlives the server; reference capture is safe.
+  server.Get("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
+    auto entries = np->dead_letter_queue().drain();
+    json arr = json::array();
+    for (const auto& e : entries) {
+      arr.push_back({{"subject", e.subject},
+                     {"payload", e.payload},
+                     {"attempts", e.attempts},
+                     {"timestamp_ms", e.timestamp_ms}});
+    }
+    reply_json(res, 200, {{"dead_letter_queue", arr}});
+  });
+
+  // DELETE /v1/dead-letter — discard all dead-lettered messages
+  server.Delete("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
+    np->dead_letter_queue().clear();
+    reply_json(res, 200, {{"cleared", true}});
   });
 
   server.Get("/v1/version", [](const httplib::Request&, httplib::Response& res) {

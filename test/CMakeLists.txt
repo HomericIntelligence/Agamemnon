@@ -15,6 +15,8 @@ add_executable(${PROJECT_NAME}_tests
   src/test_routes_malformed.cpp
   src/test_peer_discovery.cpp
   src/test_server_limits.cpp
+  src/test_circuit_breaker.cpp
+  src/test_dead_letter_queue.cpp
   ${PROJECT_SOURCE_DIR}/src/routes.cpp
   ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/nats_client.cpp
@@ -42,6 +44,7 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
+    agamemnon_lib
     GTest::gtest_main
     httplib::httplib
     nlohmann_json::nlohmann_json
@@ -50,6 +53,17 @@ target_link_libraries(${PROJECT_NAME}_tests
     OpenSSL::SSL
     OpenSSL::Crypto
     Threads::Threads)
+
+target_compile_options(${PROJECT_NAME}_tests PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align
+)
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME}_tests DISCOVERY_TIMEOUT 120)

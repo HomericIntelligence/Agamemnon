@@ -5,6 +5,7 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "nats.h"
 #include "nlohmann/json.hpp"
@@ -16,17 +17,49 @@ namespace projectagamemnon {
 static inline natsConnection* to_conn(void* p) { return static_cast<natsConnection*>(p); }
 static inline jsCtx* to_js(void* p) { return static_cast<jsCtx*>(p); }
 
+// Infra-class errors that warrant a retry (transient broker unavailability).
+// Protocol rejections (e.g. NATS_NOT_PERMITTED) should not be retried.
+static bool is_infra_error(natsStatus s) noexcept {
+  switch (s) {
+    case NATS_CONNECTION_CLOSED:
+    case NATS_CONNECTION_DISCONNECTED:
+    case NATS_IO_ERROR:
+    case NATS_NO_SERVER:
+    case NATS_TIMEOUT:
+      return true;
+    default:
+      return false;
+  }
+}
+
 // ── Lifetime ─────────────────────────────────────────────────────────────────
 
 NatsClient::NatsClient(const std::string& url) : url_(url) {}
+
+NatsClient::NatsClient(const std::string& url, CircuitBreaker::Config cb_cfg,
+                       std::size_t dlq_capacity)
+    : url_(url), breaker_(cb_cfg), dlq_(dlq_capacity) {}
 
 NatsClient::~NatsClient() { close(); }
 
 // ── connect ───────────────────────────────────────────────────────────────────
 
 bool NatsClient::connect() {
+  natsOptions* opts = nullptr;
+  natsOptions_Create(&opts);
+  // Allow nats.c internal reconnect attempts before we declare failure.
+  natsOptions_SetMaxReconnect(opts, 5);
+  natsOptions_SetReconnectWait(opts, 500);  // 500 ms between internal reconnect attempts
+
   natsConnection* c = nullptr;
-  natsStatus s = natsConnection_ConnectTo(&c, url_.c_str());
+  natsStatus s = natsConnection_Connect(&c, opts);
+  natsOptions_Destroy(opts);
+
+  if (s != NATS_OK) {
+    // Fall back to simple URL connect (natsOptions_SetServers variant)
+    s = natsConnection_ConnectTo(&c, url_.c_str());
+  }
+
   if (s != NATS_OK) {
     std::cerr << "[nats] WARNING: could not connect to " << url_ << " — " << natsStatus_GetText(s)
               << " (NATS events will be skipped)\n";
@@ -115,16 +148,13 @@ void NatsClient::ensure_streams() {
   }
 }
 
-// ── publish ───────────────────────────────────────────────────────────────────
+// ── do_publish_once ───────────────────────────────────────────────────────────
 
-bool NatsClient::publish(const std::string& subject, const std::string& payload) {
-  if (!connected_ || !conn_) return false;
-
+int NatsClient::do_publish_once(const std::string& subject, const std::string& payload) {
   natsStatus s;
   if (js_) {
     jsPubAck* ack = nullptr;
     jsErrCode jerr = static_cast<jsErrCode>(0);
-    // js_Publish signature: (pubAck**, ctx*, subj, data, dataLen, opts*, errCode*)
     s = js_Publish(&ack, to_js(js_), subject.c_str(), payload.data(),
                    static_cast<int>(payload.size()), nullptr, &jerr);
     if (ack) jsPubAck_Destroy(ack);
@@ -132,11 +162,47 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     s = natsConnection_Publish(to_conn(conn_), subject.c_str(), payload.data(),
                                static_cast<int>(payload.size()));
   }
-  if (s != NATS_OK) {
-    std::cerr << "[nats] publish error on " << subject << ": " << natsStatus_GetText(s) << "\n";
+  return static_cast<int>(s);
+}
+
+// ── publish ───────────────────────────────────────────────────────────────────
+
+bool NatsClient::publish(const std::string& subject, const std::string& payload) {
+  if (!connected_ || !conn_) return false;
+
+  if (!breaker_.allow_attempt()) {
+    std::cerr << "[nats] ERROR: circuit OPEN — dropping publish to " << subject << "\n";
+    dlq_.push(subject, payload, 0);
     return false;
   }
-  return true;
+
+  int delay_ms = kBaseRetryMs;
+  for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
+    auto s = static_cast<natsStatus>(do_publish_once(subject, payload));
+    if (s == NATS_OK) {
+      breaker_.record_success();
+      return true;
+    }
+
+    std::cerr << "[nats] publish error on " << subject << " (attempt " << attempt << "/"
+              << kMaxRetries << "): " << natsStatus_GetText(s) << "\n";
+
+    if (!is_infra_error(s) || attempt == kMaxRetries) {
+      // Non-retryable error or last attempt exhausted.
+      breaker_.record_failure();
+      dlq_.push(subject, payload, attempt);
+      std::cerr << "[nats] ERROR: publish to " << subject
+                << " failed after all retries — message dead-lettered\n";
+      return false;
+    }
+
+    // Exponential backoff before next retry.
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    delay_ms *= 2;
+  }
+
+  // Unreachable, but satisfies compiler.
+  return false;
 }
 
 // ── publish_log ───────────────────────────────────────────────────────────────
