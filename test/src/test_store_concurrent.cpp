@@ -136,7 +136,8 @@ TEST_F(StoreConcurrent, ConcurrentTaskCreateAndMark) {
     threads.emplace_back([&, i] {
       sync.arrive_and_wait();
       for (int j = 0; j < TASKS_PER_THREAD; ++j) {
-        store_.create_task(team_id, {{"subject", "new-" + std::to_string(i * TASKS_PER_THREAD + j)}});
+        store_.create_task(team_id,
+                           {{"subject", "new-" + std::to_string(i * TASKS_PER_THREAD + j)}});
       }
     });
   }

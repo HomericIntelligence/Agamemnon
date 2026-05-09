@@ -3,13 +3,12 @@
 #include "projectagamemnon/store.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "httplib.h"
-#include "nlohmann/json.hpp"
-
 #include <memory>
 #include <string>
 #include <thread>
 
+#include "httplib.h"
+#include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
