@@ -77,6 +77,7 @@ target_compile_options(agamemnon_peer_discovery PRIVATE
 # Excludes server_main.cpp so gtest_main doesn't conflict with main().
 add_library(agamemnon_lib STATIC
   src/routes.cpp
+  src/store.cpp
   src/nats_client.cpp
   src/circuit_breaker.cpp
   src/dead_letter_queue.cpp
