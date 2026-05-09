@@ -1,264 +1,127 @@
-# AGENTS.md — ProjectAgamemnon Multi-Agent Handoff Protocols
+# AGENTS.md — ProjectAgamemnon Multi-Agent Coordination
 
-This document describes how AI agents interact with ProjectAgamemnon: its role in the
-HomericIntelligence mesh, the hierarchy it orchestrates, the NATS-based handoff protocols
-for each peer component, and the REST API surface agents use.
+## Overview
 
-All claims here are derived from source code, not aspirational documentation.
+ProjectAgamemnon is the HMAS (Homeric Multi-Agent System) orchestration service within the
+HomericIntelligence distributed agent mesh. It receives researched briefs from ProjectNestor and
+manages the full 4-layer agent hierarchy: planning breakdown, delegation, state machine
+coordination, and pull-based work queue management.
 
----
+**Pipeline position:** User → Odysseus → Nestor → **Agamemnon** → agentic pipeline loop → completion
 
-## Role in the HomericIntelligence Mesh
-
-Agamemnon is the **coordination layer** between research and execution:
-
-```
-User <-> Odysseus <-> Nestor <-> Agamemnon <-> agentic pipeline loop -> completion
-```
-
-Agamemnon receives researched briefs from **ProjectNestor**, breaks them into tasks,
-orchestrates the HMAS hierarchy, and enqueues work for **Myrmidons** to pull.
-
-**What Agamemnon does NOT do:**
-
-- Research (that is Nestor's responsibility)
-- Provide UI (that is Odysseus's responsibility)
-- Route messages between Myrmidons (Myrmidons communicate peer-to-peer directly)
-- Make myrmidon-level implementation decisions
-- Perform peer discovery (not implemented in code)
+Agamemnon does **not** perform research (Nestor's responsibility), provide UI (Odysseus), or make
+myrmidon-level decisions (myrmidons communicate peer-to-peer directly).
 
 ---
 
-## Agent Hierarchy (HMAS)
+## Agent Hierarchy
 
-Agamemnon orchestrates a 4-layer Hierarchical Multi-Agent System:
+### ASCII Tree
+
+```
+L0  ChiefArchitect   (Opus)
+ └── L1  ComponentLead   (Opus)
+      └── L2  ModuleLead     (Sonnet)
+           └── L3  TaskAgent     (Sonnet)
+```
+
+### Mermaid Diagram
 
 ```mermaid
 graph TD
-    L0[L0: ChiefArchitect<br/>Opus — top-level planning] --> L1[L1: ComponentLead<br/>Opus — component breakdown]
-    L1 --> L2[L2: ModuleLead<br/>Sonnet — module-level tasks]
-    L2 --> L3[L3: TaskAgent<br/>Haiku — leaf implementation]
+    L0[L0: ChiefArchitect<br/>Opus] --> L1[L1: ComponentLead<br/>Opus]
+    L1 --> L2[L2: ModuleLead<br/>Sonnet]
+    L2 --> L3[L3: TaskAgent<br/>Sonnet]
 ```
 
-| Layer | Role | Model Tier |
-| ----- | ---- | ---------- |
-| L0 | ChiefArchitect — top-level planning and approval gate | Opus |
-| L1 | ComponentLead — per-component breakdown | Opus |
-| L2 | ModuleLead — module-level task delegation | Sonnet |
-| L3 | TaskAgent — leaf implementation worker | Haiku |
+---
 
-Delegation flows top-down. Agents can clarify upstream at every stage (bidirectional).
+## Role Definitions
+
+### L0 — ChiefArchitect (Opus)
+
+- Receives the researched brief from Nestor
+- Owns the top-level plan: inter-repo decomposition, cross-cutting concerns, sequencing
+- Delegates inter-repo tasks to one or more L1 ComponentLeads
+- Gates: approves all destructive or state-modifying operations before they proceed
+- Escalates: if clarification is needed, L0 communicates upstream to Nestor/Odysseus
+
+### L1 — ComponentLead (Opus)
+
+- Owns a single repository or major component within the plan
+- Breaks the component scope into modules and delegates to L2 ModuleLeads
+- Monitors L2 progress; escalates blockers to L0
+- Produces per-component summaries consumed by L0 for plan reconciliation
+
+### L2 — ModuleLead (Sonnet)
+
+- Owns a single module or sub-component within a repository
+- Breaks the module scope into concrete implementation tasks and delegates to L3 TaskAgents
+- Reviews L3 output for correctness before acknowledging completion to L1
+- Gates: approves file deletions or schema-altering operations before dispatching to L3
+
+### L3 — TaskAgent (Sonnet)
+
+- Executes a single, bounded implementation task (file edit, test run, build check)
+- Pulls work from the NATS PULL consumer for its myrmidon type (`hi.myrmidon.{type}.>`)
+- Reports completion or failure to L2; does **not** self-assign follow-on tasks
+- MaxAckPending=1: processes exactly one task at a time before acknowledging
 
 ---
 
-## Upstream Handoff: ProjectNestor → Agamemnon
+## Delegation Rules
 
-Nestor submits a researched brief as a task creation request.
-
-**Protocol:** `POST /v1/teams/:team_id/tasks`
-
-**Request body (JSON):**
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `subject` | string | `""` | Short task title |
-| `description` | string | `""` | Full task brief from Nestor |
-| `assigneeAgentId` | string | `""` | Pre-assigned agent ID (optional) |
-| `blockedBy` | array | `[]` | Task IDs this task depends on |
-| `type` | string | `"general"` | Myrmidon type to dispatch to |
-
-**Auto-set by Agamemnon (do not include in request):**
-
-| Field | Value |
-| ----- | ----- |
-| `id` | Generated UUID |
-| `teamId` | From URL path |
-| `status` | `"pending"` |
-| `createdAt` | ISO 8601 timestamp |
-| `completedAt` | `null` |
-
-**On receipt, Agamemnon:**
-
-1. Persists the task in the in-memory store
-2. Publishes `hi.tasks.created` to notify observers
-3. Enqueues the task to `hi.myrmidon.{type}.{task_id}` for myrmidon pickup
-4. Logs dispatch to `hi.logs.agamemnon.task_dispatched`
+1. **Top-down delegation only.** Work flows L0 → L1 → L2 → L3. Levels do not skip.
+2. **Bottom-up escalation only.** Blockers, ambiguity, and failures propagate upward one level at
+   a time.
+3. **Approval gates before destructive operations.** Any operation that deletes files, modifies
+   shared state, or alters a GitHub Issue/Project must be approved by the delegating level before
+   the receiving level executes it.
+4. **Clarification is always allowed.** Any level may pause and send a clarification request
+   upstream rather than proceeding with an ambiguous or risky action.
+5. **No lateral communication between same-level agents.** L3 TaskAgents do not coordinate
+   directly; all coordination passes through L2.
 
 ---
 
-## Downstream Handoff: Agamemnon → Myrmidons
+## Handoff Protocols — NATS Subjects
 
-Agamemnon uses a **pull-based** queue. Myrmidons pull work when ready; Agamemnon never
-pushes directly to a myrmidon.
+All inter-component messaging flows through ProjectKeystone as the invisible transport layer.
+Components publish and subscribe to logical NATS subjects; routing is transparent.
 
-**Queue subject:** `hi.myrmidon.{type}.{task_id}`
+| Subject | Direction | Purpose |
+| ------- | --------- | ------- |
+| `hi.tasks.>` | pub/sub | Task state updates; Odysseus reads for UI |
+| `hi.pipeline.>` | pub/sub | Pipeline state updates; Odysseus reads for UI |
+| `hi.myrmidon.{type}.>` | PULL consumer | Work queue per myrmidon type; L3 agents pull |
 
-**Stream:** `homeric-myrmidon` (subject filter: `hi.myrmidon.>`)
+**PULL consumer contract:**
 
-**Critical invariant — `MaxAckPending=1`:** Each myrmidon processes exactly one task at a
-time. A myrmidon must acknowledge (or nack) the current task before receiving another. This
-prevents work pile-up on a single worker.
-
-**Myrmidon completion flow:**
-
-1. Myrmidon completes work and publishes to `hi.tasks.{team_id}.{task_id}.completed`
-2. Agamemnon receives via its subscription on `hi.tasks.*.*.completed`
-   (source: `src/server_main.cpp:36`)
-3. Agamemnon updates task status and publishes `hi.tasks.{team_id}.{task_id}.updated`
-4. Agamemnon logs to `hi.logs.agamemnon.task_completed`
+- Myrmidons pull work when they are ready. Agamemnon never pushes.
+- `MaxAckPending=1` enforces single-task-at-a-time per myrmidon.
+- A task is not re-queued until the myrmidon acknowledges (success) or nacks (failure/timeout).
+- `{type}` corresponds to the myrmidon specialisation (e.g. `codegen`, `test`, `review`).
 
 ---
 
-## Observer Handoff: Agamemnon → Odysseus
+## State Persistence
 
-Odysseus observes pipeline state independently — Agamemnon does not call Odysseus directly.
+GitHub Issues and GitHub Projects are the sole backing store for task and pipeline state.
 
-**Subjects Odysseus subscribes to:**
-
-| Subject | When published |
-| ------- | -------------- |
-| `hi.tasks.created` | New task accepted |
-| `hi.tasks.{team_id}.{task_id}.updated` | Task status changed |
-| `hi.pipeline.>` | Pipeline state updates |
-
-**Streams:** `homeric-tasks` and `homeric-pipeline`
+- Each task maps to a GitHub Issue.
+- Each pipeline corresponds to a GitHub Project.
+- No relational database, no in-memory store.
+- State transitions are durable and auditable via GitHub's event timeline.
 
 ---
 
-## NATS Subjects Reference
+## Pull-Based Work Queue Contract
 
-| Subject | Direction | Publisher | Subscriber |
-| ------- | --------- | --------- | ---------- |
-| `hi.tasks.created` | pub | Agamemnon | Odysseus |
-| `hi.tasks.*.*.completed` | sub | Myrmidons | Agamemnon |
-| `hi.tasks.{team_id}.{task_id}.updated` | pub | Agamemnon | Odysseus |
-| `hi.myrmidon.{type}.{task_id}` | pub | Agamemnon | Myrmidons (pull) |
-| `hi.agents.{host}.{name}.created` | pub | Agamemnon | Observers |
-| `hi.agents.{host}.{name}.updated` | pub | Agamemnon | Observers |
-| `hi.agents.{host}.{name}.deleted` | pub | Agamemnon | Observers |
-| `hi.agents.team.created` | pub | Agamemnon | Observers |
-| `hi.agents.team.updated` | pub | Agamemnon | Observers |
-| `hi.agents.team.deleted` | pub | Agamemnon | Observers |
-| `hi.agents.chaos.injected` | pub | Agamemnon | ProjectCharybdis |
-| `hi.agents.chaos.removed` | pub | Agamemnon | ProjectCharybdis |
-| `hi.logs.agamemnon.agent_created` | pub | Agamemnon | Log consumers |
-| `hi.logs.agamemnon.task_dispatched` | pub | Agamemnon | Log consumers |
-| `hi.logs.agamemnon.task_completed` | pub | Agamemnon | Log consumers |
-| `hi.pipeline.>` | pub | Agamemnon | Odysseus |
-| `hi.research.>` | — | Nestor | (future use) |
+Agamemnon enqueues work; myrmidons pull when ready. The contract is:
 
----
-
-## JetStream Streams Reference
-
-All streams use file storage (`js_FileStorage`) and limits retention (`js_LimitsPolicy`).
-Source: `src/nats_client.cpp`, `ensure_streams()`.
-
-| Stream | Subject Filter | Primary Users |
-| ------ | -------------- | ------------- |
-| `homeric-agents` | `hi.agents.>` | Agent lifecycle events |
-| `homeric-tasks` | `hi.tasks.>` | Task state — Agamemnon, Odysseus |
-| `homeric-myrmidon` | `hi.myrmidon.>` | Work queue — Agamemnon enqueues, Myrmidons pull |
-| `homeric-research` | `hi.research.>` | Research briefs from Nestor |
-| `homeric-pipeline` | `hi.pipeline.>` | Pipeline state — Odysseus reads |
-| `homeric-logs` | `hi.logs.>` | Structured audit logs |
-
----
-
-## REST API for Agents
-
-**Base URL:** `http://{host}:8080` (default; override with `PORT` env var)
-
-### Health
-
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| GET | `/health` | Liveness check |
-| GET | `/v1/health` | Versioned liveness check |
-| GET | `/v1/version` | Service version |
-
-### Agents
-
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| GET | `/v1/agents` | List all agents |
-| POST | `/v1/agents` | Register a new agent |
-| POST | `/v1/agents/docker` | Register a Docker-based agent |
-| GET | `/v1/agents/:id` | Get agent by ID |
-| GET | `/v1/agents/by-name/:name` | Get agent by name |
-| PATCH | `/v1/agents/:id` | Update agent |
-| POST | `/v1/agents/:id/start` | Start agent |
-| POST | `/v1/agents/:id/stop` | Stop agent |
-| DELETE | `/v1/agents/:id` | Delete agent |
-
-### Teams
-
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| GET | `/v1/teams` | List all teams |
-| POST | `/v1/teams` | Create a team |
-| GET | `/v1/teams/:id` | Get team by ID |
-| PUT | `/v1/teams/:id` | Replace team |
-| DELETE | `/v1/teams/:id` | Delete team |
-
-### Tasks
-
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| GET | `/v1/tasks` | List all tasks |
-| GET | `/v1/teams/:team_id/tasks` | List tasks for a team |
-| POST | `/v1/teams/:team_id/tasks` | Create task (Nestor entry point) |
-| GET | `/v1/teams/:team_id/tasks/:task_id` | Get task |
-| PUT | `/v1/teams/:team_id/tasks/:task_id` | Replace task |
-| PATCH | `/v1/teams/:team_id/tasks/:task_id` | Update task fields |
-
-### Workflows
-
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| GET | `/v1/workflows` | List workflows |
-
-### Chaos
-
-| Method | Path | Description |
-| ------ | ---- | ----------- |
-| GET | `/v1/chaos` | List active chaos scenarios |
-| POST | `/v1/chaos/:type` | Inject a chaos scenario |
-| DELETE | `/v1/chaos/:id` | Remove a chaos scenario |
-
----
-
-## Chaos Injection Protocol (ProjectCharybdis)
-
-ProjectCharybdis drives fault injection via Agamemnon's `/v1/chaos/*` routes.
-
-**Inject:** `POST /v1/chaos/:type`
-
-- Agamemnon registers the scenario and publishes `hi.agents.chaos.injected`
-
-**Remove:** `DELETE /v1/chaos/:id`
-
-- Agamemnon removes the scenario and publishes `hi.agents.chaos.removed`
-
-Charybdis subscribes to both subjects to track active fault state independently.
-
----
-
-## Environment Configuration
-
-| Variable | Default | Description |
-| -------- | ------- | ----------- |
-| `PORT` | `8080` | HTTP listening port |
-| `NATS_URL` | `nats://localhost:4222` | NATS server URL (over Tailscale in production) |
-
----
-
-## Transport Layer Note
-
-All NATS communication flows through **ProjectKeystone**, which provides transparent routing:
-
-- Local (intra-host): BlazingMQ + C++20 MessageBus *(planned, not yet implemented in this repo)*
-- Cross-host: NATS JetStream via nats.c over Tailscale
-
-The code in this repository uses NATS directly. Keystone integration is handled at the
-infrastructure layer outside this service.
+1. Agamemnon creates (or updates) a GitHub Issue representing the task.
+2. Agamemnon publishes the task descriptor to the relevant `hi.myrmidon.{type}.>` subject.
+3. An available L3 myrmidon pulls the message from its PULL consumer.
+4. The myrmidon executes the task, then acknowledges or nacks the NATS message.
+5. Agamemnon updates the GitHub Issue state based on the ack/nack.
+6. On nack, Agamemnon applies retry or escalation policy and re-enqueues or escalates to L2.
