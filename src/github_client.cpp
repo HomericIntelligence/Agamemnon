@@ -1,7 +1,6 @@
 #include "projectagamemnon/github_client.hpp"
 
 #include <curl/curl.h>
-
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -59,7 +58,7 @@ CurlGitHubClient::Response CurlGitHubClient::do_get(const std::string& url) cons
 }
 
 CurlGitHubClient::Response CurlGitHubClient::do_post(const std::string& url,
-                                                      const std::string& payload) const {
+                                                     const std::string& payload) const {
   CURL* curl = curl_easy_init();
   if (!curl) throw std::runtime_error("curl_easy_init failed");
 
@@ -91,7 +90,7 @@ CurlGitHubClient::Response CurlGitHubClient::do_post(const std::string& url,
 }
 
 CurlGitHubClient::Response CurlGitHubClient::do_patch(const std::string& url,
-                                                       const std::string& payload) const {
+                                                      const std::string& payload) const {
   CURL* curl = curl_easy_init();
   if (!curl) throw std::runtime_error("curl_easy_init failed");
 
@@ -127,8 +126,9 @@ std::vector<json> CurlGitHubClient::list_issues(std::string_view label) {
   std::vector<json> results;
   int page = 1;
   while (true) {
-    std::string url = "https://api.github.com/repos/" + repo_ + "/issues?state=open&labels=" +
-                      std::string(label) + "&per_page=100&page=" + std::to_string(page);
+    std::string url = "https://api.github.com/repos/" + repo_ +
+                      "/issues?state=open&labels=" + std::string(label) +
+                      "&per_page=100&page=" + std::to_string(page);
     Response resp;
     try {
       resp = do_get(url);
@@ -161,7 +161,7 @@ std::vector<json> CurlGitHubClient::list_issues(std::string_view label) {
 }
 
 std::string CurlGitHubClient::create_issue(std::string_view title, std::string_view body,
-                                            std::string_view label) {
+                                           std::string_view label) {
   std::string url = "https://api.github.com/repos/" + repo_ + "/issues";
   json payload = {{"title", std::string(title)},
                   {"body", std::string(body)},

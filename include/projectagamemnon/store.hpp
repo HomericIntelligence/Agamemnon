@@ -1,12 +1,13 @@
 #pragma once
 
+#include "projectagamemnon/github_client.hpp"
+
 #include <memory>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 
 #include "nlohmann/json.hpp"
-#include "projectagamemnon/github_client.hpp"
 
 namespace projectagamemnon {
 

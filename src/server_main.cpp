@@ -33,8 +33,8 @@ int main() {
     std::cout << "[agamemnon] GitHub persistence enabled (repo: " << gh_repo << ")\n";
     gh_client = std::make_shared<projectagamemnon::CurlGitHubClient>(gh_repo, gh_token);
   } else {
-    std::cerr
-        << "[agamemnon] WARNING: GITHUB_TOKEN not set — running in pure in-memory mode (no persistence)\n";
+    std::cerr << "[agamemnon] WARNING: GITHUB_TOKEN not set — running in pure in-memory mode (no "
+                 "persistence)\n";
   }
 
   projectagamemnon::Store store(gh_client);

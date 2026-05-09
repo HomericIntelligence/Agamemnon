@@ -406,8 +406,7 @@ json Store::get_task(const std::string& team_id, const std::string& task_id) {
   return it->second;
 }
 
-json Store::update_task(const std::string& team_id, const std::string& task_id,
-                        const json& body) {
+json Store::update_task(const std::string& team_id, const std::string& task_id, const json& body) {
   std::lock_guard<std::mutex> lk(mutex_);
   ensure_tasks_loaded_();
   auto it = tasks_.find(task_id);
@@ -481,9 +480,8 @@ json Store::create_fault(const std::string& type) {
   fault["createdAt"] = now_iso8601();
 
   if (gh_) {
-    std::string issue_num = gh_->create_issue("fault: " + type,
-                                              make_issue_body_("faults/" + id, fault),
-                                              "agamemnon-fault");
+    std::string issue_num = gh_->create_issue(
+        "fault: " + type, make_issue_body_("faults/" + id, fault), "agamemnon-fault");
     if (!issue_num.empty()) fault["_github_issue"] = issue_num;
   }
 

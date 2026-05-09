@@ -52,9 +52,8 @@ class MockGitHubClient : public IGitHubClient {
                            std::string_view label) override {
     calls.push_back({"create_issue", std::string(title), std::string(body), std::string(label)});
     std::string num = std::to_string(++next_issue_number_);
-    created_issues[num] = {{"title", std::string(title)},
-                           {"body", std::string(body)},
-                           {"label", std::string(label)}};
+    created_issues[num] = {
+        {"title", std::string(title)}, {"body", std::string(body)}, {"label", std::string(label)}};
     return num;
   }
 

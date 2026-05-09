@@ -1,11 +1,11 @@
 #include "projectagamemnon/github_client.hpp"
 #include "projectagamemnon/store.hpp"
 
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <memory>
 #include <string>
+
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -114,7 +114,9 @@ TEST(HydrationTest, HydrationStoresGitHubIssueNumber) {
 
 TEST(HydrationTest, LoadsTeamsFromGitHub) {
   auto mock = std::make_shared<MockGitHubClient>();
-  json team = {{"id", "team-1"}, {"name", "alpha-team"}, {"agentIds", json::array()},
+  json team = {{"id", "team-1"},
+               {"name", "alpha-team"},
+               {"agentIds", json::array()},
                {"createdAt", "2026-01-01T00:00:00Z"}};
   mock->seed_issues["agamemnon-team"] = {make_team_issue(20, team)};
 
@@ -128,10 +130,11 @@ TEST(HydrationTest, LoadsTeamsFromGitHub) {
 
 TEST(HydrationTest, LoadsTasksFromGitHub) {
   auto mock = std::make_shared<MockGitHubClient>();
-  json task = {{"id", "task-1"}, {"teamId", "team-1"}, {"subject", "do work"},
-               {"description", ""}, {"assigneeAgentId", ""}, {"blockedBy", json::array()},
-               {"type", "general"}, {"status", "pending"},
-               {"createdAt", "2026-01-01T00:00:00Z"}, {"completedAt", nullptr}};
+  json task = {
+      {"id", "task-1"},        {"teamId", "team-1"},    {"subject", "do work"},
+      {"description", ""},     {"assigneeAgentId", ""}, {"blockedBy", json::array()},
+      {"type", "general"},     {"status", "pending"},   {"createdAt", "2026-01-01T00:00:00Z"},
+      {"completedAt", nullptr}};
   mock->seed_issues["agamemnon-task"] = {make_task_issue(30, task)};
 
   Store store(mock);
@@ -144,7 +147,9 @@ TEST(HydrationTest, LoadsTasksFromGitHub) {
 
 TEST(HydrationTest, LoadsFaultsFromGitHub) {
   auto mock = std::make_shared<MockGitHubClient>();
-  json fault = {{"id", "fault-1"}, {"type", "latency"}, {"active", true},
+  json fault = {{"id", "fault-1"},
+                {"type", "latency"},
+                {"active", true},
                 {"createdAt", "2026-01-01T00:00:00Z"}};
   mock->seed_issues["agamemnon-fault"] = {make_fault_issue(40, fault)};
 
