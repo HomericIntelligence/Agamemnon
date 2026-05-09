@@ -68,7 +68,7 @@ just ci
 See [ROADMAP.md](ROADMAP.md) for the full list of planned features and their acceptance
 criteria. Good first targets are the deferred features with clear acceptance criteria.
 
-- **REST API routes** — New endpoints under `/v1/` for task, agent, or workflow management
+- **REST API routes** — New endpoints under `/v1/` for task or agent management
 - **Store implementations** — Persistent or in-memory data store improvements
 - **NATS client features** — Subject routing, consumer groups, message handling
 - **Tests** — GoogleTest unit and integration tests
@@ -97,7 +97,7 @@ git pull origin main
 git checkout -b <issue-number>-<short-description>
 
 # Examples:
-git checkout -b 42-add-workflow-endpoint
+git checkout -b 42-add-docker-agent-endpoint
 git checkout -b 15-fix-store-race-condition
 ```
 
@@ -134,9 +134,9 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 **Example:**
 
 ```bash
-git commit -m "feat(routes): add /v1/workflows endpoint
+git commit -m "feat(routes): add /v1/agents/docker endpoint
 
-Implements REST API for workflow creation and status queries.
+Adds Docker agent registration, publishes creation event to NATS.
 Uses the existing store for persistence.
 
 Closes #42"

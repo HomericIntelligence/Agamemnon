@@ -15,9 +15,11 @@ add_executable(${PROJECT_NAME}_tests
   src/test_routes_malformed.cpp
   src/test_peer_discovery.cpp
   src/test_server_limits.cpp
-  ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/routes.cpp
-  ${PROJECT_SOURCE_DIR}/src/nats_client.cpp)
+  ${PROJECT_SOURCE_DIR}/src/store.cpp
+  ${PROJECT_SOURCE_DIR}/src/nats_client.cpp
+  ${PROJECT_SOURCE_DIR}/src/version_info.cpp
+)
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_tests PROPERTIES CXX_EXTENSIONS OFF)

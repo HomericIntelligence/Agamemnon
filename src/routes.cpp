@@ -336,12 +336,6 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   // PATCH /v1/teams/:team_id/tasks/:task_id
   server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
-  // ── Workflows ────────────────────────────────────────────────────────────
-
-  server.Get("/v1/workflows", [](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, {{"workflows", json::array()}});
-  });
-
   // ── Chaos ────────────────────────────────────────────────────────────────
 
   // GET /v1/chaos
