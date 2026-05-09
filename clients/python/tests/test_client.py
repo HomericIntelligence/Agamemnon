@@ -45,7 +45,7 @@ TEAM_PAYLOAD = {
     "createdAt": "2026-01-01T00:00:00Z",
 }
 
-TASK_PAYLOAD = {
+TASK_PAYLOAD: dict[str, object] = {
     "id": "task-1",
     "teamId": "team-1",
     "subject": "Do the thing",
