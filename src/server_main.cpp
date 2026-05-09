@@ -110,7 +110,7 @@ int main() {
   server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
                                 1024UL * 1024UL);
 
-  projectagamemnon::register_routes(server, store, nats);
+  projectagamemnon::register_routes(server, store, nats, rate_limiter);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;
