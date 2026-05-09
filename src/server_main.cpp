@@ -156,7 +156,7 @@ int main() {
   g_shutdown_flag = &shutdown_requested;
   g_server = &server;
 
-  struct sigaction sa{};
+  struct sigaction sa {};
   sa.sa_handler = shutdown_handler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_RESTART;

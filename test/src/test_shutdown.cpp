@@ -11,7 +11,7 @@ namespace projectagamemnon::test {
 // Find a free port by binding to port 0 and reading back the assigned port.
 static int find_free_port() {
   int sock = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = INADDR_ANY;
   addr.sin_port = 0;
