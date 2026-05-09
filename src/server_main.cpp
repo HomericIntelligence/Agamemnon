@@ -65,8 +65,8 @@ int main() {
   if (port_env) {
     auto result = projectagamemnon::parse_port(port_env);
     if (!result.port.has_value()) {
-      std::cerr << "[agamemnon] WARNING: PORT=\"" << port_env
-                << "\" is invalid (" << result.error << "), defaulting to " << port << "\n";
+      std::cerr << "[agamemnon] WARNING: PORT=\"" << port_env << "\" is invalid (" << result.error
+                << "), defaulting to " << port << "\n";
     } else {
       port = result.port.value();
     }
