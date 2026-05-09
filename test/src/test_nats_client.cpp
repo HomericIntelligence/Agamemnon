@@ -27,9 +27,8 @@ TEST(NatsClientTest, PublishReturnsFalseWhenDisconnected) {
 TEST(NatsClientTest, SubscribeReturnsFalseWhenDisconnected) {
   NatsClient client(kUnreachable);
   bool called = false;
-  EXPECT_FALSE(client.subscribe("hi.test.>", [&](const std::string&, const std::string&) {
-    called = true;
-  }));
+  EXPECT_FALSE(client.subscribe("hi.test.>",
+                                [&](const std::string&, const std::string&) { called = true; }));
   EXPECT_FALSE(called);
 }
 

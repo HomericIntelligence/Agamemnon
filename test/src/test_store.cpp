@@ -1,8 +1,9 @@
 #include "projectagamemnon/store.hpp"
 
-#include <gtest/gtest.h>
 #include <regex>
 #include <string>
+
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -15,9 +16,7 @@ TEST(HelpersTest, GenerateUuidFormat) {
   EXPECT_TRUE(std::regex_match(uuid, re)) << "UUID: " << uuid;
 }
 
-TEST(HelpersTest, GenerateUuidUnique) {
-  EXPECT_NE(generate_uuid(), generate_uuid());
-}
+TEST(HelpersTest, GenerateUuidUnique) { EXPECT_NE(generate_uuid(), generate_uuid()); }
 
 TEST(HelpersTest, NowIso8601Format) {
   std::string ts = now_iso8601();
@@ -107,9 +106,7 @@ TEST_F(StoreAgentTest, DeleteAgent) {
   EXPECT_TRUE(store.get_agent(id).is_null());
 }
 
-TEST_F(StoreAgentTest, DeleteAgentNotFound) {
-  EXPECT_FALSE(store.delete_agent("bad-id"));
-}
+TEST_F(StoreAgentTest, DeleteAgentNotFound) { EXPECT_FALSE(store.delete_agent("bad-id")); }
 
 TEST_F(StoreAgentTest, StartAgent) {
   json result = store.create_agent({{"name", "eta"}});
@@ -214,9 +211,7 @@ TEST_F(StoreTeamTest, DeleteTeam) {
   EXPECT_TRUE(store.get_team(id).is_null());
 }
 
-TEST_F(StoreTeamTest, DeleteTeamNotFound) {
-  EXPECT_FALSE(store.delete_team("bad-id"));
-}
+TEST_F(StoreTeamTest, DeleteTeamNotFound) { EXPECT_FALSE(store.delete_team("bad-id")); }
 
 TEST_F(StoreTeamTest, CreateTeamWithAgentIds) {
   json result = store.create_team({{"name", "t"}, {"agentIds", json::array({"a1", "a2"})}});
@@ -360,8 +355,6 @@ TEST_F(StoreFaultTest, RemoveFault) {
   EXPECT_EQ(store.list_faults()["faults"].size(), 0u);
 }
 
-TEST_F(StoreFaultTest, RemoveFaultNotFound) {
-  EXPECT_FALSE(store.remove_fault("bad-id"));
-}
+TEST_F(StoreFaultTest, RemoveFaultNotFound) { EXPECT_FALSE(store.remove_fault("bad-id")); }
 
 }  // namespace projectagamemnon::test
