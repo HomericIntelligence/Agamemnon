@@ -488,7 +488,7 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats) {
   server.Post(R"(/v1/chaos/([^/]+))",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
                 std::string type = req.matches[1];
-                if (!require_enum(res, type, "type", kValidChaosTypes)) return;
+                // Chaos accepts any non-empty type string (flexible fault injection)
                 json result = sp->create_fault(type);
                 np->publish("hi.agents.chaos.injected", result.dump());
                 reply_json(res, 201, result);
