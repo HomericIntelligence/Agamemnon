@@ -5,12 +5,11 @@
 #include "projectagamemnon/store.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "httplib.h"
-
-#include <gtest/gtest.h>
-
 #include <atomic>
 #include <thread>
+
+#include "httplib.h"
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 

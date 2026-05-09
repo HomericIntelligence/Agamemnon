@@ -2,7 +2,6 @@
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "httplib.h"
-
 #include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
@@ -30,9 +29,7 @@ TEST_F(AuthMiddlewareTest, ExemptV1Health) { EXPECT_TRUE(auth_.is_exempt("/v1/he
 
 TEST_F(AuthMiddlewareTest, NotExemptAgents) { EXPECT_FALSE(auth_.is_exempt("/v1/agents")); }
 
-TEST_F(AuthMiddlewareTest, NotExemptChaos) {
-  EXPECT_FALSE(auth_.is_exempt("/v1/chaos/network"));
-}
+TEST_F(AuthMiddlewareTest, NotExemptChaos) { EXPECT_FALSE(auth_.is_exempt("/v1/chaos/network")); }
 
 TEST_F(AuthMiddlewareTest, NotExemptTasks) { EXPECT_FALSE(auth_.is_exempt("/v1/tasks")); }
 
