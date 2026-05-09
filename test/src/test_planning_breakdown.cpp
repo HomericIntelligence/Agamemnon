@@ -8,17 +8,18 @@
 namespace projectagamemnon::test {
 
 namespace {
-TaskBrief make_brief(std::vector<std::string> repos,
-                     std::unordered_map<std::string, std::vector<std::string>> modules = {},
-                     std::unordered_map<std::string,
-                         std::unordered_map<std::string, std::vector<std::string>>> impls = {}) {
+TaskBrief make_brief(
+    std::vector<std::string> repos,
+    std::unordered_map<std::string, std::vector<std::string>> modules = {},
+    std::unordered_map<std::string, std::unordered_map<std::string, std::vector<std::string>>>
+        impls = {}) {
   TaskBrief b;
-  b.id          = "brief-test";
-  b.title       = "Test Brief";
+  b.id = "brief-test";
+  b.title = "Test Brief";
   b.description = "desc";
-  b.repos       = std::move(repos);
-  b.modules     = std::move(modules);
-  b.impls       = std::move(impls);
+  b.repos = std::move(repos);
+  b.modules = std::move(modules);
+  b.impls = std::move(impls);
   return b;
 }
 }  // namespace
@@ -47,16 +48,23 @@ TEST(PlanningBreakdownTest, AllTasksHaveBriefId) {
 TEST(PlanningBreakdownTest, TwoReposThreeModulesEach) {
   PlanningBreakdown pd;
   auto tasks = pd.decompose(make_brief(
-      {"repo-a", "repo-b"},
-      {{"repo-a", {"m1", "m2", "m3"}}, {"repo-b", {"m4", "m5", "m6"}}}));
+      {"repo-a", "repo-b"}, {{"repo-a", {"m1", "m2", "m3"}}, {"repo-b", {"m4", "m5", "m6"}}}));
 
   int l0 = 0, l1 = 0, l2 = 0, l3 = 0;
   for (const auto& t : tasks) {
     switch (t.layer) {
-      case HmasLayer::L0_ChiefArchitect: ++l0; break;
-      case HmasLayer::L1_ComponentLead:  ++l1; break;
-      case HmasLayer::L2_ModuleLead:     ++l2; break;
-      case HmasLayer::L3_TaskAgent:      ++l3; break;
+      case HmasLayer::L0_ChiefArchitect:
+        ++l0;
+        break;
+      case HmasLayer::L1_ComponentLead:
+        ++l1;
+        break;
+      case HmasLayer::L2_ModuleLead:
+        ++l2;
+        break;
+      case HmasLayer::L3_TaskAgent:
+        ++l3;
+        break;
     }
   }
   EXPECT_EQ(l0, 1);
@@ -67,10 +75,8 @@ TEST(PlanningBreakdownTest, TwoReposThreeModulesEach) {
 
 TEST(PlanningBreakdownTest, ExplicitImplsExpandL3) {
   PlanningBreakdown pd;
-  auto tasks = pd.decompose(make_brief(
-      {"repo-a"},
-      {{"repo-a", {"mod-1"}}},
-      {{"repo-a", {{"mod-1", {"impl-A", "impl-B", "impl-C"}}}}}));
+  auto tasks = pd.decompose(make_brief({"repo-a"}, {{"repo-a", {"mod-1"}}},
+                                       {{"repo-a", {{"mod-1", {"impl-A", "impl-B", "impl-C"}}}}}));
 
   int l3 = 0;
   for (const auto& t : tasks) {
@@ -118,8 +124,8 @@ TEST(PlanningBreakdownTest, MaxDepthIsL3) {
 
 TEST(PlanningBreakdownTest, AllIdsUnique) {
   PlanningBreakdown pd;
-  auto tasks = pd.decompose(make_brief({"repo-a", "repo-b"},
-                                       {{"repo-a", {"m1", "m2"}}, {"repo-b", {"m3"}}}));
+  auto tasks = pd.decompose(
+      make_brief({"repo-a", "repo-b"}, {{"repo-a", {"m1", "m2"}}, {"repo-b", {"m3"}}}));
   std::unordered_set<std::string> ids;
   for (const auto& t : tasks) {
     EXPECT_TRUE(ids.insert(t.id).second) << "duplicate ID: " << t.id;

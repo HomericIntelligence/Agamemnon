@@ -6,13 +6,20 @@ namespace projectagamemnon {
 
 std::string task_event_to_string(TaskEvent event) {
   switch (event) {
-    case TaskEvent::Submit:   return "Submit";
-    case TaskEvent::Delegate: return "Delegate";
-    case TaskEvent::Start:    return "Start";
-    case TaskEvent::Escalate: return "Escalate";
-    case TaskEvent::Retry:    return "Retry";
-    case TaskEvent::Complete: return "Complete";
-    case TaskEvent::Fail:     return "Fail";
+    case TaskEvent::Submit:
+      return "Submit";
+    case TaskEvent::Delegate:
+      return "Delegate";
+    case TaskEvent::Start:
+      return "Start";
+    case TaskEvent::Escalate:
+      return "Escalate";
+    case TaskEvent::Retry:
+      return "Retry";
+    case TaskEvent::Complete:
+      return "Complete";
+    case TaskEvent::Fail:
+      return "Fail";
   }
   return "unknown";
 }
@@ -45,16 +52,13 @@ TaskStateMachine::TaskStateMachine() {
   add(TaskState::Escalated, TaskEvent::Retry, TaskState::Delegated);
 
   // InProgress → Completed on Complete (sets completedAt)
-  add(TaskState::InProgress, TaskEvent::Complete, TaskState::Completed,
-      nullptr,
+  add(TaskState::InProgress, TaskEvent::Complete, TaskState::Completed, nullptr,
       [](HmasTask& t) { t.completed_at = now_iso8601(); });
 
   // InProgress | Escalated → Failed on Fail
-  add(TaskState::InProgress, TaskEvent::Fail, TaskState::Failed,
-      nullptr,
+  add(TaskState::InProgress, TaskEvent::Fail, TaskState::Failed, nullptr,
       [](HmasTask& t) { t.completed_at = now_iso8601(); });
-  add(TaskState::Escalated, TaskEvent::Fail, TaskState::Failed,
-      nullptr,
+  add(TaskState::Escalated, TaskEvent::Fail, TaskState::Failed, nullptr,
       [](HmasTask& t) { t.completed_at = now_iso8601(); });
 }
 

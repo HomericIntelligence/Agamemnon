@@ -12,9 +12,9 @@ TEST(HmasTypesTest, LayerRoundTrip) {
 }
 
 TEST(HmasTypesTest, StateRoundTrip) {
-  for (auto state : {TaskState::Pending, TaskState::Decomposing, TaskState::Delegated,
-                     TaskState::InProgress, TaskState::Escalated, TaskState::Completed,
-                     TaskState::Failed}) {
+  for (auto state :
+       {TaskState::Pending, TaskState::Decomposing, TaskState::Delegated, TaskState::InProgress,
+        TaskState::Escalated, TaskState::Completed, TaskState::Failed}) {
     EXPECT_EQ(task_state_from_string(task_state_to_string(state)), state);
   }
 }
@@ -29,23 +29,23 @@ TEST(HmasTypesTest, InvalidStateThrows) {
 
 TEST(HmasTypesTest, HmasTaskToJsonContainsAllFields) {
   HmasTask t;
-  t.id             = "abc";
-  t.brief_id       = "brief-1";
+  t.id = "abc";
+  t.brief_id = "brief-1";
   t.parent_task_id = "parent-1";
-  t.layer          = HmasLayer::L2_ModuleLead;
-  t.state          = TaskState::InProgress;
-  t.subject        = "subject";
-  t.description    = "desc";
-  t.repo           = "repo-a";
-  t.module         = "mod-1";
-  t.created_at     = "2026-01-01T00:00:00Z";
+  t.layer = HmasLayer::L2_ModuleLead;
+  t.state = TaskState::InProgress;
+  t.subject = "subject";
+  t.description = "desc";
+  t.repo = "repo-a";
+  t.module = "mod-1";
+  t.created_at = "2026-01-01T00:00:00Z";
 
   json j = hmas_task_to_json(t);
-  EXPECT_EQ(j["id"],               "abc");
-  EXPECT_EQ(j["layer"],            "L2_ModuleLead");
-  EXPECT_EQ(j["state"],            "InProgress");
-  EXPECT_EQ(j["repo"],             "repo-a");
-  EXPECT_EQ(j["module"],           "mod-1");
+  EXPECT_EQ(j["id"], "abc");
+  EXPECT_EQ(j["layer"], "L2_ModuleLead");
+  EXPECT_EQ(j["state"], "InProgress");
+  EXPECT_EQ(j["repo"], "repo-a");
+  EXPECT_EQ(j["module"], "mod-1");
   EXPECT_TRUE(j["child_task_ids"].is_array());
   EXPECT_TRUE(j["escalations"].is_array());
 }

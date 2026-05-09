@@ -1,24 +1,22 @@
+#include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/orchestrator.hpp"
+#include "projectagamemnon/store.hpp"
 
 #include <algorithm>
 #include <vector>
 
 #include <gtest/gtest.h>
 
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/store.hpp"
-
 namespace projectagamemnon::test {
 
 namespace {
 
 // Build a minimal TaskBrief for testing.
-TaskBrief make_brief(std::string title = "test",
-                     std::vector<std::string> repos = {"repo-a"},
+TaskBrief make_brief(std::string title = "test", std::vector<std::string> repos = {"repo-a"},
                      std::unordered_map<std::string, std::vector<std::string>> modules = {}) {
   TaskBrief b;
-  b.title  = std::move(title);
-  b.repos  = std::move(repos);
+  b.title = std::move(title);
+  b.repos = std::move(repos);
   b.modules = std::move(modules);
   return b;
 }

@@ -788,10 +788,11 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                  return;
                }
                json j = hmas_task_to_json(*task);
-               reply_json(res, 200, {{"task_id", task_id},
-                                     {"state", task_state_to_string(task->state)},
-                                     {"layer", hmas_layer_to_string(task->layer)},
-                                     {"task", j}});
+               reply_json(res, 200,
+                          {{"task_id", task_id},
+                           {"state", task_state_to_string(task->state)},
+                           {"layer", hmas_layer_to_string(task->layer)},
+                           {"task", j}});
              });
 
   std::cout << "[agamemnon] routes registered\n";

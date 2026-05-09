@@ -93,11 +93,10 @@ int main() {
 
     // Subscribe to task-completion events published by myrmidons.
     // Myrmidons publish to hi.tasks.{team_id}.{task_id}.completed
-    nats.subscribe(
-        "hi.tasks.*.*.completed",
-        [&orchestrator](const std::string& subject, const std::string& data) {
-          orchestrator.on_myrmidon_completion(subject, data);
-        });
+    nats.subscribe("hi.tasks.*.*.completed",
+                   [&orchestrator](const std::string& subject, const std::string& data) {
+                     orchestrator.on_myrmidon_completion(subject, data);
+                   });
   } else {
     std::cerr << "[agamemnon] WARNING: running without NATS — events will be skipped\n";
   }

@@ -1,18 +1,17 @@
 #pragma once
 
 #include "projectagamemnon/github_client.hpp"
+#include "projectagamemnon/hmas_types.hpp"
 
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "nlohmann/json.hpp"
-#include "projectagamemnon/hmas_types.hpp"
 
 namespace projectagamemnon {
 

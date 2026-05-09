@@ -1,11 +1,11 @@
 #pragma once
 
+#include "projectagamemnon/hmas_types.hpp"
+
 #include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
-
-#include "projectagamemnon/hmas_types.hpp"
 
 namespace projectagamemnon {
 
@@ -24,8 +24,8 @@ std::string task_event_to_string(TaskEvent event);
 
 struct Transition {
   TaskState target;
-  std::function<bool(const HmasTask&)> guard;   // nullptr = always allowed
-  std::function<void(HmasTask&)> action;         // nullptr = no side effect
+  std::function<bool(const HmasTask&)> guard;  // nullptr = always allowed
+  std::function<void(HmasTask&)> action;       // nullptr = no side effect
 };
 
 /// Transition table for HMAS task state machine.
@@ -45,9 +45,7 @@ class TaskStateMachine {
   struct Key {
     TaskState state;
     TaskEvent event;
-    bool operator==(const Key& o) const noexcept {
-      return state == o.state && event == o.event;
-    }
+    bool operator==(const Key& o) const noexcept { return state == o.state && event == o.event; }
   };
 
   struct KeyHash {

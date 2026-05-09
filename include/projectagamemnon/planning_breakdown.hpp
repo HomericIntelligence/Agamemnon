@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vector>
-
 #include "projectagamemnon/hmas_types.hpp"
+
+#include <vector>
 
 namespace projectagamemnon {
 

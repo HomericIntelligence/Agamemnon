@@ -1,11 +1,12 @@
 #pragma once
 
-#include <string>
-
-#include "nlohmann/json.hpp"
 #include "projectagamemnon/hmas_types.hpp"
 #include "projectagamemnon/planning_breakdown.hpp"
 #include "projectagamemnon/state_machine.hpp"
+
+#include <string>
+
+#include "nlohmann/json.hpp"
 
 namespace projectagamemnon {
 
@@ -37,10 +38,10 @@ class Orchestrator {
   json get_plan(const std::string& brief_id) const;
 
  private:
-  Store&            store_;
-  NatsClient&       nats_;
+  Store& store_;
+  NatsClient& nats_;
   PlanningBreakdown breakdown_;
-  TaskStateMachine  state_machine_;
+  TaskStateMachine state_machine_;
 
   /// NATS subject for a given layer.
   static std::string myrmidon_subject(HmasLayer layer, const std::string& task_id);

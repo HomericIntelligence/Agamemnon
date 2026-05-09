@@ -1,14 +1,13 @@
 #include "projectagamemnon/orchestrator.hpp"
 
-#include <iostream>
-
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/store.hpp"
 
+#include <iostream>
+
 namespace projectagamemnon {
 
-Orchestrator::Orchestrator(Store& store, NatsClient& nats)
-    : store_(store), nats_(nats) {}
+Orchestrator::Orchestrator(Store& store, NatsClient& nats) : store_(store), nats_(nats) {}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -33,10 +32,9 @@ std::string Orchestrator::submit(TaskBrief brief) {
       json payload = hmas_task_to_json(*root);
       payload["brief_id"] = brief.id;
       nats_.publish(subj, payload.dump());
-      nats_.publish_log("hi.logs.agamemnon.brief_submitted", "info",
-                        "Brief submitted: " + brief.id,
-                        {{"brief_id", brief.id}, {"root_task_id", root->id},
-                         {"task_count", tasks.size()}});
+      nats_.publish_log(
+          "hi.logs.agamemnon.brief_submitted", "info", "Brief submitted: " + brief.id,
+          {{"brief_id", brief.id}, {"root_task_id", root->id}, {"task_count", tasks.size()}});
     }
   }
 
@@ -68,10 +66,10 @@ bool Orchestrator::escalate(const std::string& task_id, const std::string& reaso
   if (!state_machine_.try_transition(*task, TaskEvent::Escalate)) return false;
 
   EscalationRecord rec;
-  rec.task_id      = task_id;
-  rec.reason       = reason;
+  rec.task_id = task_id;
+  rec.reason = reason;
   rec.escalated_at = now_iso8601();
-  rec.from_layer   = task->layer;
+  rec.from_layer = task->layer;
   task->escalations.push_back(rec);
   store_.update_hmas_task(*task);
 
@@ -83,15 +81,14 @@ bool Orchestrator::escalate(const std::string& task_id, const std::string& reaso
   json payload = hmas_task_to_json(*task);
   payload["escalation_reason"] = reason;
   nats_.publish(myrmidon_subject(parent_layer, task->id), payload.dump());
-  nats_.publish_log("hi.logs.agamemnon.task_escalated", "warn",
-                    "Task escalated: " + task_id,
-                    {{"task_id", task_id}, {"reason", reason},
+  nats_.publish_log("hi.logs.agamemnon.task_escalated", "warn", "Task escalated: " + task_id,
+                    {{"task_id", task_id},
+                     {"reason", reason},
                      {"from_layer", hmas_layer_to_string(task->layer)}});
   return true;
 }
 
-void Orchestrator::on_myrmidon_completion(const std::string& subject,
-                                          const std::string& payload) {
+void Orchestrator::on_myrmidon_completion(const std::string& subject, const std::string& payload) {
   try {
     auto msg = json::parse(payload);
     std::string task_id;
@@ -111,8 +108,7 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject,
 
     // L3 tasks go InProgress → Completed.
     // Higher-layer tasks also resolve when myrmidon reports done.
-    if (task->state == TaskState::Delegated)
-      state_machine_.try_transition(*task, TaskEvent::Start);
+    if (task->state == TaskState::Delegated) state_machine_.try_transition(*task, TaskEvent::Start);
     state_machine_.try_transition(*task, TaskEvent::Complete);
     store_.update_hmas_task(*task);
 
@@ -151,10 +147,18 @@ json Orchestrator::get_plan(const std::string& brief_id) const {
 std::string Orchestrator::myrmidon_subject(HmasLayer layer, const std::string& task_id) {
   std::string layer_str;
   switch (layer) {
-    case HmasLayer::L0_ChiefArchitect: layer_str = "chief_architect"; break;
-    case HmasLayer::L1_ComponentLead:  layer_str = "component_lead";  break;
-    case HmasLayer::L2_ModuleLead:     layer_str = "module_lead";     break;
-    case HmasLayer::L3_TaskAgent:      layer_str = "task_agent";      break;
+    case HmasLayer::L0_ChiefArchitect:
+      layer_str = "chief_architect";
+      break;
+    case HmasLayer::L1_ComponentLead:
+      layer_str = "component_lead";
+      break;
+    case HmasLayer::L2_ModuleLead:
+      layer_str = "module_lead";
+      break;
+    case HmasLayer::L3_TaskAgent:
+      layer_str = "task_agent";
+      break;
   }
   return "hi.myrmidon." + layer_str + "." + task_id;
 }

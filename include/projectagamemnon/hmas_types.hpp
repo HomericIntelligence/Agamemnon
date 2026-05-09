@@ -40,15 +40,15 @@ struct EscalationRecord {
 
 struct HmasTask {
   std::string id;
-  std::string brief_id;      // root brief this task belongs to
+  std::string brief_id;        // root brief this task belongs to
   std::string parent_task_id;  // empty for L0 root
   HmasLayer layer;
   TaskState state;
   std::string subject;
   std::string description;
-  std::string repo;        // relevant repository (L1+)
-  std::string module;      // relevant module (L2+)
-  std::string assigned_lead_id;  // agent assigned at this layer
+  std::string repo;                     // relevant repository (L1+)
+  std::string module;                   // relevant module (L2+)
+  std::string assigned_lead_id;         // agent assigned at this layer
   std::vector<std::string> blocked_by;  // task IDs this task depends on
   std::vector<std::string> child_task_ids;
   std::vector<EscalationRecord> escalations;
@@ -57,7 +57,7 @@ struct HmasTask {
 };
 
 struct TaskBrief {
-  std::string id;         // generated on submit
+  std::string id;  // generated on submit
   std::string title;
   std::string description;
   std::vector<std::string> repos;

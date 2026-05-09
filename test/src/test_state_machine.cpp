@@ -8,7 +8,7 @@ namespace {
 HmasTask make_task(HmasLayer layer = HmasLayer::L0_ChiefArchitect,
                    TaskState state = TaskState::Pending) {
   HmasTask t;
-  t.id    = "test-task";
+  t.id = "test-task";
   t.layer = layer;
   t.state = state;
   return t;
