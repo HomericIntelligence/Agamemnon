@@ -176,7 +176,8 @@ bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
   // Ownership transfers to the C library on successful subscribe; the callback
   // deletes the context when the subscription fires or is destroyed.
   auto ctx = std::make_unique<CallbackContext>(CallbackContext{std::move(cb)});
-  CallbackContext* raw = ctx.release();  // NOLINT(cppcoreguidelines-owning-memory) — ownership transfer to nats.c C API
+  CallbackContext* raw = ctx.release();  // NOLINT(cppcoreguidelines-owning-memory) — ownership
+                                         // transfer to nats.c C API
 
   natsSubscription* sub = nullptr;
   natsStatus s =
