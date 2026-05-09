@@ -1,18 +1,16 @@
 #include "projectagamemnon/peer_discovery.hpp"
 
 #include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <netinet/in.h>
+#include <nlohmann/json.hpp>
 #include <sstream>
 #include <string>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <vector>
-
-#include <nlohmann/json.hpp>
 
 namespace projectagamemnon {
 
@@ -51,13 +49,13 @@ bool tcp_connect_with_timeout(const std::string& ip, int port, int timeout_ms) {
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) return false;
 
-  struct timeval tv{};
+  struct timeval tv {};
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(static_cast<uint16_t>(port));
   if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {
@@ -65,8 +63,7 @@ bool tcp_connect_with_timeout(const std::string& ip, int port, int timeout_ms) {
     return false;
   }
 
-  bool ok =
-      (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0);
+  bool ok = (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0);
   close(sock);
   return ok;
 }
@@ -75,13 +72,13 @@ bool check_nats_monitoring(const std::string& ip, int monitor_port, int timeout_
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) return false;
 
-  struct timeval tv{};
+  struct timeval tv {};
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(static_cast<uint16_t>(monitor_port));
   if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {
@@ -157,8 +154,7 @@ std::vector<PeerCandidate> enumerate_tailscale_peers(const std::string& status_j
   return candidates;
 }
 
-bool probe_nats_peer(const std::string& ip, int nats_port, int monitor_port,
-                     int timeout_ms) {
+bool probe_nats_peer(const std::string& ip, int nats_port, int monitor_port, int timeout_ms) {
   // First check the monitoring endpoint — faster failure than a full NATS handshake.
   if (!check_nats_monitoring(ip, monitor_port, timeout_ms)) return false;
   return tcp_connect_with_timeout(ip, nats_port, timeout_ms);

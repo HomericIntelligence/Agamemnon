@@ -33,8 +33,7 @@ int main() {
     nats_url = projectagamemnon::discover_nats_url();
     if (nats_url.empty()) {
       nats_url = "nats://localhost:4222";
-      std::cout << "[agamemnon] no Tailscale NATS peer found, falling back to " << nats_url
-                << "\n";
+      std::cout << "[agamemnon] no Tailscale NATS peer found, falling back to " << nats_url << "\n";
     } else {
       std::cout << "[agamemnon] discovered NATS peer: " << nats_url << "\n";
     }
