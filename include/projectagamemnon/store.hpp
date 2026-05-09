@@ -30,7 +30,8 @@ class Store {
   json create_agent(const json& body);
   json get_agent(const std::string& id);
   json get_agent_by_name(const std::string& name);
-  json list_agents(std::size_t limit, std::size_t offset);
+  // limit=0 means "return all"; offset is the number of items to skip.
+  json list_agents(std::size_t limit = 0, std::size_t offset = 0);
   json update_agent(const std::string& id, const json& fields);
   bool delete_agent(const std::string& id);
   json start_agent(const std::string& id);
@@ -39,7 +40,7 @@ class Store {
   // ── Teams ──────────────────────────────────────────────────────────────
   json create_team(const json& body);
   json get_team(const std::string& id);
-  json list_teams(std::size_t limit, std::size_t offset);
+  json list_teams(std::size_t limit = 0, std::size_t offset = 0);
   json update_team(const std::string& id, const json& body);
   bool delete_team(const std::string& id);
 
@@ -47,12 +48,13 @@ class Store {
   json create_task(const std::string& team_id, const json& body);
   json get_task(const std::string& team_id, const std::string& task_id);
   json update_task(const std::string& team_id, const std::string& task_id, const json& body);
-  json list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset);
-  json list_all_tasks(std::size_t limit, std::size_t offset);
+  json list_tasks_for_team(const std::string& team_id, std::size_t limit = 0,
+                           std::size_t offset = 0);
+  json list_all_tasks(std::size_t limit = 0, std::size_t offset = 0);
   void mark_task_completed(const std::string& task_id);
 
   // ── Chaos faults ───────────────────────────────────────────────────────
-  json list_faults(std::size_t limit, std::size_t offset);
+  json list_faults(std::size_t limit = 0, std::size_t offset = 0);
   json create_fault(const std::string& type);
   bool remove_fault(const std::string& id);
 

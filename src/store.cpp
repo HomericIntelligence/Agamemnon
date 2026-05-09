@@ -245,7 +245,7 @@ json Store::list_agents(std::size_t limit, std::size_t offset) {
   std::size_t idx = 0;
   for (auto& [id, agent] : agents_) {
     if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
+    if (limit != 0 && arr.size() >= limit) break;
     arr.push_back(agent);
   }
   return {{"agents", arr}, {"total", agents_.size()}, {"limit", limit}, {"offset", offset}};
@@ -343,7 +343,7 @@ json Store::list_teams(std::size_t limit, std::size_t offset) {
   std::size_t idx = 0;
   for (auto& [id, team] : teams_) {
     if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
+    if (limit != 0 && arr.size() >= limit) break;
     arr.push_back(team);
   }
   return {{"teams", arr}, {"total", teams_.size()}, {"limit", limit}, {"offset", offset}};
@@ -448,7 +448,7 @@ json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, s
     if (task.value("teamId", "") != team_id) continue;
     ++total;
     if (idx++ < offset) continue;
-    if (arr.size() >= limit) continue;
+    if (limit != 0 && arr.size() >= limit) continue;
     arr.push_back(task);
   }
   return {{"tasks", arr}, {"total", total}, {"limit", limit}, {"offset", offset}};
@@ -461,7 +461,7 @@ json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
   std::size_t idx = 0;
   for (auto& [id, task] : tasks_) {
     if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
+    if (limit != 0 && arr.size() >= limit) break;
     arr.push_back(task);
   }
   return {{"tasks", arr}, {"total", tasks_.size()}, {"limit", limit}, {"offset", offset}};
@@ -490,7 +490,7 @@ json Store::list_faults(std::size_t limit, std::size_t offset) {
   std::size_t idx = 0;
   for (auto& [id, fault] : faults_) {
     if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
+    if (limit != 0 && arr.size() >= limit) break;
     arr.push_back(fault);
   }
   return {{"faults", arr}, {"total", faults_.size()}, {"limit", limit}, {"offset", offset}};
