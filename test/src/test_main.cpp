@@ -1,6 +1,7 @@
 #include "projectagamemnon/version.hpp"
 
 #include <algorithm>
+
 #include <gtest/gtest.h>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
