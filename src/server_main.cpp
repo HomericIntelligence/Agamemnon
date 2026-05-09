@@ -1,4 +1,5 @@
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/port_parse.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
 #include "projectagamemnon/version.hpp"
@@ -60,7 +61,16 @@ int main() {
   projectagamemnon::register_routes(server, store, nats);
 
   const char* port_env = std::getenv("PORT");
-  int port = port_env ? std::stoi(port_env) : 8080;
+  int port = 8080;
+  if (port_env) {
+    auto result = projectagamemnon::parse_port(port_env);
+    if (!result.port.has_value()) {
+      std::cerr << "[agamemnon] WARNING: PORT=\"" << port_env << "\" is invalid (" << result.error
+                << "), defaulting to " << port << "\n";
+    } else {
+      port = result.port.value();
+    }
+  }
 
   std::cout << "[agamemnon] listening on 0.0.0.0:" << port << "\n";
   server.listen("0.0.0.0", port);

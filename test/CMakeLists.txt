@@ -5,7 +5,8 @@ find_package(nlohmann_json REQUIRED)
 
 add_executable(${PROJECT_NAME}_tests
   src/test_main.cpp
-  src/test_store.cpp)
+  src/test_store.cpp
+  src/test_parse_port.cpp)
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_tests PROPERTIES CXX_EXTENSIONS OFF)
