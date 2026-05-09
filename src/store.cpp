@@ -438,8 +438,7 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
   return it->second;
 }
 
-json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit,
-                                std::size_t offset) {
+json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset) {
   std::shared_lock<std::shared_mutex> lk(mutex_);
   ensure_tasks_loaded_();
   json arr = json::array();

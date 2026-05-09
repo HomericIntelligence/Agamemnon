@@ -6,13 +6,9 @@ namespace projectagamemnon::test {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-static json make_agent(const std::string& name) {
-  return {{"name", name}};
-}
+static json make_agent(const std::string& name) { return {{"name", name}}; }
 
-static json make_team(const std::string& name) {
-  return {{"name", name}};
-}
+static json make_team(const std::string& name) { return {{"name", name}}; }
 
 static json make_task(const std::string& subject) {
   return {{"subject", subject}, {"type", "general"}};
