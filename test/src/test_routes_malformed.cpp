@@ -286,15 +286,7 @@ TEST_F(RoutesTest, StopNonExistentAgentHttp) {
   EXPECT_EQ(res->status, 404);
 }
 
-// ── GET /v1/workflows (stub) ──────────────────────────────────────────────────
-
-TEST_F(RoutesTest, GetWorkflowsStub) {
-  auto res = client_->Get("/v1/workflows");
-  ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 200);
-  json body = json::parse(res->body);
-  EXPECT_TRUE(body.contains("workflows"));
-  EXPECT_TRUE(body["workflows"].is_array());
-}
+// ── GET /v1/workflows ─────────────────────────────────────────────────────────
+// Endpoint removed; coverage lives in test_main.cpp::RoutesRemovedTest.WorkflowsEndpointRemoved.
 
 }  // namespace projectagamemnon::test

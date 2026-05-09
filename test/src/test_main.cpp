@@ -3,12 +3,13 @@
 #include <gtest/gtest.h>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include <thread>
-
-#include "httplib.h"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
+
+#include <thread>
+
+#include "httplib.h"
 
 namespace projectagamemnon::test {
 
@@ -17,7 +18,7 @@ TEST(VersionTest, ProjectNameIsCorrect) { EXPECT_EQ(kProjectName, "ProjectAgamem
 TEST(VersionTest, VersionIsSet) { EXPECT_FALSE(kVersion.empty()); }
 
 // Verify the removed /v1/workflows stub returns 404 (not registered).
-TEST(RoutesTest, WorkflowsEndpointRemoved) {
+TEST(RoutesRemovedTest, WorkflowsEndpointRemoved) {
   Store store;
   NatsClient nats("nats://localhost:4222");  // never connected — publish is a no-op
   httplib::Server server;
