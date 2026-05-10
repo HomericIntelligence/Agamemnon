@@ -377,4 +377,53 @@ TEST_F(RoutesHappyPathTest, DeleteChaosNotFound) {
   EXPECT_EQ(res->status, 404);
 }
 
+// ── Metrics endpoint ──────────────────────────────────────────────────────────
+
+TEST_F(RoutesHappyPathTest, MetricsEndpointReturnsPrometheusText) {
+  auto res = Get("/metrics");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  // Content-Type must start with "text/plain"
+  auto ct = res->get_header_value("Content-Type");
+  EXPECT_EQ(ct.substr(0, 10), "text/plain");
+  // Body must contain standard Prometheus text-format markers
+  EXPECT_NE(res->body.find("# HELP"), std::string::npos);
+  EXPECT_NE(res->body.find("# TYPE"), std::string::npos);
+}
+
+TEST_F(RoutesHappyPathTest, MetricsBodyContainsKnownMetrics) {
+  // Warm up a request so counters are non-zero
+  Get("/health");
+  auto res = Get("/metrics");
+  ASSERT_TRUE(res);
+  EXPECT_NE(res->body.find("hi_http_requests_total"), std::string::npos);
+  EXPECT_NE(res->body.find("hi_http_request_duration_seconds"), std::string::npos);
+}
+
+// ── Dead-letter queue endpoints ───────────────────────────────────────────────
+
+TEST_F(RoutesHappyPathTest, DeadLetterGetReturnsEmptyArray) {
+  auto res = Get("/v1/dead-letter");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  auto body = json::parse(res->body);
+  ASSERT_TRUE(body.contains("dead_letter_queue"));
+  EXPECT_TRUE(body["dead_letter_queue"].is_array());
+}
+
+TEST_F(RoutesHappyPathTest, DeadLetterDeleteReturnsCleared) {
+  auto del_res = Delete("/v1/dead-letter");
+  ASSERT_TRUE(del_res);
+  EXPECT_EQ(del_res->status, 200);
+  auto del_body = json::parse(del_res->body);
+  EXPECT_TRUE(del_body.contains("cleared"));
+
+  // After DELETE the GET should still return an empty array
+  auto get_res = Get("/v1/dead-letter");
+  ASSERT_TRUE(get_res);
+  EXPECT_EQ(get_res->status, 200);
+  auto get_body = json::parse(get_res->body);
+  EXPECT_TRUE(get_body["dead_letter_queue"].is_array());
+}
+
 }  // namespace projectagamemnon::test
