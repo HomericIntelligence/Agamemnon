@@ -1,4 +1,5 @@
 #include "projectagamemnon/auth.hpp"
+#include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
@@ -26,7 +27,7 @@ class ValidationTest : public ::testing::Test {
     nats_ = std::make_unique<NatsClient>("nats://127.0.0.1:4222");
     // NatsClient is intentionally not connected; publish() is a no-op when disconnected.
 
-    register_routes(server_, store_, *nats_, rate_limiter_, auth_);
+    register_routes(server_, store_, *nats_, rate_limiter_, auth_, metrics_);
 
     port_ = server_.bind_to_any_port("127.0.0.1");
     server_thread_ = std::thread([this] { server_.listen_after_bind(); });
@@ -86,6 +87,7 @@ class ValidationTest : public ::testing::Test {
   std::unique_ptr<NatsClient> nats_;
   RateLimiter rate_limiter_{1e9, 1e9};  // effectively unlimited for tests
   AuthMiddleware auth_{""};             // empty key — all requests pass auth in test
+  MetricsRegistry metrics_;
   std::thread server_thread_;
   int port_ = 0;
 };
