@@ -52,6 +52,7 @@ target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
     agamemnon_lib
+    agamemnon_peer_discovery
     GTest::gtest_main
     httplib::httplib
     nlohmann_json::nlohmann_json
