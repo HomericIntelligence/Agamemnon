@@ -26,6 +26,10 @@ add_executable(${PROJECT_NAME}_tests
   src/test_auth.cpp
   src/test_rate_limiter.cpp
   src/test_shutdown.cpp
+  src/test_hmas_types.cpp
+  src/test_orchestrator.cpp
+  src/test_planning_breakdown.cpp
+  src/test_state_machine.cpp
   ${PROJECT_SOURCE_DIR}/src/routes.cpp
   ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/nats_client.cpp

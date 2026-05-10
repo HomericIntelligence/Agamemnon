@@ -1,6 +1,7 @@
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
@@ -25,12 +26,13 @@ class RoutesTest : public ::testing::Test {
   RateLimiter rate_limiter_{1e9, 1e9};        // effectively unlimited for tests
   AuthMiddleware auth_{""};                   // empty key — all requests pass auth in test
   MetricsRegistry metrics_;
+  Orchestrator orchestrator_{store_, nats_};  // HMAS orchestrator
   httplib::Server server_;
   std::thread server_thread_;
   std::unique_ptr<httplib::Client> client_;
 
   void SetUp() override {
-    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_);
+    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
     int port = server_.bind_to_any_port("127.0.0.1");
     ASSERT_GT(port, 0);
     server_thread_ = std::thread([this] { server_.listen_after_bind(); });

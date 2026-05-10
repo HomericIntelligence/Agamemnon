@@ -1,6 +1,7 @@
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
@@ -24,8 +25,9 @@ class RoutesAuthTest : public ::testing::Test {
     auth_ = std::make_unique<AuthMiddleware>(kKey);
     store_ = std::make_unique<Store>();
     nats_ = std::make_unique<NatsClient>("nats://127.0.0.1:14222");
+    orchestrator_ = std::make_unique<Orchestrator>(*store_, *nats_);
 
-    register_routes(server_, *store_, *nats_, rate_limiter_, *auth_, metrics_);
+    register_routes(server_, *store_, *nats_, rate_limiter_, *auth_, metrics_, *orchestrator_);
 
     // Bind to an OS-assigned port to avoid cross-test port conflicts.
     port_ = server_.bind_to_any_port("127.0.0.1");
@@ -70,6 +72,7 @@ class RoutesAuthTest : public ::testing::Test {
   std::unique_ptr<AuthMiddleware> auth_;
   std::unique_ptr<Store> store_;
   std::unique_ptr<NatsClient> nats_;
+  std::unique_ptr<Orchestrator> orchestrator_;
 };
 
 // ── Health endpoints: exempt from auth ───────────────────────────────────────

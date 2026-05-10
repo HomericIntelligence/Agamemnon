@@ -1,14 +1,15 @@
 #pragma once
 
 #include "projectagamemnon/github_client.hpp"
+#include "projectagamemnon/hmas_types.hpp"
 
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "nlohmann/json.hpp"
 
@@ -71,6 +72,15 @@ class Store {
   json create_fault(const std::string& type);
   bool remove_fault(const std::string& id);
 
+  // ── HMAS typed tasks ───────────────────────────────────────────────────
+  void create_hmas_task(const HmasTask& task);
+  HmasTask* get_hmas_task(const std::string& id);
+  bool update_hmas_task_state(const std::string& id, TaskState state);
+  bool update_hmas_task(const HmasTask& task);
+  std::vector<HmasTask> list_hmas_tasks_by_layer(HmasLayer layer);
+  std::vector<HmasTask> list_hmas_tasks_by_parent(const std::string& parent_id);
+  std::vector<HmasTask> list_hmas_tasks_by_brief(const std::string& brief_id);
+
  private:
   std::shared_ptr<IGitHubClient> gh_;
   MetricsRegistry* metrics_ = nullptr;
@@ -79,6 +89,7 @@ class Store {
   std::unordered_map<std::string, json> teams_;
   std::unordered_map<std::string, json> tasks_;
   std::unordered_map<std::string, json> faults_;
+  std::unordered_map<std::string, HmasTask> hmas_tasks_;
 
   bool agents_loaded_{false};
   bool teams_loaded_{false};

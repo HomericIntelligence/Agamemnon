@@ -1,6 +1,7 @@
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/peer_discovery.hpp"
 #include "projectagamemnon/port_parse.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
@@ -82,31 +83,20 @@ int main() {
 
   projectagamemnon::NatsClient nats(nats_url);
   nats.set_metrics(&metrics);
+
+  // ── HMAS Orchestrator ────────────────────────────────────────────────────
+  projectagamemnon::Orchestrator orchestrator(store, nats);
+
   if (nats.connect()) {
     std::cout << "[agamemnon] connected to NATS at " << nats_url << "\n";
     nats.ensure_streams();
 
     // Subscribe to task-completion events published by myrmidons.
     // Myrmidons publish to hi.tasks.{team_id}.{task_id}.completed
-    nats.subscribe(
-        "hi.tasks.*.*.completed", [&store](const std::string& subject, const std::string& data) {
-          try {
-            auto msg = nlohmann::json::parse(data);
-            // Myrmidon payload uses "task_id" (snake_case)
-            std::string task_id;
-            if (msg.contains("data") && msg["data"].contains("task_id")) {
-              task_id = msg["data"]["task_id"].get<std::string>();
-            } else if (msg.contains("task_id")) {
-              task_id = msg["task_id"].get<std::string>();
-            }
-            if (!task_id.empty()) {
-              store.mark_task_completed(task_id);
-              std::cout << "[agamemnon] task completed via " << subject << ": " << task_id << "\n";
-            }
-          } catch (...) {
-            // Ignore malformed payloads.
-          }
-        });
+    nats.subscribe("hi.tasks.*.*.completed",
+                   [&orchestrator](const std::string& subject, const std::string& data) {
+                     orchestrator.on_myrmidon_completion(subject, data);
+                   });
   } else {
     std::cerr << "[agamemnon] WARNING: running without NATS — events will be skipped\n";
   }
@@ -143,7 +133,7 @@ int main() {
   server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
                                 1024UL * 1024UL);
 
-  projectagamemnon::register_routes(server, store, nats, rate_limiter, auth, metrics);
+  projectagamemnon::register_routes(server, store, nats, rate_limiter, auth, metrics, orchestrator);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;
