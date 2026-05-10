@@ -58,10 +58,10 @@ class RoutesHappyPathTest : public ::testing::Test {
 
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};  // never connected — all publishes are no-ops
-  RateLimiter rate_limiter_{1e9, 1e9};          // effectively unlimited for tests
-  AuthMiddleware auth_{""};                     // empty key = allow all requests in tests
+  RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for tests
+  AuthMiddleware auth_{""};                    // empty key = allow all requests in tests
   MetricsRegistry metrics_;
-  Orchestrator orchestrator_{store_, nats_};    // HMAS orchestrator
+  Orchestrator orchestrator_{store_, nats_};  // HMAS orchestrator
   httplib::Server server_;
   std::thread server_thread_;
   std::unique_ptr<httplib::Client> client_;

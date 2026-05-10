@@ -45,7 +45,7 @@ class RoutesLimitsTest : public ::testing::Test {
   RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for limits tests
   AuthMiddleware auth_{""};                    // no-key mode — auth is bypassed
   MetricsRegistry metrics_;
-  Orchestrator orchestrator_{store_, nats_};   // HMAS orchestrator
+  Orchestrator orchestrator_{store_, nats_};  // HMAS orchestrator
   httplib::Server svr_;
   int port_{0};
   std::thread thread_;
