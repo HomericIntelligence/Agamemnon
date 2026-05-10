@@ -90,13 +90,6 @@ TEST_F(RoutesHappyPathTest, Version) {
   EXPECT_EQ(body["name"], "ProjectAgamemnon");
 }
 
-TEST_F(RoutesHappyPathTest, WorkflowsEmpty) {
-  auto res = Get("/v1/workflows");
-  ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 200);
-  EXPECT_TRUE(json::parse(res->body)["workflows"].empty());
-}
-
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 TEST_F(RoutesHappyPathTest, ListAgentsEmpty) {
@@ -291,7 +284,8 @@ TEST_F(RoutesTaskTest, ListAllTasksEmpty) {
 }
 
 TEST_F(RoutesTaskTest, CreateTask) {
-  auto res = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "build"}, {"type", "build"}});
+  auto res =
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "build"}, {"type", "implementation"}});
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 201);
   auto body = json::parse(res->body);
@@ -338,23 +332,14 @@ TEST_F(RoutesTaskTest, PatchTaskNotFound) {
 TEST_F(RoutesTaskTest, PutTask) {
   std::string task_id = json::parse(
       Post("/v1/teams/" + team_id + "/tasks", {{"subject", "work"}})->body)["task"]["id"];
-  auto res = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "in_progress"}});
+  auto res = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "running"}});
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 200);
-  EXPECT_EQ(json::parse(res->body)["task"]["status"], "in_progress");
+  EXPECT_EQ(json::parse(res->body)["task"]["status"], "running");
 }
 
 TEST_F(RoutesTaskTest, PutTaskNotFound) {
   EXPECT_EQ(Put("/v1/teams/" + team_id + "/tasks/nope", {})->status, 404);
-}
-
-// ── Workflows ─────────────────────────────────────────────────────────────────
-
-TEST_F(RoutesHappyPathTest, ListWorkflows) {
-  auto res = Get("/v1/workflows");
-  ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 200);
-  EXPECT_EQ(json::parse(res->body)["workflows"].size(), 0u);
 }
 
 // ── Chaos ─────────────────────────────────────────────────────────────────────
