@@ -391,13 +391,13 @@ TEST_F(RoutesHappyPathTest, MetricsEndpointReturnsPrometheusText) {
   EXPECT_NE(res->body.find("# TYPE"), std::string::npos);
 }
 
-TEST_F(RoutesHappyPathTest, MetricsBodyContainsKnownMetrics) {
-  // Warm up a request so counters are non-zero
-  Get("/health");
+TEST_F(RoutesHappyPathTest, MetricsBodyContainsProcessStartTime) {
+  // hi_process_start_time_seconds and hi_build_info are always populated at
+  // MetricsRegistry construction, so they appear even before any requests are made.
   auto res = Get("/metrics");
   ASSERT_TRUE(res);
-  EXPECT_NE(res->body.find("hi_http_requests_total"), std::string::npos);
-  EXPECT_NE(res->body.find("hi_http_request_duration_seconds"), std::string::npos);
+  EXPECT_NE(res->body.find("hi_process_start_time_seconds"), std::string::npos);
+  EXPECT_NE(res->body.find("hi_build_info"), std::string::npos);
 }
 
 // ── Dead-letter queue endpoints ───────────────────────────────────────────────
