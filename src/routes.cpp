@@ -10,7 +10,9 @@
 // cpp-httplib — single-header, no SSL needed for internal mesh traffic
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <algorithm>
+#include <cstddef>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -20,6 +22,18 @@
 namespace projectagamemnon {
 
 using json = nlohmann::json;
+
+// ── Pagination ────────────────────────────────────────────────────────────────
+
+namespace {
+constexpr std::size_t kDefaultLimit = 100;
+constexpr std::size_t kMaxLimit = 1000;
+
+struct PaginationParams {
+  std::size_t limit;
+  std::size_t offset;
+};
+}  // namespace
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +64,26 @@ static bool parse_body(const httplib::Request& req, httplib::Response& res, json
     reply_bad_request(res, std::string("invalid JSON: ") + e.what());
     return false;
   }
+}
+
+/// Parse limit/offset query params; returns nullopt and sets 400 on parse error.
+static std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
+                                                        httplib::Response& res) {
+  std::size_t limit = kDefaultLimit;
+  std::size_t offset = 0;
+  try {
+    if (req.has_param("limit")) {
+      auto v = std::stoul(req.get_param_value("limit"));
+      limit = std::min(v, kMaxLimit);
+    }
+    if (req.has_param("offset")) {
+      offset = std::stoul(req.get_param_value("offset"));
+    }
+  } catch (const std::exception&) {
+    reply_bad_request(res, "limit and offset must be non-negative integers");
+    return std::nullopt;
+  }
+  return PaginationParams{limit, offset};
 }
 
 // ── Validation allowlists ─────────────────────────────────────────────────────
@@ -208,7 +242,12 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // GET /v1/agents
   server.Get("/v1/agents", [sp, mp](const httplib::Request& req, httplib::Response& res) {
     RequestTimer t(*mp, req.method, "/v1/agents");
-    reply_json(res, 200, sp->list_agents());
+    auto p = parse_pagination(req, res);
+    if (!p) {
+      t.set_status(400);
+      return;
+    }
+    reply_json(res, 200, sp->list_agents(p->limit, p->offset));
     t.set_status(200);
   });
 
@@ -410,7 +449,12 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // GET /v1/teams
   server.Get("/v1/teams", [sp, mp](const httplib::Request& req, httplib::Response& res) {
     RequestTimer t(*mp, req.method, "/v1/teams");
-    reply_json(res, 200, sp->list_teams());
+    auto p = parse_pagination(req, res);
+    if (!p) {
+      t.set_status(400);
+      return;
+    }
+    reply_json(res, 200, sp->list_teams(p->limit, p->offset));
     t.set_status(200);
   });
 
@@ -517,7 +561,12 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // GET /v1/tasks  (all tasks across all teams)
   server.Get("/v1/tasks", [sp, mp](const httplib::Request& req, httplib::Response& res) {
     RequestTimer t(*mp, req.method, "/v1/tasks");
-    reply_json(res, 200, sp->list_all_tasks());
+    auto p = parse_pagination(req, res);
+    if (!p) {
+      t.set_status(400);
+      return;
+    }
+    reply_json(res, 200, sp->list_all_tasks(p->limit, p->offset));
     t.set_status(200);
   });
 
@@ -526,7 +575,12 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
              [sp, mp](const httplib::Request& req, httplib::Response& res) {
                RequestTimer t(*mp, req.method, "/v1/teams/:team_id/tasks");
                std::string team_id = req.matches[1];
-               reply_json(res, 200, sp->list_tasks_for_team(team_id));
+               auto p = parse_pagination(req, res);
+               if (!p) {
+                 t.set_status(400);
+                 return;
+               }
+               reply_json(res, 200, sp->list_tasks_for_team(team_id, p->limit, p->offset));
                t.set_status(200);
              });
 
@@ -692,7 +746,12 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // GET /v1/chaos
   server.Get("/v1/chaos", [sp, mp](const httplib::Request& req, httplib::Response& res) {
     RequestTimer t(*mp, req.method, "/v1/chaos");
-    reply_json(res, 200, sp->list_faults());
+    auto p = parse_pagination(req, res);
+    if (!p) {
+      t.set_status(400);
+      return;
+    }
+    reply_json(res, 200, sp->list_faults(p->limit, p->offset));
     t.set_status(200);
   });
 

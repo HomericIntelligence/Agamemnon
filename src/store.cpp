@@ -240,12 +240,17 @@ json Store::get_agent_by_name(const std::string& name) {
   return nullptr;
 }
 
-json Store::list_agents() {
+json Store::list_agents(std::size_t limit, std::size_t offset) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_agents_loaded_();
   json arr = json::array();
-  for (auto& [id, agent] : agents_) arr.push_back(agent);
-  return {{"agents", arr}};
+  std::size_t idx = 0;
+  for (auto& [id, agent] : agents_) {
+    if (idx++ < offset) continue;
+    if (arr.size() >= limit) break;
+    arr.push_back(agent);
+  }
+  return {{"agents", arr}, {"total", agents_.size()}, {"limit", limit}, {"offset", offset}};
 }
 
 json Store::update_agent(const std::string& id, const json& fields) {
@@ -334,12 +339,17 @@ json Store::get_team(const std::string& id) {
   return it->second;
 }
 
-json Store::list_teams() {
+json Store::list_teams(std::size_t limit, std::size_t offset) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_teams_loaded_();
   json arr = json::array();
-  for (auto& [id, team] : teams_) arr.push_back(team);
-  return {{"teams", arr}};
+  std::size_t idx = 0;
+  for (auto& [id, team] : teams_) {
+    if (idx++ < offset) continue;
+    if (arr.size() >= limit) break;
+    arr.push_back(team);
+  }
+  return {{"teams", arr}, {"total", teams_.size()}, {"limit", limit}, {"offset", offset}};
 }
 
 json Store::update_team(const std::string& id, const json& body) {
@@ -437,22 +447,33 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
   return it->second;
 }
 
-json Store::list_tasks_for_team(const std::string& team_id) {
+json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_tasks_loaded_();
   json arr = json::array();
+  std::size_t total = 0;
+  std::size_t idx = 0;
   for (auto& [id, task] : tasks_) {
-    if (task.value("teamId", "") == team_id) arr.push_back(task);
+    if (task.value("teamId", "") != team_id) continue;
+    ++total;
+    if (idx++ < offset) continue;
+    if (arr.size() >= limit) continue;
+    arr.push_back(task);
   }
-  return {{"tasks", arr}};
+  return {{"tasks", arr}, {"total", total}, {"limit", limit}, {"offset", offset}};
 }
 
-json Store::list_all_tasks() {
+json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_tasks_loaded_();
   json arr = json::array();
-  for (auto& [id, task] : tasks_) arr.push_back(task);
-  return {{"tasks", arr}};
+  std::size_t idx = 0;
+  for (auto& [id, task] : tasks_) {
+    if (idx++ < offset) continue;
+    if (arr.size() >= limit) break;
+    arr.push_back(task);
+  }
+  return {{"tasks", arr}, {"total", tasks_.size()}, {"limit", limit}, {"offset", offset}};
 }
 
 void Store::mark_task_completed(const std::string& task_id) {
@@ -473,12 +494,17 @@ void Store::mark_task_completed(const std::string& task_id) {
 
 // ── Chaos faults ──────────────────────────────────────────────────────────────
 
-json Store::list_faults() {
+json Store::list_faults(std::size_t limit, std::size_t offset) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_faults_loaded_();
   json arr = json::array();
-  for (auto& [id, fault] : faults_) arr.push_back(fault);
-  return {{"faults", arr}};
+  std::size_t idx = 0;
+  for (auto& [id, fault] : faults_) {
+    if (idx++ < offset) continue;
+    if (arr.size() >= limit) break;
+    arr.push_back(fault);
+  }
+  return {{"faults", arr}, {"total", faults_.size()}, {"limit", limit}, {"offset", offset}};
 }
 
 json Store::create_fault(const std::string& type) {
