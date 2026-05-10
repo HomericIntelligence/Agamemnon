@@ -84,6 +84,7 @@ add_library(agamemnon_lib STATIC
   src/dead_letter_queue.cpp
   src/github_client.cpp
   src/rate_limiter.cpp
+  src/auth.cpp
 )
 
 target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
