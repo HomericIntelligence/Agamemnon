@@ -87,9 +87,20 @@ target_compile_options(${PROJECT_NAME}_routes_tests PRIVATE
   -Wno-cast-align
 )
 
+target_include_directories(${PROJECT_NAME}_routes_tests
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src)
+
 target_link_libraries(${PROJECT_NAME}_routes_tests
   PRIVATE
-    ${PROJECT_NAME}_core
-    GTest::gtest_main)
+    agamemnon_lib
+    GTest::gtest_main
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    nats_static
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    Threads::Threads)
 
-gtest_discover_tests(${PROJECT_NAME}_routes_tests)
+gtest_discover_tests(${PROJECT_NAME}_routes_tests DISCOVERY_TIMEOUT 120)

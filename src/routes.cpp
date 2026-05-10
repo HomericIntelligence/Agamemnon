@@ -21,11 +21,11 @@ namespace projectagamemnon {
 using json = nlohmann::json;
 
 // ── Input length limits ───────────────────────────────────────────────────────
-static constexpr std::size_t kMaxNameLen        = 256;
-static constexpr std::size_t kMaxLabelLen       = 256;
+static constexpr std::size_t kMaxNameLen = 256;
+static constexpr std::size_t kMaxLabelLen = 256;
 static constexpr std::size_t kMaxDescriptionLen = 4096;
-static constexpr std::size_t kMaxSubjectLen     = 512;
-static constexpr std::size_t kMaxProgramLen     = 1024;
+static constexpr std::size_t kMaxSubjectLen = 512;
+static constexpr std::size_t kMaxProgramLen = 1024;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -45,10 +45,10 @@ static void reply_bad_request(httplib::Response& res, const std::string& msg) {
 
 /// Returns false and sets 400 if value exceeds max_len.
 static bool check_field_length(httplib::Response& res, const std::string& field_name,
-                                const std::string& value, std::size_t max_len) {
+                               const std::string& value, std::size_t max_len) {
   if (value.size() > max_len) {
-    reply_bad_request(res, "field '" + field_name + "' exceeds maximum length of " +
-                               std::to_string(max_len));
+    reply_bad_request(
+        res, "field '" + field_name + "' exceeds maximum length of " + std::to_string(max_len));
     return false;
   }
   return true;
@@ -234,8 +234,8 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
         !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
       return;
     if (body.contains("taskDescription") &&
-        !check_field_length(res, "taskDescription",
-                            body["taskDescription"].get<std::string>(), kMaxDescriptionLen))
+        !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
+                            kMaxDescriptionLen))
       return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
@@ -271,8 +271,8 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
         !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
       return;
     if (body.contains("taskDescription") &&
-        !check_field_length(res, "taskDescription",
-                            body["taskDescription"].get<std::string>(), kMaxDescriptionLen))
+        !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
+                            kMaxDescriptionLen))
       return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
@@ -362,8 +362,8 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
             !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
           return;
         if (body.contains("taskDescription") &&
-            !check_field_length(res, "taskDescription",
-                                body["taskDescription"].get<std::string>(), kMaxDescriptionLen))
+            !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
+                                kMaxDescriptionLen))
           return;
         if (body.contains("status") && body["status"].is_string() &&
             !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))

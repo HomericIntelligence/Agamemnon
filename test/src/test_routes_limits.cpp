@@ -1,15 +1,16 @@
+#include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include <gtest/gtest.h>
-
 #include <string>
 #include <thread>
 
 #include "httplib.h"
 #include "nlohmann/json.hpp"
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -22,7 +23,7 @@ class RoutesLimitsTest : public ::testing::Test {
   void SetUp() override {
     port_ = svr_.bind_to_any_port("127.0.0.1");
     ASSERT_GT(port_, 0);
-    register_routes(svr_, store_, nats_);
+    register_routes(svr_, store_, nats_, rate_limiter_, auth_);
     thread_ = std::thread([this] { svr_.listen_after_bind(); });
   }
 
@@ -39,6 +40,8 @@ class RoutesLimitsTest : public ::testing::Test {
 
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};  // unreachable — publishes are no-ops
+  RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for limits tests
+  AuthMiddleware auth_{""};                    // no-key mode — auth is bypassed
   httplib::Server svr_;
   int port_{0};
   std::thread thread_;
@@ -134,7 +137,7 @@ TEST_F(RoutesLimitsTest, PatchAgentMissingNameSkipsCheck) {
   ASSERT_EQ(create_res->status, 201);
 
   std::string agent_id = json::parse(create_res->body)["agent"]["id"].get<std::string>();
-  json patch_body{{"status", "idle"}};
+  json patch_body{{"status", "online"}};
   auto res = c.Patch("/v1/agents/" + agent_id, patch_body.dump(), "application/json");
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 200);
