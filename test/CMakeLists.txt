@@ -54,21 +54,13 @@ target_link_libraries(${PROJECT_NAME}_tests
     agamemnon_lib
     agamemnon_peer_discovery
     GTest::gtest_main
+    GTest::gmock
     httplib::httplib
     nlohmann_json::nlohmann_json
-    GTest::gtest_main
-    GTest::gmock)
-
-target_compile_options(${PROJECT_NAME}_tests PRIVATE
-  -Wno-old-style-cast
-  -Wno-useless-cast
-  -Wno-conversion
-  -Wno-sign-conversion
-  -Wno-shadow
-  -Wno-format-nonliteral
-  -Wno-double-promotion
-  -Wno-cast-align
-)
+    nats_static
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    Threads::Threads)
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME}_tests DISCOVERY_TIMEOUT 120)

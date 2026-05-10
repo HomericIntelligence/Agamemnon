@@ -57,7 +57,7 @@ class RoutesHappyPathTest : public ::testing::Test {
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};  // never connected — all publishes are no-ops
   RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for tests
-  AuthMiddleware auth_{"test-api-key"};        // allow all requests in tests
+  AuthMiddleware auth_{""};  // empty key → allow all requests in tests
   httplib::Server server_;
   std::thread server_thread_;
   std::unique_ptr<httplib::Client> client_;
@@ -265,7 +265,9 @@ TEST_F(RoutesHappyPathTest, DeleteTeam) {
   EXPECT_EQ(Get("/v1/teams/" + id)->status, 404);
 }
 
-TEST_F(RoutesHappyPathTest, DeleteTeamNotFound) { EXPECT_EQ(Delete("/v1/teams/ghost")->status, 404); }
+TEST_F(RoutesHappyPathTest, DeleteTeamNotFound) {
+  EXPECT_EQ(Delete("/v1/teams/ghost")->status, 404);
+}
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
