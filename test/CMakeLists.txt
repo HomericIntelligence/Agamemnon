@@ -135,7 +135,10 @@ target_compile_options(${PROJECT_NAME}_integration_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_integration_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    GTest::gtest_main)
+    agamemnon_lib
+    GTest::gtest_main
+    httplib::httplib
+    nlohmann_json::nlohmann_json)
 
 gtest_discover_tests(${PROJECT_NAME}_integration_tests
   PROPERTIES LABELS "integration")
