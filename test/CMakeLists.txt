@@ -69,3 +69,38 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME}_tests DISCOVERY_TIMEOUT 120)
+
+# ── Route limits integration tests ───────────────────────────────────────────
+add_executable(${PROJECT_NAME}_routes_tests src/test_routes_limits.cpp)
+
+target_compile_features(${PROJECT_NAME}_routes_tests PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_routes_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+target_compile_options(${PROJECT_NAME}_routes_tests PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align
+)
+
+target_include_directories(${PROJECT_NAME}_routes_tests
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src)
+
+target_link_libraries(${PROJECT_NAME}_routes_tests
+  PRIVATE
+    agamemnon_lib
+    GTest::gtest_main
+    httplib::httplib
+    nlohmann_json::nlohmann_json
+    nats_static
+    OpenSSL::SSL
+    OpenSSL::Crypto
+    Threads::Threads)
+
+gtest_discover_tests(${PROJECT_NAME}_routes_tests DISCOVERY_TIMEOUT 120)

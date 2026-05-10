@@ -136,8 +136,9 @@ TEST_F(RoutesTest, PostAgentLargePayload) {
   json body = {{"name", "biggie"}, {"taskDescription", big}};
   auto res = client_->Post("/v1/agents", body.dump(), "application/json");
   ASSERT_TRUE(res);
-  // Should succeed (no size limit configured) or at worst return 413
-  EXPECT_TRUE(res->status == 201 || res->status == 413);
+  // 413 if body size cap is enforced; 400 if per-field length validation fires first;
+  // 201 if neither limit is active (e.g. in future configurations).
+  EXPECT_TRUE(res->status == 201 || res->status == 400 || res->status == 413);
 }
 
 // ── GET /v1/teams/:id non-existent ────────────────────────────────────────────
@@ -177,7 +178,8 @@ TEST_F(RoutesTest, PostTaskLargePayload) {
   json payload = {{"subject", "big-task"}, {"description", big}};
   auto res = client_->Post("/v1/teams/" + team_id + "/tasks", payload.dump(), "application/json");
   ASSERT_TRUE(res);
-  EXPECT_TRUE(res->status == 201 || res->status == 413);
+  // 413 if body size cap fires; 400 if per-field length check fires; 201 if unconstrained.
+  EXPECT_TRUE(res->status == 201 || res->status == 400 || res->status == 413);
 }
 
 // ── POST /v1/chaos/:type with arbitrary type ──────────────────────────────────
