@@ -31,6 +31,8 @@ static constexpr std::size_t kMaxProgramLen = 1024;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+static constexpr std::size_t kMaxBodyBytes = 1U * 1024U * 1024U;  // 1 MiB
+
 static void reply_json(httplib::Response& res, int status, const json& body) {
   res.status = status;
   res.set_header("X-API-Version", std::string(kVersion));
@@ -58,6 +60,10 @@ static bool check_field_length(httplib::Response& res, const std::string& field_
 
 /// Parse JSON body; returns false and sets 400 on parse error.
 static bool parse_body(const httplib::Request& req, httplib::Response& res, json& out) {
+  if (req.body.size() > kMaxBodyBytes) {
+    reply_json(res, 413, {{"error", "request body too large"}});
+    return false;
+  }
   if (req.body.empty()) {
     out = json::object();
     return true;

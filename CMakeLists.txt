@@ -143,6 +143,19 @@ target_compile_options(${PROJECT_NAME}_server PRIVATE
   -Wno-cast-align
 )
 
+
+# Suppress warnings from external headers on the server target
+target_compile_options(${PROJECT_NAME}_server PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align
+)
+
 # ── Healthcheck binary ───────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_healthcheck src/healthcheck_main.cpp)
 
