@@ -545,21 +545,13 @@ void Store::ensure_tasks_loaded() {
   tasks_loaded_ = true;
 }
 
-std::string Store::agent_to_issue_body(const json& agent) const {
-  return agent.dump(2);
-}
+std::string Store::agent_to_issue_body(const json& agent) const { return agent.dump(2); }
 
-std::string Store::task_to_issue_body(const json& task) const {
-  return task.dump(2);
-}
+std::string Store::task_to_issue_body(const json& task) const { return task.dump(2); }
 
-json Store::issue_to_agent(const json& issue) const {
-  return issue;
-}
+json Store::issue_to_agent(const json& issue) const { return issue; }
 
-json Store::issue_to_task(const json& issue) const {
-  return issue;
-}
+json Store::issue_to_task(const json& issue) const { return issue; }
 
 std::vector<std::string> Store::agent_labels(const std::string& status) const {
   return {"type:agent", "state:" + status};
