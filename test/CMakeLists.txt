@@ -23,6 +23,9 @@ add_executable(${PROJECT_NAME}_tests
   src/test_dead_letter_queue.cpp
   src/test_pagination.cpp
   src/test_store_hydration.cpp
+  src/test_auth.cpp
+  src/test_rate_limiter.cpp
+  src/test_shutdown.cpp
   ${PROJECT_SOURCE_DIR}/src/routes.cpp
   ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/nats_client.cpp
