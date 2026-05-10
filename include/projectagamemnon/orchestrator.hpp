@@ -11,7 +11,7 @@
 namespace projectagamemnon {
 
 class Store;
-class NatsClient;
+class NatsPublisher;
 
 using json = nlohmann::json;
 
@@ -19,7 +19,7 @@ using json = nlohmann::json;
 /// L0→L3 delegation, escalation, and completion.
 class Orchestrator {
  public:
-  Orchestrator(Store& store, NatsClient& nats);
+  Orchestrator(Store& store, NatsPublisher& nats);
 
   /// Accept a TaskBrief, decompose it, persist all tasks, and enqueue the L0 root.
   /// Returns the brief ID (caller can use it to retrieve the full plan).
@@ -39,7 +39,7 @@ class Orchestrator {
 
  private:
   Store& store_;
-  NatsClient& nats_;
+  NatsPublisher& nats_;
   PlanningBreakdown breakdown_;
   TaskStateMachine state_machine_;
 

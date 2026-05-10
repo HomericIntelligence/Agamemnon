@@ -1,13 +1,13 @@
 #include "projectagamemnon/orchestrator.hpp"
 
-#include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/nats_publisher.hpp"
 #include "projectagamemnon/store.hpp"
 
 #include <iostream>
 
 namespace projectagamemnon {
 
-Orchestrator::Orchestrator(Store& store, NatsClient& nats) : store_(store), nats_(nats) {}
+Orchestrator::Orchestrator(Store& store, NatsPublisher& nats) : store_(store), nats_(nats) {}
 
 // ── Public API ────────────────────────────────────────────────────────────────
 

@@ -8,7 +8,7 @@ class Server;
 namespace projectagamemnon {
 
 class Store;
-class NatsClient;
+class NatsPublisher;
 class RateLimiter;
 class AuthMiddleware;
 class MetricsRegistry;

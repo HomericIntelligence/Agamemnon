@@ -1,6 +1,7 @@
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
@@ -24,7 +25,7 @@ class RoutesLimitsTest : public ::testing::Test {
   void SetUp() override {
     port_ = svr_.bind_to_any_port("127.0.0.1");
     ASSERT_GT(port_, 0);
-    register_routes(svr_, store_, nats_, rate_limiter_, auth_, metrics_);
+    register_routes(svr_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
     thread_ = std::thread([this] { svr_.listen_after_bind(); });
   }
 
@@ -44,6 +45,7 @@ class RoutesLimitsTest : public ::testing::Test {
   RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for limits tests
   AuthMiddleware auth_{""};                    // no-key mode — auth is bypassed
   MetricsRegistry metrics_;
+  Orchestrator orchestrator_{store_, nats_};   // HMAS orchestrator
   httplib::Server svr_;
   int port_{0};
   std::thread thread_;
