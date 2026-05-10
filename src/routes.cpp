@@ -166,14 +166,18 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 
 // ── Route registration ────────────────────────────────────────────────────────
 
-// NOTE: We capture Store* and NatsClient* (raw pointers, not references) to
+// NOTE: We capture Store* and NatsPublisher* (raw pointers, not references) to
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
 // All are owned by main() and outlive the server.
 
-void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
+void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics) {
   Store* sp = &store;
-  NatsClient* np = &nats;
+  NatsPublisher* np = &nats;
+  // nc is non-null only when a real NatsClient is passed (production).
+  // In tests, a FakeNatsPublisher is passed and nc will be nullptr —
+  // guarded accesses below skip NatsClient-only features (circuit breaker, DLQ).
+  NatsClient* nc = dynamic_cast<NatsClient*>(np);
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
   MetricsRegistry* mp = &metrics;
@@ -220,30 +224,36 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
   });
 
-  server.Get("/v1/health", [np](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200,
-               {{"status", "ok"},
-                {"nats_circuit", np->circuit_breaker().state_label()},
-                {"dlq_depth", np->dead_letter_queue().size()}});
+  server.Get("/v1/health", [nc](const httplib::Request&, httplib::Response& res) {
+    json body = {{"status", "ok"}};
+    if (nc != nullptr) {
+      body["nats_circuit"] = nc->circuit_breaker().state_label();
+      body["dlq_depth"] = nc->dead_letter_queue().size();
+    }
+    reply_json(res, 200, body);
   });
 
   // GET /v1/dead-letter — drain and return all dead-lettered messages
-  // np is owned by main() and outlives the server; reference capture is safe.
-  server.Get("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
-    auto entries = np->dead_letter_queue().drain();
+  // nc is owned by main() and outlives the server; reference capture is safe.
+  server.Get("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
     json arr = json::array();
-    for (const auto& e : entries) {
-      arr.push_back({{"subject", e.subject},
-                     {"payload", e.payload},
-                     {"attempts", e.attempts},
-                     {"timestamp_ms", e.timestamp_ms}});
+    if (nc != nullptr) {
+      auto entries = nc->dead_letter_queue().drain();
+      for (const auto& e : entries) {
+        arr.push_back({{"subject", e.subject},
+                       {"payload", e.payload},
+                       {"attempts", e.attempts},
+                       {"timestamp_ms", e.timestamp_ms}});
+      }
     }
     reply_json(res, 200, {{"dead_letter_queue", arr}});
   });
 
   // DELETE /v1/dead-letter — discard all dead-lettered messages
-  server.Delete("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
-    np->dead_letter_queue().clear();
+  server.Delete("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
+    if (nc != nullptr) {
+      nc->dead_letter_queue().clear();
+    }
     reply_json(res, 200, {{"cleared", true}});
   });
 

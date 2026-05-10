@@ -8,15 +8,17 @@ class Server;
 namespace projectagamemnon {
 
 class Store;
-class NatsClient;
+class NatsPublisher;
 class RateLimiter;
 class AuthMiddleware;
 class MetricsRegistry;
 
 /// Register all /v1/ route handlers on the given server.
-/// Store, NatsClient, RateLimiter, AuthMiddleware, and MetricsRegistry are
+/// Store, NatsPublisher, RateLimiter, AuthMiddleware, and MetricsRegistry are
 /// passed by reference; they must outlive the server (they are owned by main).
-void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
+/// In production, pass a NatsClient (which derives from NatsPublisher).
+/// In tests, pass a FakeNatsPublisher for call recording.
+void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics);
 
 }  // namespace projectagamemnon
