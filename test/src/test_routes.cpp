@@ -60,8 +60,8 @@ class RoutesTest : public ::testing::Test {
 
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};  // never connected — all publishes are no-ops
-  RateLimiter rate_limiter_{1e9, 1e9};          // effectively unlimited for tests
-  AuthMiddleware auth_{"test-api-key"};         // allow all requests in tests
+  RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for tests
+  AuthMiddleware auth_{"test-api-key"};        // allow all requests in tests
   httplib::Server server_;
   std::thread server_thread_;
   httplib::Client client_{kHost, kTestPort};

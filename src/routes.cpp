@@ -127,30 +127,29 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
 
   // Enforce per-IP rate limit and API key auth on every request.
   // Health endpoints are exempt from rate limiting but still require auth.
-  server.set_pre_routing_handler(
-      [rl, ap](const httplib::Request& req, httplib::Response& res) {
-        // Authenticate first.
-        if (!ap->validate(req)) {
-          res.status = 401;
-          res.set_content(R"({"error":"unauthorized"})", "application/json");
-          return httplib::Server::HandlerResponse::Handled;
-        }
-        // Health endpoints are exempt from rate limiting.
-        if (req.path == "/health" || req.path == "/v1/health") {
-          return httplib::Server::HandlerResponse::Unhandled;
-        }
-        if (!rl->allow(req.remote_addr)) {
-          double retry = rl->retry_after_seconds(req.remote_addr);
-          int retry_int = static_cast<int>(retry) + 1;
-          res.status = 429;
-          res.set_header("Retry-After", std::to_string(retry_int));
-          res.set_content(R"({"error":"rate limit exceeded","retry_after_seconds":)" +
-                              std::to_string(retry_int) + "}",
-                          "application/json");
-          return httplib::Server::HandlerResponse::Handled;
-        }
-        return httplib::Server::HandlerResponse::Unhandled;
-      });
+  server.set_pre_routing_handler([rl, ap](const httplib::Request& req, httplib::Response& res) {
+    // Authenticate first.
+    if (!ap->validate(req)) {
+      res.status = 401;
+      res.set_content(R"({"error":"unauthorized"})", "application/json");
+      return httplib::Server::HandlerResponse::Handled;
+    }
+    // Health endpoints are exempt from rate limiting.
+    if (req.path == "/health" || req.path == "/v1/health") {
+      return httplib::Server::HandlerResponse::Unhandled;
+    }
+    if (!rl->allow(req.remote_addr)) {
+      double retry = rl->retry_after_seconds(req.remote_addr);
+      int retry_int = static_cast<int>(retry) + 1;
+      res.status = 429;
+      res.set_header("Retry-After", std::to_string(retry_int));
+      res.set_content(R"({"error":"rate limit exceeded","retry_after_seconds":)" +
+                          std::to_string(retry_int) + "}",
+                      "application/json");
+      return httplib::Server::HandlerResponse::Handled;
+    }
+    return httplib::Server::HandlerResponse::Unhandled;
+  });
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
