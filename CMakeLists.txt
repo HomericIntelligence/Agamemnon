@@ -82,6 +82,7 @@ add_library(agamemnon_lib STATIC
   src/nats_client.cpp
   src/circuit_breaker.cpp
   src/dead_letter_queue.cpp
+  src/github_client.cpp
 )
 
 target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
@@ -99,6 +100,7 @@ target_link_libraries(agamemnon_lib
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
+    CURL::libcurl
 )
 
 target_compile_options(agamemnon_lib PRIVATE
