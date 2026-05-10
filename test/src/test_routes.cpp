@@ -1,5 +1,4 @@
-#include <atomic>
-#include <chrono>
+#include <memory>
 #include <string>
 #include <thread>
 
@@ -19,21 +18,18 @@ namespace projectagamemnon::test {
 
 using json = nlohmann::json;
 
-// Port chosen to avoid conflicts with production default (8080).
-static constexpr int kTestPort = 18080;
-static constexpr const char* kHost = "127.0.0.1";
-
 class RoutesTest : public ::testing::Test {
  protected:
   void SetUp() override {
     register_routes(server_, store_, nats_, rate_limiter_, auth_);
-    server_thread_ = std::thread([this] { server_.listen(kHost, kTestPort); });
-
-    // Poll until the server is accepting connections (max 2 s).
-    for (int i = 0; i < 200; ++i) {
-      if (server_.is_running()) break;
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
+    // Bind to an OS-assigned port to avoid cross-test port conflicts.
+    int port = server_.bind_to_any_port("127.0.0.1");
+    ASSERT_GT(port, 0) << "bind_to_any_port failed";
+    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
+    client_ = std::make_unique<httplib::Client>("127.0.0.1", port);
+    client_->set_connection_timeout(5);
+    client_->set_read_timeout(5);
+    server_.wait_until_ready();
   }
 
   void TearDown() override {
@@ -42,21 +38,21 @@ class RoutesTest : public ::testing::Test {
   }
 
   // Convenience helpers
-  httplib::Result Get(const std::string& path) { return client_.Get(path); }
+  httplib::Result Get(const std::string& path) { return client_->Get(path); }
 
   httplib::Result Post(const std::string& path, const json& body) {
-    return client_.Post(path, body.dump(), "application/json");
+    return client_->Post(path, body.dump(), "application/json");
   }
 
   httplib::Result Patch(const std::string& path, const json& body) {
-    return client_.Patch(path, body.dump(), "application/json");
+    return client_->Patch(path, body.dump(), "application/json");
   }
 
   httplib::Result Put(const std::string& path, const json& body) {
-    return client_.Put(path, body.dump(), "application/json");
+    return client_->Put(path, body.dump(), "application/json");
   }
 
-  httplib::Result Delete(const std::string& path) { return client_.Delete(path); }
+  httplib::Result Delete(const std::string& path) { return client_->Delete(path); }
 
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};  // never connected — all publishes are no-ops
@@ -64,7 +60,7 @@ class RoutesTest : public ::testing::Test {
   AuthMiddleware auth_{"test-api-key"};        // allow all requests in tests
   httplib::Server server_;
   std::thread server_thread_;
-  httplib::Client client_{kHost, kTestPort};
+  std::unique_ptr<httplib::Client> client_;
 };
 
 // ── Health / version ──────────────────────────────────────────────────────────
