@@ -270,10 +270,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // POST /v1/agents/docker — registered BEFORE generic /v1/agents POST
   server.Post("/v1/agents/docker", [sp, np](const httplib::Request& req, httplib::Response& res) {
-    if (!validate_api_key(req)) {
-      reply_json(res, 401, {{"error", "unauthorized"}});
-      return;
-    }
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
@@ -311,10 +307,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // POST /v1/agents
   server.Post("/v1/agents", [sp, np](const httplib::Request& req, httplib::Response& res) {
-    if (!validate_api_key(req)) {
-      reply_json(res, 401, {{"error", "unauthorized"}});
-      return;
-    }
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
@@ -352,10 +344,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // POST /v1/agents/:id/start  — registered BEFORE the generic :id route
   server.Post(R"(/v1/agents/([^/]+)/start)",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
-                if (!validate_api_key(req)) {
-                  reply_json(res, 401, {{"error", "unauthorized"}});
-                  return;
-                }
                 std::string id = req.matches[1];
                 json result = sp->start_agent(id);
                 if (result.is_null()) {
@@ -371,10 +359,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // POST /v1/agents/:id/stop
   server.Post(R"(/v1/agents/([^/]+)/stop)",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
-                if (!validate_api_key(req)) {
-                  reply_json(res, 401, {{"error", "unauthorized"}});
-                  return;
-                }
                 std::string id = req.matches[1];
                 json result = sp->stop_agent(id);
                 if (result.is_null()) {
@@ -390,10 +374,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // GET /v1/agents/by-name/:name — registered BEFORE the generic :id route
   server.Get(R"(/v1/agents/by-name/([^/]+))",
              [sp](const httplib::Request& req, httplib::Response& res) {
-               if (!validate_api_key(req)) {
-                 reply_json(res, 401, {{"error", "unauthorized"}});
-                 return;
-               }
                std::string name = req.matches[1];
                json agent = sp->get_agent_by_name(name);
                if (agent.is_null()) {
@@ -405,10 +385,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // GET /v1/agents/:id
   server.Get(R"(/v1/agents/([^/]+))", [sp](const httplib::Request& req, httplib::Response& res) {
-    if (!validate_api_key(req)) {
-      reply_json(res, 401, {{"error", "unauthorized"}});
-      return;
-    }
     std::string id = req.matches[1];
     json agent = sp->get_agent(id);
     if (agent.is_null()) {
@@ -458,10 +434,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // DELETE /v1/agents/:id
   server.Delete(
       R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
-        if (!validate_api_key(req)) {
-          reply_json(res, 401, {{"error", "unauthorized"}});
-          return;
-        }
         std::string id = req.matches[1];
         json agent = sp->get_agent(id);
         if (!sp->delete_agent(id)) {
@@ -485,10 +457,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // POST /v1/teams
   server.Post("/v1/teams", [sp, np](const httplib::Request& req, httplib::Response& res) {
-    if (!validate_api_key(req)) {
-      reply_json(res, 401, {{"error", "unauthorized"}});
-      return;
-    }
     json body;
     if (!parse_body(req, res, body)) return;
     if (!require_string_if_present(res, body, "name")) return;
@@ -509,10 +477,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // GET /v1/teams/:id
   server.Get(R"(/v1/teams/([^/]+))", [sp](const httplib::Request& req, httplib::Response& res) {
-    if (!validate_api_key(req)) {
-      reply_json(res, 401, {{"error", "unauthorized"}});
-      return;
-    }
     std::string id = req.matches[1];
     json team = sp->get_team(id);
     if (team.is_null()) {
@@ -524,10 +488,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // PUT /v1/teams/:id
   server.Put(R"(/v1/teams/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
-    if (!validate_api_key(req)) {
-      reply_json(res, 401, {{"error", "unauthorized"}});
-      return;
-    }
     std::string id = req.matches[1];
     json body;
     if (!parse_body(req, res, body)) return;
@@ -554,10 +514,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // DELETE /v1/teams/:id
   server.Delete(R"(/v1/teams/([^/]+))",
                 [sp, np](const httplib::Request& req, httplib::Response& res) {
-                  if (!validate_api_key(req)) {
-                    reply_json(res, 401, {{"error", "unauthorized"}});
-                    return;
-                  }
                   std::string id = req.matches[1];
                   if (!sp->delete_team(id)) {
                     reply_not_found(res, "team");
@@ -579,10 +535,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // GET /v1/teams/:team_id/tasks — registered BEFORE the generic :team_id route
   server.Get(R"(/v1/teams/([^/]+)/tasks)",
              [sp](const httplib::Request& req, httplib::Response& res) {
-               if (!validate_api_key(req)) {
-                 reply_json(res, 401, {{"error", "unauthorized"}});
-                 return;
-               }
                std::string team_id = req.matches[1];
                auto p = parse_pagination(req, res);
                if (!p) return;
@@ -638,10 +590,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // GET /v1/teams/:team_id/tasks/:task_id
   server.Get(R"(/v1/teams/([^/]+)/tasks/([^/]+))",
              [sp](const httplib::Request& req, httplib::Response& res) {
-               if (!validate_api_key(req)) {
-                 reply_json(res, 401, {{"error", "unauthorized"}});
-                 return;
-               }
                std::string team_id = req.matches[1];
                std::string task_id = req.matches[2];
                json task = sp->get_task(team_id, task_id);
@@ -742,10 +690,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // POST /v1/chaos/:type
   server.Post(R"(/v1/chaos/([^/]+))",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
-                if (!validate_api_key(req)) {
-                  reply_json(res, 401, {{"error", "unauthorized"}});
-                  return;
-                }
                 std::string type = req.matches[1];
                 // Chaos accepts any non-empty type string (flexible fault injection)
                 json result = sp->create_fault(type);
@@ -756,10 +700,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // DELETE /v1/chaos/:id
   server.Delete(R"(/v1/chaos/([^/]+))",
                 [sp, np](const httplib::Request& req, httplib::Response& res) {
-                  if (!validate_api_key(req)) {
-                    reply_json(res, 401, {{"error", "unauthorized"}});
-                    return;
-                  }
                   std::string id = req.matches[1];
                   if (!sp->remove_fault(id)) {
                     reply_not_found(res, "fault");
