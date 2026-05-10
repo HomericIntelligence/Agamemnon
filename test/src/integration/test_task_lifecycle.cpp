@@ -43,8 +43,9 @@ TEST_F(TaskLifecycleTest, CreateTaskReturns201AndDispatchesToMyrmidon) {
   std::string team_id = make_team("dispatch-team");
   ASSERT_FALSE(team_id.empty());
 
-  json body = {
-      {"subject", "Implement feature X"}, {"type", "implementation"}, {"description", "Write the code"}};
+  json body = {{"subject", "Implement feature X"},
+               {"type", "implementation"},
+               {"description", "Write the code"}};
   auto res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 201);

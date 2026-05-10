@@ -35,7 +35,7 @@ class AgamemnonServerFixture : public ::testing::Test {
     store_ = new Store();
     nats_ = new FakeNatsPublisher();
     rate_limiter_ = new RateLimiter(1e9, 1e9);  // effectively unlimited for tests
-    auth_ = new AuthMiddleware("");              // empty key — all requests pass auth
+    auth_ = new AuthMiddleware("");             // empty key — all requests pass auth
 
     server_ = new httplib::Server();
     register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_);
