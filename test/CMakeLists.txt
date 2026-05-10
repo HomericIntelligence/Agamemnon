@@ -22,6 +22,7 @@ add_executable(${PROJECT_NAME}_tests
   ${PROJECT_SOURCE_DIR}/src/store.cpp
   ${PROJECT_SOURCE_DIR}/src/nats_client.cpp
   ${PROJECT_SOURCE_DIR}/src/version_info.cpp
+  ${PROJECT_SOURCE_DIR}/src/github_client.cpp
 )
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
