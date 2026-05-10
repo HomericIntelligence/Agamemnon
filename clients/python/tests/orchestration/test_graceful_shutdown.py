@@ -37,10 +37,11 @@ class SlowTaskClaimer(TaskClaimer):
         self.delay = delay
         self.calls: list[str] = []
 
-    async def advance_dag(self, team_id: str) -> None:
+    async def advance_dag(self, team_id: str) -> list[str]:
         self.calls.append(team_id)
         if self.delay > 0:
             await asyncio.sleep(self.delay)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +90,7 @@ class TestInflightTracking:
     async def test_inflight_removed_after_exception(self) -> None:
         claimer = make_claimer()
 
-        async def failing_advance_dag(team_id: str) -> None:
+        async def failing_advance_dag(team_id: str) -> list[str]:
             raise RuntimeError("simulated failure")
 
         claimer.advance_dag = failing_advance_dag  # type: ignore[method-assign]
