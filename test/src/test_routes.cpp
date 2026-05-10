@@ -6,6 +6,7 @@
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "projectagamemnon/auth.hpp"
+#include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
@@ -21,7 +22,7 @@ using json = nlohmann::json;
 class RoutesHappyPathTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    register_routes(server_, store_, nats_, rate_limiter_, auth_);
+    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_);
     // Bind to an OS-assigned port to avoid cross-test port conflicts.
     int port = server_.bind_to_any_port("127.0.0.1");
     ASSERT_GT(port, 0) << "bind_to_any_port failed";
@@ -58,6 +59,7 @@ class RoutesHappyPathTest : public ::testing::Test {
   NatsClient nats_{"nats://127.0.0.1:14222"};  // never connected — all publishes are no-ops
   RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for tests
   AuthMiddleware auth_{""};                    // empty key = allow all requests in tests
+  MetricsRegistry metrics_;
   httplib::Server server_;
   std::thread server_thread_;
   std::unique_ptr<httplib::Client> client_;
