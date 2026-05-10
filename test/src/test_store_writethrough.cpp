@@ -236,7 +236,8 @@ TEST(IsolationTest, AgentHydrationDoesNotTriggerTeamHydration) {
                      {"host", "local"},
                      {"status", "offline"},
                      {"createdAt", "2026-01-01T00:00:00Z"}};
-  std::string body = "## AgamemnonEntity: agents/id-iso\n\n```json\n" + seed_agent.dump(2) + "\n```\n";
+  std::string body =
+      "## AgamemnonEntity: agents/id-iso\n\n```json\n" + seed_agent.dump(2) + "\n```\n";
   mock->seed_issues["agamemnon-agent"] = {{{"number", 1}, {"body", body}}};
 
   Store store(mock);
