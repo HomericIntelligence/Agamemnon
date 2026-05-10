@@ -10,6 +10,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <algorithm>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -130,6 +131,38 @@ static bool require_string_array(httplib::Response& res, const json& arr,
   return true;
 }
 
+// ── Pagination ────────────────────────────────────────────────────────────────
+
+namespace {
+constexpr std::size_t kDefaultLimit = 100;
+constexpr std::size_t kMaxLimit = 1000;
+
+struct PaginationParams {
+  std::size_t limit;
+  std::size_t offset;
+};
+
+// Returns {limit, offset} parsed from query params, or sets 400 and returns nullopt on error.
+std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
+                                                 httplib::Response& res) {
+  std::size_t limit = kDefaultLimit;
+  std::size_t offset = 0;
+  try {
+    if (req.has_param("limit")) {
+      auto v = std::stoul(req.get_param_value("limit"));
+      limit = std::min(v, kMaxLimit);
+    }
+    if (req.has_param("offset")) {
+      offset = std::stoul(req.get_param_value("offset"));
+    }
+  } catch (const std::exception&) {
+    reply_bad_request(res, "limit and offset must be non-negative integers");
+    return std::nullopt;
+  }
+  return PaginationParams{limit, offset};
+}
+}  // namespace
+
 // ── Route registration ────────────────────────────────────────────────────────
 
 // NOTE: We capture Store* and NatsClient* (raw pointers, not references) to
@@ -212,8 +245,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // ── Agents ──────────────────────────────────────────────────────────────
 
   // GET /v1/agents
-  server.Get("/v1/agents", [sp](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, sp->list_agents());
+  server.Get("/v1/agents", [sp](const httplib::Request& req, httplib::Response& res) {
+    auto p = parse_pagination(req, res);
+    if (!p) return;
+    reply_json(res, 200, sp->list_agents(p->limit, p->offset));
   });
 
   // POST /v1/agents/docker — registered BEFORE generic /v1/agents POST
@@ -397,8 +432,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // ── Teams ────────────────────────────────────────────────────────────────
 
   // GET /v1/teams
-  server.Get("/v1/teams", [sp](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, sp->list_teams());
+  server.Get("/v1/teams", [sp](const httplib::Request& req, httplib::Response& res) {
+    auto p = parse_pagination(req, res);
+    if (!p) return;
+    reply_json(res, 200, sp->list_teams(p->limit, p->offset));
   });
 
   // POST /v1/teams
@@ -472,15 +509,19 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // ── Tasks ────────────────────────────────────────────────────────────────
 
   // GET /v1/tasks  (all tasks across all teams)
-  server.Get("/v1/tasks", [sp](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, sp->list_all_tasks());
+  server.Get("/v1/tasks", [sp](const httplib::Request& req, httplib::Response& res) {
+    auto p = parse_pagination(req, res);
+    if (!p) return;
+    reply_json(res, 200, sp->list_all_tasks(p->limit, p->offset));
   });
 
   // GET /v1/teams/:team_id/tasks — registered BEFORE the generic :team_id route
   server.Get(R"(/v1/teams/([^/]+)/tasks)",
              [sp](const httplib::Request& req, httplib::Response& res) {
                std::string team_id = req.matches[1];
-               reply_json(res, 200, sp->list_tasks_for_team(team_id));
+               auto p = parse_pagination(req, res);
+               if (!p) return;
+               reply_json(res, 200, sp->list_tasks_for_team(team_id, p->limit, p->offset));
              });
 
   // POST /v1/teams/:team_id/tasks
@@ -623,8 +664,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
   // ── Chaos ────────────────────────────────────────────────────────────────
 
   // GET /v1/chaos
-  server.Get("/v1/chaos", [sp](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, sp->list_faults());
+  server.Get("/v1/chaos", [sp](const httplib::Request& req, httplib::Response& res) {
+    auto p = parse_pagination(req, res);
+    if (!p) return;
+    reply_json(res, 200, sp->list_faults(p->limit, p->offset));
   });
 
   // POST /v1/chaos/:type
