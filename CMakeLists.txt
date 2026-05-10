@@ -83,6 +83,7 @@ add_library(agamemnon_lib STATIC
   src/circuit_breaker.cpp
   src/dead_letter_queue.cpp
   src/github_client.cpp
+  src/rate_limiter.cpp
 )
 
 target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
