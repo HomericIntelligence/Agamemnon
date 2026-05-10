@@ -10,6 +10,7 @@ jobs:
   build-test:
     name: ${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +75,7 @@ jobs:
       - name: Test
         env:
           BUILD_TYPE: ${{ matrix.build_type }}
-        run: ctest --preset "$BUILD_TYPE"
+        run: ctest --preset "$BUILD_TYPE" --timeout 120 --parallel 4
 
   check-all:
     name: All Build/Test Checks
