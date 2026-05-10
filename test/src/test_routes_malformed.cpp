@@ -179,19 +179,19 @@ TEST_F(RoutesTest, PostTaskLargePayload) {
 // ── POST /v1/chaos/:type with arbitrary type ──────────────────────────────────
 
 TEST_F(RoutesTest, ChaosUnknownType) {
-  // Any string is accepted as type
+  // Unknown types are rejected with 400 (validation added in PR #49)
   auto res = client_->Post("/v1/chaos/unknowntype", "", "application/json");
   ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 201);
+  EXPECT_EQ(res->status, 400);
   json body = json::parse(res->body);
-  EXPECT_EQ(body["fault"]["type"], "unknowntype");
+  EXPECT_TRUE(body.contains("error"));
 }
 
 TEST_F(RoutesTest, ChaosMalformedTypeWithSpecialChars) {
-  // cpp-httplib regex [^/]+ matches everything except slash
+  // Unknown types (even with special chars) are rejected with 400
   auto res = client_->Post("/v1/chaos/type-with-dashes_and.dots", "", "application/json");
   ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 201);
+  EXPECT_EQ(res->status, 400);
 }
 
 // ── DELETE /v1/chaos non-existent fault ───────────────────────────────────────
