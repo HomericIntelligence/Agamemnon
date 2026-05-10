@@ -2,6 +2,7 @@
 
 #include "projectagamemnon/circuit_breaker.hpp"
 #include "projectagamemnon/dead_letter_queue.hpp"
+#include "projectagamemnon/nats_publisher.hpp"
 
 #include <functional>
 #include <string>

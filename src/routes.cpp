@@ -2,6 +2,7 @@
 
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/nats_publisher.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/store.hpp"
 #include "projectagamemnon/version.hpp"
@@ -173,6 +174,10 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth) {
   Store* sp = &store;
   NatsClient* np = &nats;
+  // nc aliases np for use in lambdas that check NatsClient-specific features
+  // (circuit_breaker, dead_letter_queue). Using np directly is safe since
+  // the signature already takes NatsClient& — nc is just an alias.
+  NatsClient* nc = np;
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
 
@@ -211,30 +216,36 @@ void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
     reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
   });
 
-  server.Get("/v1/health", [np](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200,
-               {{"status", "ok"},
-                {"nats_circuit", np->circuit_breaker().state_label()},
-                {"dlq_depth", np->dead_letter_queue().size()}});
+  server.Get("/v1/health", [nc](const httplib::Request&, httplib::Response& res) {
+    json body = {{"status", "ok"}};
+    if (nc != nullptr) {
+      body["nats_circuit"] = nc->circuit_breaker().state_label();
+      body["dlq_depth"] = nc->dead_letter_queue().size();
+    }
+    reply_json(res, 200, body);
   });
 
   // GET /v1/dead-letter — drain and return all dead-lettered messages
-  // np is owned by main() and outlives the server; reference capture is safe.
-  server.Get("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
-    auto entries = np->dead_letter_queue().drain();
+  // nc is owned by main() and outlives the server; reference capture is safe.
+  server.Get("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
     json arr = json::array();
-    for (const auto& e : entries) {
-      arr.push_back({{"subject", e.subject},
-                     {"payload", e.payload},
-                     {"attempts", e.attempts},
-                     {"timestamp_ms", e.timestamp_ms}});
+    if (nc != nullptr) {
+      auto entries = nc->dead_letter_queue().drain();
+      for (const auto& e : entries) {
+        arr.push_back({{"subject", e.subject},
+                       {"payload", e.payload},
+                       {"attempts", e.attempts},
+                       {"timestamp_ms", e.timestamp_ms}});
+      }
     }
     reply_json(res, 200, {{"dead_letter_queue", arr}});
   });
 
   // DELETE /v1/dead-letter — discard all dead-lettered messages
-  server.Delete("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
-    np->dead_letter_queue().clear();
+  server.Delete("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
+    if (nc != nullptr) {
+      nc->dead_letter_queue().clear();
+    }
     reply_json(res, 200, {{"cleared", true}});
   });
 
