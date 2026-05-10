@@ -44,7 +44,7 @@ TEST_F(TaskLifecycleTest, CreateTaskReturns201AndDispatchesToMyrmidon) {
   ASSERT_FALSE(team_id.empty());
 
   json body = {
-      {"subject", "Implement feature X"}, {"type", "coding"}, {"description", "Write the code"}};
+      {"subject", "Implement feature X"}, {"type", "implementation"}, {"description", "Write the code"}};
   auto res = client().Post("/v1/teams/" + team_id + "/tasks", body.dump(), "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 201);
@@ -56,7 +56,7 @@ TEST_F(TaskLifecycleTest, CreateTaskReturns201AndDispatchesToMyrmidon) {
   EXPECT_EQ(data["task"]["status"].get<std::string>(), "pending");
 
   EXPECT_TRUE(nats().has_subject("hi.tasks.created"));
-  EXPECT_TRUE(nats().has_subject_prefix("hi.myrmidon.coding."));
+  EXPECT_TRUE(nats().has_subject_prefix("hi.myrmidon.implementation."));
 }
 
 TEST_F(TaskLifecycleTest, GetTaskByTeamAndId) {
@@ -126,7 +126,7 @@ TEST_F(TaskLifecycleTest, PutTaskUpdatesStatus) {
   ASSERT_EQ(create_res->status, 201);
   std::string task_id = json::parse(create_res->body)["task"]["id"].get<std::string>();
 
-  json update = {{"status", "in_progress"}, {"subject", "Update task"}};
+  json update = {{"status", "running"}, {"subject", "Update task"}};
   auto res =
       client().Put("/v1/teams/" + team_id + "/tasks/" + task_id, update.dump(), "application/json");
   ASSERT_NE(res, nullptr);
@@ -146,7 +146,7 @@ TEST_F(TaskLifecycleTest, PatchTaskPartialUpdate) {
   ASSERT_EQ(create_res->status, 201);
   std::string task_id = json::parse(create_res->body)["task"]["id"].get<std::string>();
 
-  json patch = {{"status", "in_progress"}};
+  json patch = {{"status", "running"}};
   auto res = client().Patch("/v1/teams/" + team_id + "/tasks/" + task_id, patch.dump(),
                             "application/json");
   ASSERT_NE(res, nullptr);

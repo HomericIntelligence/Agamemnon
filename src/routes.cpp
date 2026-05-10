@@ -1,7 +1,7 @@
 #include "projectagamemnon/routes.hpp"
 
 #include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/nats_client.hpp"  // NatsClient derives NatsPublisher; needed for dynamic_cast
 #include "projectagamemnon/nats_publisher.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/store.hpp"
@@ -166,18 +166,18 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 
 // ── Route registration ────────────────────────────────────────────────────────
 
-// NOTE: We capture Store* and NatsClient* (raw pointers, not references) to
+// NOTE: We capture Store* and NatsPublisher* (raw pointers, not references) to
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
 // Both store and nats are owned by main() and outlive the server.
 
-void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
+void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth) {
   Store* sp = &store;
-  NatsClient* np = &nats;
-  // nc aliases np for use in lambdas that check NatsClient-specific features
-  // (circuit_breaker, dead_letter_queue). Using np directly is safe since
-  // the signature already takes NatsClient& — nc is just an alias.
-  NatsClient* nc = np;
+  NatsPublisher* np = &nats;
+  // nc is non-null only when a real NatsClient is passed (production).
+  // In tests, a FakeNatsPublisher is passed and nc will be nullptr —
+  // guarded accesses below skip NatsClient-only features (circuit breaker, DLQ).
+  NatsClient* nc = dynamic_cast<NatsClient*>(np);
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
 

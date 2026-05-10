@@ -5,7 +5,9 @@
 #include <thread>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
+#include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/fake_nats_publisher.hpp"
+#include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
 
@@ -18,6 +20,10 @@ namespace projectagamemnon::test {
 /// Test fixture that starts a real httplib::Server on a free port.
 /// All test classes in the integration binary share a single server instance
 /// via inline static members (one-definition rule satisfied by C++17 inline).
+///
+/// Auth is disabled (empty API key — all requests pass).
+/// Rate limiting is effectively unlimited (1e9 tokens/s, 1e9 burst).
+/// NATS uses a FakeNatsPublisher to capture publish() calls for assertions.
 class AgamemnonServerFixture : public ::testing::Test {
  public:
   static httplib::Client& client() { return *client_; }
@@ -28,9 +34,11 @@ class AgamemnonServerFixture : public ::testing::Test {
   static void SetUpTestSuite() {
     store_ = new Store();
     nats_ = new FakeNatsPublisher();
+    rate_limiter_ = new RateLimiter(1e9, 1e9);  // effectively unlimited for tests
+    auth_ = new AuthMiddleware("");              // empty key — all requests pass auth
 
     server_ = new httplib::Server();
-    register_routes(*server_, *store_, *nats_);
+    register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_);
 
     // Let the OS pick a free port.
     int bound_port = server_->bind_to_any_port("127.0.0.1");
@@ -56,11 +64,15 @@ class AgamemnonServerFixture : public ::testing::Test {
     delete client_;
     delete server_thread_;
     delete server_;
+    delete auth_;
+    delete rate_limiter_;
     delete nats_;
     delete store_;
     client_ = nullptr;
     server_thread_ = nullptr;
     server_ = nullptr;
+    auth_ = nullptr;
+    rate_limiter_ = nullptr;
     nats_ = nullptr;
     store_ = nullptr;
   }
@@ -74,6 +86,8 @@ class AgamemnonServerFixture : public ::testing::Test {
   inline static httplib::Client* client_ = nullptr;
   inline static Store* store_ = nullptr;
   inline static FakeNatsPublisher* nats_ = nullptr;
+  inline static RateLimiter* rate_limiter_ = nullptr;
+  inline static AuthMiddleware* auth_ = nullptr;
 };
 
 }  // namespace projectagamemnon::test
