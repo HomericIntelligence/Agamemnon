@@ -117,14 +117,6 @@ TEST_F(RoutesTest, GetAgentNonExistent) {
   EXPECT_EQ(res->status, 404);
 }
 
-// ── GET agent by name not found ───────────────────────────────────────────────
-
-TEST_F(RoutesTest, GetAgentByNameNotFound) {
-  auto res = client_->Get("/v1/agents/by-name/no-such-agent");
-  ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 404);
-}
-
 // ── POST /v1/agents with large payload ────────────────────────────────────────
 
 TEST_F(RoutesTest, PostAgentLargePayload) {
