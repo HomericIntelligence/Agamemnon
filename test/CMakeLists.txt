@@ -8,12 +8,14 @@ find_package(OpenSSL REQUIRED)
 
 # ── Unit tests ───────────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_tests
-  src/test_main.cpp
+  src/test_version.cpp
   src/test_store.cpp
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
+  src/test_routes.cpp
   src/test_routes_malformed.cpp
+  src/test_nats_client.cpp
   src/test_peer_discovery.cpp
   src/test_server_limits.cpp
   src/test_circuit_breaker.cpp
