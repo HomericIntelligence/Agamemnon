@@ -11,7 +11,7 @@ class ProjectAgamemnonConan(ConanFile):
         self.requires("cpp-httplib/0.18.3")
         self.requires("nlohmann_json/3.11.3")
         self.requires("libcurl/8.6.0")
-        self.requires("openssl/3.4.1")
+        self.requires("openssl/3.4.4")
 
     def build_requirements(self):
         self.test_requires("gtest/1.14.0")
