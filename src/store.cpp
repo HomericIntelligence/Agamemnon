@@ -3,7 +3,7 @@
 #include <chrono>
 #include <ctime>
 #include <iomanip>
-#include <mutex>
+#include <iostream>
 #include <random>
 #include <shared_mutex>
 #include <sstream>
@@ -50,10 +50,149 @@ std::string now_iso8601() {
   return ss.str();
 }
 
+// ── GitHub persistence helpers ────────────────────────────────────────────────
+
+// Issue body format:
+//   ## AgamemnonEntity
+//   ```json
+//   { ...entity JSON... }
+//   ```
+std::string Store::make_issue_body_(std::string_view entity_type, const json& entity) {
+  std::ostringstream ss;
+  ss << "## AgamemnonEntity: " << entity_type << "\n\n";
+  ss << "```json\n";
+  ss << entity.dump(2);
+  ss << "\n```\n";
+  return ss.str();
+}
+
+json Store::parse_issue_entity_(const json& issue) {
+  if (!issue.contains("body") || !issue["body"].is_string()) return nullptr;
+  const std::string& body = issue["body"].get_ref<const std::string&>();
+
+  static const std::string open_fence = "```json\n";
+  static const std::string close_fence = "\n```";
+
+  auto start = body.find(open_fence);
+  if (start == std::string::npos) return nullptr;
+  start += open_fence.size();
+
+  auto end = body.find(close_fence, start);
+  if (end == std::string::npos) return nullptr;
+
+  try {
+    return json::parse(body.substr(start, end - start));
+  } catch (...) {
+    return nullptr;
+  }
+}
+
+// ensure_*_loaded_ helpers — must be called while holding mutex_
+void Store::ensure_agents_loaded_() {
+  if (agents_loaded_ || !gh_) {
+    agents_loaded_ = true;
+    return;
+  }
+  agents_loaded_ = true;
+  std::vector<json> issues;
+  try {
+    issues = gh_->list_issues("agamemnon-agent");
+  } catch (const std::exception& e) {
+    std::cerr << "[agamemnon] hydration error (agents): " << e.what() << "\n";
+    return;
+  }
+  for (auto& issue : issues) {
+    json entity = parse_issue_entity_(issue);
+    if (entity.is_null() || !entity.contains("id")) {
+      std::cerr << "[agamemnon] skipping malformed agent issue\n";
+      continue;
+    }
+    if (issue.contains("number"))
+      entity["_github_issue"] = std::to_string(issue["number"].get<int>());
+    agents_[entity["id"].get<std::string>()] = entity;
+  }
+}
+
+void Store::ensure_teams_loaded_() {
+  if (teams_loaded_ || !gh_) {
+    teams_loaded_ = true;
+    return;
+  }
+  teams_loaded_ = true;
+  std::vector<json> issues;
+  try {
+    issues = gh_->list_issues("agamemnon-team");
+  } catch (const std::exception& e) {
+    std::cerr << "[agamemnon] hydration error (teams): " << e.what() << "\n";
+    return;
+  }
+  for (auto& issue : issues) {
+    json entity = parse_issue_entity_(issue);
+    if (entity.is_null() || !entity.contains("id")) {
+      std::cerr << "[agamemnon] skipping malformed team issue\n";
+      continue;
+    }
+    if (issue.contains("number"))
+      entity["_github_issue"] = std::to_string(issue["number"].get<int>());
+    teams_[entity["id"].get<std::string>()] = entity;
+  }
+}
+
+void Store::ensure_tasks_loaded_() {
+  if (tasks_loaded_ || !gh_) {
+    tasks_loaded_ = true;
+    return;
+  }
+  tasks_loaded_ = true;
+  std::vector<json> issues;
+  try {
+    issues = gh_->list_issues("agamemnon-task");
+  } catch (const std::exception& e) {
+    std::cerr << "[agamemnon] hydration error (tasks): " << e.what() << "\n";
+    return;
+  }
+  for (auto& issue : issues) {
+    json entity = parse_issue_entity_(issue);
+    if (entity.is_null() || !entity.contains("id")) {
+      std::cerr << "[agamemnon] skipping malformed task issue\n";
+      continue;
+    }
+    if (issue.contains("number"))
+      entity["_github_issue"] = std::to_string(issue["number"].get<int>());
+    tasks_[entity["id"].get<std::string>()] = entity;
+  }
+}
+
+void Store::ensure_faults_loaded_() {
+  if (faults_loaded_ || !gh_) {
+    faults_loaded_ = true;
+    return;
+  }
+  faults_loaded_ = true;
+  std::vector<json> issues;
+  try {
+    issues = gh_->list_issues("agamemnon-fault");
+  } catch (const std::exception& e) {
+    std::cerr << "[agamemnon] hydration error (faults): " << e.what() << "\n";
+    return;
+  }
+  for (auto& issue : issues) {
+    json entity = parse_issue_entity_(issue);
+    if (entity.is_null() || !entity.contains("id")) {
+      std::cerr << "[agamemnon] skipping malformed fault issue\n";
+      continue;
+    }
+    if (issue.contains("number"))
+      entity["_github_issue"] = std::to_string(issue["number"].get<int>());
+    faults_[entity["id"].get<std::string>()] = entity;
+  }
+}
+
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 json Store::create_agent(const json& body) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   std::string id = generate_uuid();
   json agent;
   agent["id"] = id;
@@ -69,19 +208,29 @@ json Store::create_agent(const json& body) {
   agent["host"] = body.value("host", "local");
   agent["status"] = "offline";
   agent["createdAt"] = now_iso8601();
+
+  if (gh_) {
+    std::string issue_num =
+        gh_->create_issue("agent: " + agent["name"].get<std::string>(),
+                          make_issue_body_("agents/" + id, agent), "agamemnon-agent");
+    if (!issue_num.empty()) agent["_github_issue"] = issue_num;
+  }
+
   agents_[id] = agent;
   return {{"id", id}, {"agent", agent}};
 }
 
 json Store::get_agent(const std::string& id) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   return it->second;
 }
 
 json Store::get_agent_by_name(const std::string& name) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   for (auto& [id, agent] : agents_) {
     if (agent.value("name", "") == name) return agent;
   }
@@ -89,47 +238,71 @@ json Store::get_agent_by_name(const std::string& name) {
 }
 
 json Store::list_agents() {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   json arr = json::array();
   for (auto& [id, agent] : agents_) arr.push_back(agent);
   return {{"agents", arr}};
 }
 
 json Store::update_agent(const std::string& id, const json& fields) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   for (auto& [key, val] : fields.items()) {
-    if (key != "id" && key != "createdAt") it->second[key] = val;
+    if (key != "id" && key != "createdAt" && key != "_github_issue") it->second[key] = val;
+  }
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
+                           make_issue_body_("agents/" + id, it->second));
   }
   return it->second;
 }
 
 bool Store::delete_agent(const std::string& id) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
-  return agents_.erase(id) > 0;
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
+  auto it = agents_.find(id);
+  if (it == agents_.end()) return false;
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->close_issue(it->second["_github_issue"].get<std::string>());
+  }
+  agents_.erase(it);
+  return true;
 }
 
 json Store::start_agent(const std::string& id) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   it->second["status"] = "online";
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
+                           make_issue_body_("agents/" + id, it->second));
+  }
   return {{"status", "online"}, {"id", id}};
 }
 
 json Store::stop_agent(const std::string& id) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_agents_loaded_();
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   it->second["status"] = "offline";
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
+                           make_issue_body_("agents/" + id, it->second));
+  }
   return {{"status", "offline"}, {"id", id}};
 }
 
 // ── Teams ─────────────────────────────────────────────────────────────────────
 
 json Store::create_team(const json& body) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_teams_loaded_();
   std::string id = generate_uuid();
   json team;
   team["id"] = id;
@@ -137,26 +310,37 @@ json Store::create_team(const json& body) {
   team["agentIds"] =
       body.contains("agent_ids") ? body["agent_ids"] : body.value("agentIds", json::array());
   team["createdAt"] = now_iso8601();
+
+  if (gh_) {
+    std::string issue_num =
+        gh_->create_issue("team: " + team["name"].get<std::string>(),
+                          make_issue_body_("teams/" + id, team), "agamemnon-team");
+    if (!issue_num.empty()) team["_github_issue"] = issue_num;
+  }
+
   teams_[id] = team;
   return {{"team", team}};
 }
 
 json Store::get_team(const std::string& id) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_teams_loaded_();
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   return it->second;
 }
 
 json Store::list_teams() {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_teams_loaded_();
   json arr = json::array();
   for (auto& [id, team] : teams_) arr.push_back(team);
   return {{"teams", arr}};
 }
 
 json Store::update_team(const std::string& id, const json& body) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_teams_loaded_();
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   if (body.contains("agentIds"))
@@ -164,18 +348,30 @@ json Store::update_team(const std::string& id, const json& body) {
   else if (body.contains("agent_ids"))
     it->second["agentIds"] = body["agent_ids"];
   if (body.contains("name")) it->second["name"] = body["name"];
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
+                           make_issue_body_("teams/" + id, it->second));
+  }
   return it->second;
 }
 
 bool Store::delete_team(const std::string& id) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
-  return teams_.erase(id) > 0;
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_teams_loaded_();
+  auto it = teams_.find(id);
+  if (it == teams_.end()) return false;
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->close_issue(it->second["_github_issue"].get<std::string>());
+  }
+  teams_.erase(it);
+  return true;
 }
 
 // ── Tasks ─────────────────────────────────────────────────────────────────────
 
 json Store::create_task(const std::string& team_id, const json& body) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_tasks_loaded_();
   std::string id = generate_uuid();
   json task;
   task["id"] = id;
@@ -188,12 +384,22 @@ json Store::create_task(const std::string& team_id, const json& body) {
   task["status"] = "pending";
   task["createdAt"] = now_iso8601();
   task["completedAt"] = nullptr;
+
+  if (gh_) {
+    std::string subj = task["subject"].get<std::string>();
+    std::string title = "task: " + (subj.empty() ? id : subj);
+    std::string issue_num =
+        gh_->create_issue(title, make_issue_body_("tasks/" + id, task), "agamemnon-task");
+    if (!issue_num.empty()) task["_github_issue"] = issue_num;
+  }
+
   tasks_[id] = task;
   return {{"task", task}};
 }
 
 json Store::get_task(const std::string& team_id, const std::string& task_id) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_tasks_loaded_();
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (!team_id.empty() && it->second.value("teamId", "") != team_id) return nullptr;
@@ -201,22 +407,29 @@ json Store::get_task(const std::string& team_id, const std::string& task_id) {
 }
 
 json Store::update_task(const std::string& team_id, const std::string& task_id, const json& body) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_tasks_loaded_();
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (!team_id.empty() && it->second.value("teamId", "") != team_id) return nullptr;
   for (auto& [key, val] : body.items()) {
-    if (key != "id" && key != "teamId" && key != "createdAt") it->second[key] = val;
+    if (key != "id" && key != "teamId" && key != "createdAt" && key != "_github_issue")
+      it->second[key] = val;
   }
   if (body.contains("status") && body["status"] == "completed" &&
       it->second.value("completedAt", json(nullptr)).is_null()) {
     it->second["completedAt"] = now_iso8601();
   }
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
+                           make_issue_body_("tasks/" + task_id, it->second));
+  }
   return it->second;
 }
 
 json Store::list_tasks_for_team(const std::string& team_id) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_tasks_loaded_();
   json arr = json::array();
   for (auto& [id, task] : tasks_) {
     if (task.value("teamId", "") == team_id) arr.push_back(task);
@@ -225,45 +438,67 @@ json Store::list_tasks_for_team(const std::string& team_id) {
 }
 
 json Store::list_all_tasks() {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_tasks_loaded_();
   json arr = json::array();
   for (auto& [id, task] : tasks_) arr.push_back(task);
   return {{"tasks", arr}};
 }
 
 void Store::mark_task_completed(const std::string& task_id) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_tasks_loaded_();
   auto it = tasks_.find(task_id);
   if (it != tasks_.end()) {
     it->second["status"] = "completed";
     it->second["completedAt"] = now_iso8601();
+    if (gh_ && it->second.contains("_github_issue")) {
+      gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
+                             make_issue_body_("tasks/" + task_id, it->second));
+    }
   }
 }
 
 // ── Chaos faults ──────────────────────────────────────────────────────────────
 
 json Store::list_faults() {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_faults_loaded_();
   json arr = json::array();
   for (auto& [id, fault] : faults_) arr.push_back(fault);
   return {{"faults", arr}};
 }
 
 json Store::create_fault(const std::string& type) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_faults_loaded_();
   std::string id = generate_uuid();
   json fault;
   fault["id"] = id;
   fault["type"] = type;
   fault["active"] = true;
   fault["createdAt"] = now_iso8601();
+
+  if (gh_) {
+    std::string issue_num = gh_->create_issue(
+        "fault: " + type, make_issue_body_("faults/" + id, fault), "agamemnon-fault");
+    if (!issue_num.empty()) fault["_github_issue"] = issue_num;
+  }
+
   faults_[id] = fault;
   return {{"fault", fault}};
 }
 
 bool Store::remove_fault(const std::string& id) {
-  std::unique_lock<std::shared_mutex> lk(mutex_);
-  return faults_.erase(id) > 0;
+  std::lock_guard<std::mutex> lk(mutex_);
+  ensure_faults_loaded_();
+  auto it = faults_.find(id);
+  if (it == faults_.end()) return false;
+  if (gh_ && it->second.contains("_github_issue")) {
+    gh_->close_issue(it->second["_github_issue"].get<std::string>());
+  }
+  faults_.erase(it);
+  return true;
 }
 
 }  // namespace projectagamemnon

@@ -20,11 +20,12 @@ include(cmake/Doxygen.cmake)
 include(cmake/SourcesAndHeaders.cmake)
 
 # ── External dependencies ────────────────────────────────────────────────────
-# cpp-httplib and nlohmann_json are provided by Conan (run `just deps` first).
+# cpp-httplib, nlohmann_json, and libcurl are provided by Conan (run `just deps` first).
 # nats.c stays as FetchContent (not reliably available on ConanCenter).
 find_package(httplib REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(CURL REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -81,6 +82,7 @@ add_library(agamemnon_lib STATIC
   src/nats_client.cpp
   src/circuit_breaker.cpp
   src/dead_letter_queue.cpp
+  src/github_client.cpp
 )
 
 target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
@@ -98,6 +100,7 @@ target_link_libraries(agamemnon_lib
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
+    CURL::libcurl
 )
 
 target_compile_options(agamemnon_lib PRIVATE

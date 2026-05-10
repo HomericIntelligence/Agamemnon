@@ -1,6 +1,9 @@
 #pragma once
 
-#include <shared_mutex>
+#include "projectagamemnon/github_client.hpp"
+
+#include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -16,9 +19,13 @@ std::string generate_uuid();
 /// Get current ISO 8601 timestamp (UTC).
 std::string now_iso8601();
 
-/// Thread-safe in-memory store for agents, teams, tasks, and faults.
+/// Thread-safe store for agents, teams, tasks, and faults.
+/// In-memory maps act as a write-through cache backed by GitHub Issues.
+/// Pass nullptr (or use the default constructor) for pure in-memory mode.
 class Store {
  public:
+  explicit Store(std::shared_ptr<IGitHubClient> gh = nullptr) : gh_(std::move(gh)) {}
+
   // ── Agents ─────────────────────────────────────────────────────────────
   json create_agent(const json& body);
   json get_agent(const std::string& id);
@@ -50,11 +57,30 @@ class Store {
   bool remove_fault(const std::string& id);
 
  private:
-  mutable std::shared_mutex mutex_;
+  std::shared_ptr<IGitHubClient> gh_;
+  std::mutex mutex_;
+
   std::unordered_map<std::string, json> agents_;
   std::unordered_map<std::string, json> teams_;
   std::unordered_map<std::string, json> tasks_;
   std::unordered_map<std::string, json> faults_;
+
+  bool agents_loaded_{false};
+  bool teams_loaded_{false};
+  bool tasks_loaded_{false};
+  bool faults_loaded_{false};
+
+  // Called while holding mutex_; loads entity type from GitHub on first access.
+  void ensure_agents_loaded_();
+  void ensure_teams_loaded_();
+  void ensure_tasks_loaded_();
+  void ensure_faults_loaded_();
+
+  // Parses the JSON payload embedded in an issue body; returns nullptr on failure.
+  static json parse_issue_entity_(const json& issue);
+
+  // Builds a GitHub issue body containing a labelled JSON block.
+  static std::string make_issue_body_(std::string_view entity_type, const json& entity);
 };
 
 }  // namespace projectagamemnon
