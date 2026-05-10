@@ -428,4 +428,98 @@ TEST_F(RoutesHappyPathTest, DeadLetterDeleteReturnsCleared) {
   EXPECT_TRUE(get_body["dead_letter_queue"].is_array());
 }
 
+// ── HMAS briefs ───────────────────────────────────────────────────────────────
+
+TEST_F(RoutesHappyPathTest, CreateBriefMissingTitle) {
+  auto res = Post("/v1/briefs", json::object());
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  auto body = json::parse(res->body);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(RoutesHappyPathTest, CreateBriefEmptyTitle) {
+  auto res = Post("/v1/briefs", {{"title", ""}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(RoutesHappyPathTest, CreateBriefSuccess) {
+  auto res = Post("/v1/briefs", {{"title", "test brief"}, {"description", "do the thing"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 201);
+  auto body = json::parse(res->body);
+  EXPECT_TRUE(body.contains("brief_id"));
+  EXPECT_TRUE(body.contains("tasks"));
+}
+
+TEST_F(RoutesHappyPathTest, GetBriefPlanNotFound) {
+  auto res = Get("/v1/briefs/no-such-brief/plan");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 404);
+}
+
+TEST_F(RoutesHappyPathTest, GetBriefPlanSuccess) {
+  auto create = Post("/v1/briefs", {{"title", "plan brief"}, {"repos", json::array({"repo-a"})}});
+  ASSERT_TRUE(create);
+  ASSERT_EQ(create->status, 201);
+  std::string brief_id = json::parse(create->body)["brief_id"];
+
+  auto res = Get("/v1/briefs/" + brief_id + "/plan");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  auto body = json::parse(res->body);
+  EXPECT_EQ(body["brief_id"], brief_id);
+  EXPECT_TRUE(body.contains("tasks"));
+}
+
+// ── HMAS task state/escalate/complete ────────────────────────────────────────
+
+TEST_F(RoutesHappyPathTest, GetTaskStateNotFound) {
+  auto res = Get("/v1/tasks/no-such-task/state");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 404);
+}
+
+TEST_F(RoutesHappyPathTest, GetTaskStateSuccess) {
+  // Submit a brief so HMAS tasks are created in the store.
+  auto create = Post("/v1/briefs", {{"title", "state brief"}, {"repos", json::array({"repo-b"})}});
+  ASSERT_TRUE(create);
+  ASSERT_EQ(create->status, 201);
+  auto plan = json::parse(create->body);
+  // Grab the first task id from the plan.
+  ASSERT_FALSE(plan["tasks"].empty());
+  std::string task_id = plan["tasks"][0]["id"];
+
+  auto res = Get("/v1/tasks/" + task_id + "/state");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  auto body = json::parse(res->body);
+  EXPECT_EQ(body["task_id"], task_id);
+  EXPECT_TRUE(body.contains("state"));
+  EXPECT_TRUE(body.contains("layer"));
+}
+
+TEST_F(RoutesHappyPathTest, EscalateTaskNotFound) {
+  auto res = Post("/v1/tasks/no-such-task/escalate", {{"reason", "blocked"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 404);
+}
+
+TEST_F(RoutesHappyPathTest, CompleteTaskSuccess) {
+  // Submit a brief to get a real task id.
+  auto create =
+      Post("/v1/briefs", {{"title", "complete brief"}, {"repos", json::array({"repo-c"})}});
+  ASSERT_TRUE(create);
+  ASSERT_EQ(create->status, 201);
+  std::string task_id = json::parse(create->body)["tasks"][0]["id"];
+
+  auto res = Post("/v1/tasks/" + task_id + "/complete", json::object());
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  auto body = json::parse(res->body);
+  EXPECT_EQ(body["task_id"], task_id);
+  EXPECT_TRUE(body["completed"].get<bool>());
+}
+
 }  // namespace projectagamemnon::test
