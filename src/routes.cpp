@@ -1,8 +1,8 @@
 #include "projectagamemnon/routes.hpp"
 
 #include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/nats_client.hpp"  // NatsClient derives NatsPublisher; needed for dynamic_cast
-#include "projectagamemnon/nats_publisher.hpp"
+#include "projectagamemnon/metrics.hpp"
+#include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/store.hpp"
 #include "projectagamemnon/version.hpp"
@@ -11,7 +11,6 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <algorithm>
 #include <iostream>
-#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -21,13 +20,6 @@
 namespace projectagamemnon {
 
 using json = nlohmann::json;
-
-// ── Input length limits ───────────────────────────────────────────────────────
-static constexpr std::size_t kMaxNameLen = 256;
-static constexpr std::size_t kMaxLabelLen = 256;
-static constexpr std::size_t kMaxDescriptionLen = 4096;
-static constexpr std::size_t kMaxSubjectLen = 512;
-static constexpr std::size_t kMaxProgramLen = 1024;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -43,17 +35,6 @@ static void reply_not_found(httplib::Response& res, const std::string& what) {
 
 static void reply_bad_request(httplib::Response& res, const std::string& msg) {
   reply_json(res, 400, {{"error", msg}});
-}
-
-/// Returns false and sets 400 if value exceeds max_len.
-static bool check_field_length(httplib::Response& res, const std::string& field_name,
-                               const std::string& value, std::size_t max_len) {
-  if (value.size() > max_len) {
-    reply_bad_request(
-        res, "field '" + field_name + "' exceeds maximum length of " + std::to_string(max_len));
-    return false;
-  }
-  return true;
 }
 
 /// Parse JSON body; returns false and sets 400 on parse error.
@@ -132,54 +113,19 @@ static bool require_string_array(httplib::Response& res, const json& arr,
   return true;
 }
 
-// ── Pagination ────────────────────────────────────────────────────────────────
-
-namespace {
-constexpr std::size_t kDefaultLimit = 100;
-constexpr std::size_t kMaxLimit = 1000;
-
-struct PaginationParams {
-  std::size_t limit;
-  std::size_t offset;
-};
-
-// Returns {limit, offset} parsed from query params, or sets 400 and returns nullopt on error.
-std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
-                                                 httplib::Response& res) {
-  std::size_t limit = kDefaultLimit;
-  std::size_t offset = 0;
-  try {
-    if (req.has_param("limit")) {
-      auto v = std::stoul(req.get_param_value("limit"));
-      limit = std::min(v, kMaxLimit);
-    }
-    if (req.has_param("offset")) {
-      offset = std::stoul(req.get_param_value("offset"));
-    }
-  } catch (const std::exception&) {
-    reply_bad_request(res, "limit and offset must be non-negative integers");
-    return std::nullopt;
-  }
-  return PaginationParams{limit, offset};
-}
-}  // namespace
-
 // ── Route registration ────────────────────────────────────────────────────────
 
-// NOTE: We capture Store* and NatsPublisher* (raw pointers, not references) to
+// NOTE: We capture Store* and NatsClient* (raw pointers, not references) to
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
-// Both store and nats are owned by main() and outlive the server.
+// All are owned by main() and outlive the server.
 
-void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
-                     RateLimiter& rate_limiter, AuthMiddleware& auth) {
+void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
+                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics) {
   Store* sp = &store;
-  NatsPublisher* np = &nats;
-  // nc is non-null only when a real NatsClient is passed (production).
-  // In tests, a FakeNatsPublisher is passed and nc will be nullptr —
-  // guarded accesses below skip NatsClient-only features (circuit breaker, DLQ).
-  NatsClient* nc = dynamic_cast<NatsClient*>(np);
+  NatsClient* np = &nats;
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
+  MetricsRegistry* mp = &metrics;
 
   // Enforce per-IP rate limit and API key auth on every request.
   // Health endpoints are exempt from rate limiting but still require auth.
@@ -211,81 +157,84 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   static constexpr std::size_t kMaxBodyBytes = 1U << 20U;
   server.set_payload_max_length(kMaxBodyBytes);
 
-  // ── Health / version ────────────────────────────────────────────────────
-  server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
+  // ── Prometheus metrics ──────────────────────────────────────────────────
+  server.Get("/metrics", [mp](const httplib::Request&, httplib::Response& res) {
+    res.status = 200;
+    res.set_content(mp->serialize(), "text/plain; version=0.0.4; charset=utf-8");
   });
 
-  server.Get("/v1/health", [nc](const httplib::Request&, httplib::Response& res) {
-    json body = {{"status", "ok"}};
-    if (nc != nullptr) {
-      body["nats_circuit"] = nc->circuit_breaker().state_label();
-      body["dlq_depth"] = nc->dead_letter_queue().size();
-    }
-    reply_json(res, 200, body);
+  // ── Health / version ────────────────────────────────────────────────────
+  server.Get("/health", [mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/health");
+    reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
+    t.set_status(200);
+  });
+
+  server.Get("/v1/health", [np](const httplib::Request&, httplib::Response& res) {
+    reply_json(res, 200,
+               {{"status", "ok"},
+                {"nats_circuit", np->circuit_breaker().state_label()},
+                {"dlq_depth", np->dead_letter_queue().size()}});
   });
 
   // GET /v1/dead-letter — drain and return all dead-lettered messages
-  // nc is owned by main() and outlives the server; reference capture is safe.
-  server.Get("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
+  // np is owned by main() and outlives the server; reference capture is safe.
+  server.Get("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
+    auto entries = np->dead_letter_queue().drain();
     json arr = json::array();
-    if (nc != nullptr) {
-      auto entries = nc->dead_letter_queue().drain();
-      for (const auto& e : entries) {
-        arr.push_back({{"subject", e.subject},
-                       {"payload", e.payload},
-                       {"attempts", e.attempts},
-                       {"timestamp_ms", e.timestamp_ms}});
-      }
+    for (const auto& e : entries) {
+      arr.push_back({{"subject", e.subject},
+                     {"payload", e.payload},
+                     {"attempts", e.attempts},
+                     {"timestamp_ms", e.timestamp_ms}});
     }
     reply_json(res, 200, {{"dead_letter_queue", arr}});
   });
 
   // DELETE /v1/dead-letter — discard all dead-lettered messages
-  server.Delete("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
-    if (nc != nullptr) {
-      nc->dead_letter_queue().clear();
-    }
+  server.Delete("/v1/dead-letter", [np](const httplib::Request&, httplib::Response& res) {
+    np->dead_letter_queue().clear();
     reply_json(res, 200, {{"cleared", true}});
   });
 
-  server.Get("/v1/version", [](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, {{"version", std::string(kVersion)}, {"name", std::string(kProjectName)}});
+  server.Get("/v1/version", [mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/version");
+    reply_json(res, 200, {{"version", "0.1.0"}, {"name", "ProjectAgamemnon"}});
+    t.set_status(200);
   });
 
   // ── Agents ──────────────────────────────────────────────────────────────
 
   // GET /v1/agents
-  server.Get("/v1/agents", [sp](const httplib::Request& req, httplib::Response& res) {
-    auto p = parse_pagination(req, res);
-    if (!p) return;
-    reply_json(res, 200, sp->list_agents(p->limit, p->offset));
+  server.Get("/v1/agents", [sp, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/agents");
+    reply_json(res, 200, sp->list_agents());
+    t.set_status(200);
   });
 
   // POST /v1/agents/docker — registered BEFORE generic /v1/agents POST
-  server.Post("/v1/agents/docker", [sp, np](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/agents/docker", [sp, np, mp](const httplib::Request& req,
+                                                httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/agents/docker");
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "name")) return;
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
+      return;
+    }
+    if (!require_string_if_present(res, body, "name")) {
+      t.set_status(400);
+      return;
+    }
     if (body.contains("name") &&
-        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name")) {
+      t.set_status(400);
       return;
-    if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
-      return;
-    if (body.contains("label") &&
-        !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
-      return;
-    if (body.contains("program") &&
-        !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
-      return;
-    if (body.contains("taskDescription") &&
-        !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
+    }
     if (body.contains("status") && body["status"].is_string() &&
-        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses)) {
+      t.set_status(400);
       return;
+    }
     // Docker agents are created the same way but with hostId and image fields
     json result = sp->create_agent(body);
     auto& agent = result["agent"];
@@ -297,32 +246,31 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     np->publish_log("hi.logs.agamemnon.agent_created", "info", "Agent created: " + agent_id,
                     {{"agent_id", agent_id}, {"name", name}, {"type", agent_type}, {"host", host}});
     reply_json(res, 201, result);
+    t.set_status(201);
   });
 
   // POST /v1/agents
-  server.Post("/v1/agents", [sp, np](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/agents", [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/agents");
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "name")) return;
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
+      return;
+    }
+    if (!require_string_if_present(res, body, "name")) {
+      t.set_status(400);
+      return;
+    }
     if (body.contains("name") &&
-        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name")) {
+      t.set_status(400);
       return;
-    if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
-      return;
-    if (body.contains("label") &&
-        !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
-      return;
-    if (body.contains("program") &&
-        !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
-      return;
-    if (body.contains("taskDescription") &&
-        !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
+    }
     if (body.contains("status") && body["status"].is_string() &&
-        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses)) {
+      t.set_status(400);
       return;
+    }
     json result = sp->create_agent(body);
     auto& agent = result["agent"];
     std::string host = agent.value("host", "local");
@@ -333,230 +281,283 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     np->publish_log("hi.logs.agamemnon.agent_created", "info", "Agent created: " + agent_id,
                     {{"agent_id", agent_id}, {"name", name}, {"type", agent_type}, {"host", host}});
     reply_json(res, 201, result);
+    t.set_status(201);
   });
 
   // POST /v1/agents/:id/start  — registered BEFORE the generic :id route
   server.Post(R"(/v1/agents/([^/]+)/start)",
-              [sp, np](const httplib::Request& req, httplib::Response& res) {
+              [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+                RequestTimer t(*mp, req.method, "/v1/agents/:id/start");
                 std::string id = req.matches[1];
                 json result = sp->start_agent(id);
                 if (result.is_null()) {
                   reply_not_found(res, "agent");
+                  t.set_status(404);
                   return;
                 }
                 std::string host = result.value("host", "local");
                 std::string name = result.value("name", "unknown");
                 np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
                 reply_json(res, 200, result);
+                t.set_status(200);
               });
 
   // POST /v1/agents/:id/stop
   server.Post(R"(/v1/agents/([^/]+)/stop)",
-              [sp, np](const httplib::Request& req, httplib::Response& res) {
+              [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+                RequestTimer t(*mp, req.method, "/v1/agents/:id/stop");
                 std::string id = req.matches[1];
                 json result = sp->stop_agent(id);
                 if (result.is_null()) {
                   reply_not_found(res, "agent");
+                  t.set_status(404);
                   return;
                 }
                 std::string host = result.value("host", "local");
                 std::string name = result.value("name", "unknown");
                 np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
                 reply_json(res, 200, result);
+                t.set_status(200);
               });
 
   // GET /v1/agents/by-name/:name — registered BEFORE the generic :id route
   server.Get(R"(/v1/agents/by-name/([^/]+))",
-             [sp](const httplib::Request& req, httplib::Response& res) {
+             [sp, mp](const httplib::Request& req, httplib::Response& res) {
+               RequestTimer t(*mp, req.method, "/v1/agents/by-name/:name");
                std::string name = req.matches[1];
                json agent = sp->get_agent_by_name(name);
                if (agent.is_null()) {
                  reply_not_found(res, "agent");
+                 t.set_status(404);
                  return;
                }
                reply_json(res, 200, {{"agent", agent}});
+               t.set_status(200);
              });
 
   // GET /v1/agents/:id
-  server.Get(R"(/v1/agents/([^/]+))", [sp](const httplib::Request& req, httplib::Response& res) {
-    std::string id = req.matches[1];
-    json agent = sp->get_agent(id);
-    if (agent.is_null()) {
-      reply_not_found(res, "agent");
-      return;
-    }
-    reply_json(res, 200, {{"agent", agent}});
-  });
+  server.Get(R"(/v1/agents/([^/]+))",
+             [sp, mp](const httplib::Request& req, httplib::Response& res) {
+               RequestTimer t(*mp, req.method, "/v1/agents/:id");
+               std::string id = req.matches[1];
+               json agent = sp->get_agent(id);
+               if (agent.is_null()) {
+                 reply_not_found(res, "agent");
+                 t.set_status(404);
+                 return;
+               }
+               reply_json(res, 200, {{"agent", agent}});
+               t.set_status(200);
+             });
 
   // PATCH /v1/agents/:id
   server.Patch(
-      R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
+      R"(/v1/agents/([^/]+))", [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+        RequestTimer t(*mp, req.method, "/v1/agents/:id");
         std::string id = req.matches[1];
         json body;
-        if (!parse_body(req, res, body)) return;
-        if (!require_string_if_present(res, body, "name")) return;
+        if (!parse_body(req, res, body)) {
+          t.set_status(400);
+          return;
+        }
+        if (!require_string_if_present(res, body, "name")) {
+          t.set_status(400);
+          return;
+        }
         if (body.contains("name") &&
-            !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+            !require_nonempty_string(res, body["name"].get<std::string>(), "name")) {
+          t.set_status(400);
           return;
-        if (body.contains("name") &&
-            !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
-          return;
-        if (body.contains("label") &&
-            !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
-          return;
-        if (body.contains("program") &&
-            !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
-          return;
-        if (body.contains("taskDescription") &&
-            !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
-                                kMaxDescriptionLen))
-          return;
+        }
         if (body.contains("status") && body["status"].is_string() &&
-            !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
+            !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses)) {
+          t.set_status(400);
           return;
+        }
         json result = sp->update_agent(id, body);
         if (result.is_null()) {
           reply_not_found(res, "agent");
+          t.set_status(404);
           return;
         }
         std::string host = result.value("host", "local");
         std::string name = result.value("name", "unknown");
         np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
         reply_json(res, 200, {{"agent", result}});
+        t.set_status(200);
       });
 
   // DELETE /v1/agents/:id
   server.Delete(
-      R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
+      R"(/v1/agents/([^/]+))", [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+        RequestTimer t(*mp, req.method, "/v1/agents/:id");
         std::string id = req.matches[1];
         json agent = sp->get_agent(id);
         if (!sp->delete_agent(id)) {
           reply_not_found(res, "agent");
+          t.set_status(404);
           return;
         }
         std::string host = agent.is_null() ? "local" : agent.value("host", "local");
         std::string name = agent.is_null() ? "unknown" : agent.value("name", "unknown");
         np->publish("hi.agents." + host + "." + name + ".deleted", json{{"id", id}}.dump());
         reply_json(res, 200, {{"deleted", id}});
+        t.set_status(200);
       });
 
   // ── Teams ────────────────────────────────────────────────────────────────
 
   // GET /v1/teams
-  server.Get("/v1/teams", [sp](const httplib::Request& req, httplib::Response& res) {
-    auto p = parse_pagination(req, res);
-    if (!p) return;
-    reply_json(res, 200, sp->list_teams(p->limit, p->offset));
+  server.Get("/v1/teams", [sp, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams");
+    reply_json(res, 200, sp->list_teams());
+    t.set_status(200);
   });
 
   // POST /v1/teams
-  server.Post("/v1/teams", [sp, np](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/teams", [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams");
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "name")) return;
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
+      return;
+    }
+    if (!require_string_if_present(res, body, "name")) {
+      t.set_status(400);
+      return;
+    }
     if (body.contains("name") &&
-        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name")) {
+      t.set_status(400);
       return;
-    if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+    }
+    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds")) {
+      t.set_status(400);
       return;
-    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
+    }
+    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids")) {
+      t.set_status(400);
       return;
-    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids"))
-      return;
+    }
     json result = sp->create_team(body);
     np->publish("hi.agents.team.created", result.dump());
     reply_json(res, 201, result);
+    t.set_status(201);
   });
 
   // GET /v1/teams/:id
-  server.Get(R"(/v1/teams/([^/]+))", [sp](const httplib::Request& req, httplib::Response& res) {
+  server.Get(R"(/v1/teams/([^/]+))", [sp, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams/:id");
     std::string id = req.matches[1];
     json team = sp->get_team(id);
     if (team.is_null()) {
       reply_not_found(res, "team");
+      t.set_status(404);
       return;
     }
     reply_json(res, 200, {{"team", team}});
+    t.set_status(200);
   });
 
   // PUT /v1/teams/:id
-  server.Put(R"(/v1/teams/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
+  server.Put(R"(/v1/teams/([^/]+))", [sp, np, mp](const httplib::Request& req,
+                                                  httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams/:id");
     std::string id = req.matches[1];
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "name")) return;
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
+      return;
+    }
+    if (!require_string_if_present(res, body, "name")) {
+      t.set_status(400);
+      return;
+    }
     if (body.contains("name") &&
-        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+        !require_nonempty_string(res, body["name"].get<std::string>(), "name")) {
+      t.set_status(400);
       return;
-    if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+    }
+    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds")) {
+      t.set_status(400);
       return;
-    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
+    }
+    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids")) {
+      t.set_status(400);
       return;
-    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids"))
-      return;
+    }
     json result = sp->update_team(id, body);
     if (result.is_null()) {
       reply_not_found(res, "team");
+      t.set_status(404);
       return;
     }
     np->publish("hi.agents.team.updated", result.dump());
     reply_json(res, 200, {{"team", result}});
+    t.set_status(200);
   });
 
   // DELETE /v1/teams/:id
   server.Delete(R"(/v1/teams/([^/]+))",
-                [sp, np](const httplib::Request& req, httplib::Response& res) {
+                [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+                  RequestTimer t(*mp, req.method, "/v1/teams/:id");
                   std::string id = req.matches[1];
                   if (!sp->delete_team(id)) {
                     reply_not_found(res, "team");
+                    t.set_status(404);
                     return;
                   }
                   np->publish("hi.agents.team.deleted", json{{"id", id}}.dump());
                   reply_json(res, 200, {{"deleted", id}});
+                  t.set_status(200);
                 });
 
   // ── Tasks ────────────────────────────────────────────────────────────────
 
   // GET /v1/tasks  (all tasks across all teams)
-  server.Get("/v1/tasks", [sp](const httplib::Request& req, httplib::Response& res) {
-    auto p = parse_pagination(req, res);
-    if (!p) return;
-    reply_json(res, 200, sp->list_all_tasks(p->limit, p->offset));
+  server.Get("/v1/tasks", [sp, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/tasks");
+    reply_json(res, 200, sp->list_all_tasks());
+    t.set_status(200);
   });
 
   // GET /v1/teams/:team_id/tasks — registered BEFORE the generic :team_id route
   server.Get(R"(/v1/teams/([^/]+)/tasks)",
-             [sp](const httplib::Request& req, httplib::Response& res) {
+             [sp, mp](const httplib::Request& req, httplib::Response& res) {
+               RequestTimer t(*mp, req.method, "/v1/teams/:team_id/tasks");
                std::string team_id = req.matches[1];
-               auto p = parse_pagination(req, res);
-               if (!p) return;
-               reply_json(res, 200, sp->list_tasks_for_team(team_id, p->limit, p->offset));
+               reply_json(res, 200, sp->list_tasks_for_team(team_id));
+               t.set_status(200);
              });
 
   // POST /v1/teams/:team_id/tasks
-  server.Post(R"(/v1/teams/([^/]+)/tasks)", [sp, np](const httplib::Request& req,
-                                                     httplib::Response& res) {
+  server.Post(R"(/v1/teams/([^/]+)/tasks)", [sp, np, mp](const httplib::Request& req,
+                                                         httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams/:team_id/tasks");
     std::string team_id = req.matches[1];
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "subject")) return;
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
+      return;
+    }
+    if (!require_string_if_present(res, body, "subject")) {
+      t.set_status(400);
+      return;
+    }
     if (body.contains("subject") &&
-        !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
+        !require_nonempty_string(res, body["subject"].get<std::string>(), "subject")) {
+      t.set_status(400);
       return;
-    if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
-      return;
-    if (body.contains("description") &&
-        !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
+    }
     if (body.contains("type") && body["type"].is_string() &&
-        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
+        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes)) {
+      t.set_status(400);
       return;
-    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
+    }
+    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy")) {
+      t.set_status(400);
       return;
+    }
     json result = sp->create_task(team_id, body);
     np->publish("hi.tasks.created", result.dump());
 
@@ -579,45 +580,54 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      {"subject", myrmidon_subject}});
 
     reply_json(res, 201, result);
+    t.set_status(201);
   });
 
   // GET /v1/teams/:team_id/tasks/:task_id
   server.Get(R"(/v1/teams/([^/]+)/tasks/([^/]+))",
-             [sp](const httplib::Request& req, httplib::Response& res) {
+             [sp, mp](const httplib::Request& req, httplib::Response& res) {
+               RequestTimer t(*mp, req.method, "/v1/teams/:team_id/tasks/:task_id");
                std::string team_id = req.matches[1];
                std::string task_id = req.matches[2];
                json task = sp->get_task(team_id, task_id);
                if (task.is_null()) {
                  reply_not_found(res, "task");
+                 t.set_status(404);
                  return;
                }
                reply_json(res, 200, {{"task", task}});
+               t.set_status(200);
              });
 
-  // Shared handler for PUT and PATCH /v1/teams/:team_id/tasks/:task_id
-  auto update_task_handler = [sp, np](const httplib::Request& req, httplib::Response& res) {
+  // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
+  server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np, mp](const httplib::Request& req,
+                                                                httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams/:team_id/tasks/:task_id");
     std::string team_id = req.matches[1];
     std::string task_id = req.matches[2];
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
       return;
-    if (body.contains("description") &&
-        !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
+    }
     if (body.contains("status") && body["status"].is_string() &&
-        !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses)) {
+      t.set_status(400);
       return;
+    }
     if (body.contains("type") && body["type"].is_string() &&
-        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
+        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes)) {
+      t.set_status(400);
       return;
-    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
+    }
+    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy")) {
+      t.set_status(400);
       return;
+    }
     json result = sp->update_task(team_id, task_id, body);
     if (result.is_null()) {
       reply_not_found(res, "task");
+      t.set_status(404);
       return;
     }
     const auto& task = result["task"].is_null() ? result : result["task"];
@@ -633,28 +643,24 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                        {"assignee", assignee}});
     }
     reply_json(res, 200, {{"task", result}});
-  };
-
-  // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
-  server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
+    t.set_status(200);
+  });
 
   // PATCH /v1/teams/:team_id/tasks/:task_id
-  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np](const httplib::Request& req,
-                                                              httplib::Response& res) {
+  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np, mp](const httplib::Request& req,
+                                                                  httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/teams/:team_id/tasks/:task_id");
     std::string team_id = req.matches[1];
     std::string task_id = req.matches[2];
     json body;
-    if (!parse_body(req, res, body)) return;
-    if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+    if (!parse_body(req, res, body)) {
+      t.set_status(400);
       return;
-    if (body.contains("description") &&
-        !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
+    }
     json result = sp->update_task(team_id, task_id, body);
     if (result.is_null()) {
       reply_not_found(res, "task");
+      t.set_status(404);
       return;
     }
     const auto& task = result["task"].is_null() ? result : result["task"];
@@ -670,37 +676,51 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                        {"assignee", assignee}});
     }
     reply_json(res, 200, {{"task", result}});
+    t.set_status(200);
+  });
+
+  // ── Workflows ────────────────────────────────────────────────────────────
+
+  server.Get("/v1/workflows", [mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/workflows");
+    reply_json(res, 200, {{"workflows", json::array()}});
+    t.set_status(200);
   });
 
   // ── Chaos ────────────────────────────────────────────────────────────────
 
   // GET /v1/chaos
-  server.Get("/v1/chaos", [sp](const httplib::Request& req, httplib::Response& res) {
-    auto p = parse_pagination(req, res);
-    if (!p) return;
-    reply_json(res, 200, sp->list_faults(p->limit, p->offset));
+  server.Get("/v1/chaos", [sp, mp](const httplib::Request& req, httplib::Response& res) {
+    RequestTimer t(*mp, req.method, "/v1/chaos");
+    reply_json(res, 200, sp->list_faults());
+    t.set_status(200);
   });
 
   // POST /v1/chaos/:type
   server.Post(R"(/v1/chaos/([^/]+))",
-              [sp, np](const httplib::Request& req, httplib::Response& res) {
+              [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+                RequestTimer t(*mp, req.method, "/v1/chaos/:type");
                 std::string type = req.matches[1];
                 // Chaos accepts any non-empty type string (flexible fault injection)
                 json result = sp->create_fault(type);
                 np->publish("hi.agents.chaos.injected", result.dump());
                 reply_json(res, 201, result);
+                t.set_status(201);
               });
 
   // DELETE /v1/chaos/:id
   server.Delete(R"(/v1/chaos/([^/]+))",
-                [sp, np](const httplib::Request& req, httplib::Response& res) {
+                [sp, np, mp](const httplib::Request& req, httplib::Response& res) {
+                  RequestTimer t(*mp, req.method, "/v1/chaos/:id");
                   std::string id = req.matches[1];
                   if (!sp->remove_fault(id)) {
                     reply_not_found(res, "fault");
+                    t.set_status(404);
                     return;
                   }
                   np->publish("hi.agents.chaos.removed", json{{"id", id}}.dump());
                   reply_json(res, 200, {{"deleted", id}});
+                  t.set_status(200);
                 });
 
   std::cout << "[agamemnon] routes registered\n";

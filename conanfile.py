@@ -14,7 +14,7 @@ class ProjectAgamemnonConan(ConanFile):
         self.requires("prometheus-cpp/1.2.4")
 
     def configure(self):
-        # Use the pull-based serializer only; we embed the HTTP handler in cpp-httplib
+        # Use core serializer only; HTTP serving is embedded in cpp-httplib (no pull server)
         self.options["prometheus-cpp"].with_pull = False
         self.options["prometheus-cpp"].with_push = False
         self.options["prometheus-cpp"].with_compression = False

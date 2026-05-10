@@ -106,7 +106,6 @@ target_link_libraries(agamemnon_lib
     OpenSSL::Crypto
     CURL::libcurl
     prometheus-cpp::core
-    prometheus-cpp::pull
 )
 
 target_compile_options(agamemnon_lib PRIVATE

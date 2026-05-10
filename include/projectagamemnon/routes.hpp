@@ -17,7 +17,6 @@ class MetricsRegistry;
 /// Store, NatsClient, RateLimiter, AuthMiddleware, and MetricsRegistry are
 /// passed by reference; they must outlive the server (they are owned by main).
 void register_routes(httplib::Server& server, Store& store, NatsClient& nats,
-                     RateLimiter& rate_limiter, AuthMiddleware& auth,
-                     MetricsRegistry& metrics);
+                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics);
 
 }  // namespace projectagamemnon
