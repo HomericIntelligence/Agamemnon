@@ -16,7 +16,7 @@ bool AuthMiddleware::validate(const httplib::Request& req) const {
     return true;
   }
 
-  // If no key is configured, allow all requests (useful for tests / local dev).
+  // If no API key is configured, allow all requests (useful for tests / local dev).
   if (api_key_.empty()) {
     return true;
   }

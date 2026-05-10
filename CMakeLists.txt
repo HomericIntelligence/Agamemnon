@@ -123,40 +123,13 @@ target_compile_features(${PROJECT_NAME}_server PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_server PROPERTIES CXX_EXTENSIONS OFF)
 
 target_include_directories(
-  ${PROJECT_NAME}_core
-  PUBLIC
-    ${PROJECT_SOURCE_DIR}/include
+  ${PROJECT_NAME}_server
   PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src
 )
 
 target_link_libraries(${PROJECT_NAME}_server PRIVATE agamemnon_lib agamemnon_peer_discovery)
-
-# Suppress warnings from external headers on the core target
-target_compile_options(${PROJECT_NAME}_core PRIVATE
-  -Wno-old-style-cast
-  -Wno-useless-cast
-  -Wno-conversion
-  -Wno-sign-conversion
-  -Wno-shadow
-  -Wno-format-nonliteral
-  -Wno-double-promotion
-  -Wno-cast-align
-)
-
-# ── Server executable ────────────────────────────────────────────────────────
-add_executable(${PROJECT_NAME}_server
-  src/server_main.cpp
-)
-
-target_compile_features(${PROJECT_NAME}_server PRIVATE cxx_std_20)
-set_target_properties(${PROJECT_NAME}_server PROPERTIES CXX_EXTENSIONS OFF)
-
-target_link_libraries(
-  ${PROJECT_NAME}_server
-  PRIVATE
-    ${PROJECT_NAME}_core
-)
 
 # Suppress warnings from external headers on the server target
 target_compile_options(${PROJECT_NAME}_server PRIVATE
