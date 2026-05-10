@@ -5,6 +5,7 @@ find_package(Threads REQUIRED)
 find_package(httplib REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(prometheus-cpp REQUIRED)
 
 # ── Unit tests ───────────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_tests
@@ -60,7 +61,8 @@ target_link_libraries(${PROJECT_NAME}_tests
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
-    Threads::Threads)
+    Threads::Threads
+    prometheus-cpp::core)
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME}_tests DISCOVERY_TIMEOUT 120)

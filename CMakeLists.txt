@@ -20,12 +20,13 @@ include(cmake/Doxygen.cmake)
 include(cmake/SourcesAndHeaders.cmake)
 
 # ── External dependencies ────────────────────────────────────────────────────
-# cpp-httplib, nlohmann_json, and libcurl are provided by Conan (run `just deps` first).
+# cpp-httplib, nlohmann_json, libcurl, and prometheus-cpp are provided by Conan (run `just deps` first).
 # nats.c stays as FetchContent (not reliably available on ConanCenter).
 find_package(httplib REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
+find_package(prometheus-cpp REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -57,7 +58,8 @@ target_include_directories(
 target_link_libraries(
   ${PROJECT_NAME}
   PRIVATE
-    nlohmann_json::nlohmann_json)
+    nlohmann_json::nlohmann_json
+    prometheus-cpp::core)
 
 set_project_warnings(${PROJECT_NAME})
 
@@ -85,6 +87,7 @@ add_library(agamemnon_lib STATIC
   src/github_client.cpp
   src/rate_limiter.cpp
   src/auth.cpp
+  src/metrics.cpp
 )
 
 target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
@@ -103,6 +106,7 @@ target_link_libraries(agamemnon_lib
     OpenSSL::SSL
     OpenSSL::Crypto
     CURL::libcurl
+    prometheus-cpp::core
 )
 
 target_compile_options(agamemnon_lib PRIVATE

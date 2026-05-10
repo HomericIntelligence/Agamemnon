@@ -1,4 +1,5 @@
 #include "projectagamemnon/auth.hpp"
+#include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
@@ -24,7 +25,7 @@ class RoutesAuthTest : public ::testing::Test {
     store_ = std::make_unique<Store>();
     nats_ = std::make_unique<NatsClient>("nats://127.0.0.1:14222");
 
-    register_routes(server_, *store_, *nats_, rate_limiter_, *auth_);
+    register_routes(server_, *store_, *nats_, rate_limiter_, *auth_, metrics_);
 
     // Bind to an OS-assigned port to avoid cross-test port conflicts.
     port_ = server_.bind_to_any_port("127.0.0.1");
@@ -65,6 +66,7 @@ class RoutesAuthTest : public ::testing::Test {
   httplib::Server server_;
   std::thread server_thread_;
   RateLimiter rate_limiter_{1e9, 1e9};  // effectively unlimited for auth tests
+  MetricsRegistry metrics_;
   std::unique_ptr<AuthMiddleware> auth_;
   std::unique_ptr<Store> store_;
   std::unique_ptr<NatsClient> nats_;

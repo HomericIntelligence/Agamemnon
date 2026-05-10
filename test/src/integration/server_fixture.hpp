@@ -7,6 +7,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/fake_nats_publisher.hpp"
+#include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/routes.hpp"
 #include "projectagamemnon/store.hpp"
@@ -37,8 +38,9 @@ class AgamemnonServerFixture : public ::testing::Test {
     rate_limiter_ = new RateLimiter(1e9, 1e9);  // effectively unlimited for tests
     auth_ = new AuthMiddleware("");             // empty key — all requests pass auth
 
+    metrics_ = new MetricsRegistry();
     server_ = new httplib::Server();
-    register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_);
+    register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_, *metrics_);
 
     // Let the OS pick a free port.
     int bound_port = server_->bind_to_any_port("127.0.0.1");
@@ -64,6 +66,7 @@ class AgamemnonServerFixture : public ::testing::Test {
     delete client_;
     delete server_thread_;
     delete server_;
+    delete metrics_;
     delete auth_;
     delete rate_limiter_;
     delete nats_;
@@ -71,6 +74,7 @@ class AgamemnonServerFixture : public ::testing::Test {
     client_ = nullptr;
     server_thread_ = nullptr;
     server_ = nullptr;
+    metrics_ = nullptr;
     auth_ = nullptr;
     rate_limiter_ = nullptr;
     nats_ = nullptr;
@@ -88,6 +92,7 @@ class AgamemnonServerFixture : public ::testing::Test {
   inline static FakeNatsPublisher* nats_ = nullptr;
   inline static RateLimiter* rate_limiter_ = nullptr;
   inline static AuthMiddleware* auth_ = nullptr;
+  inline static MetricsRegistry* metrics_ = nullptr;
 };
 
 }  // namespace projectagamemnon::test

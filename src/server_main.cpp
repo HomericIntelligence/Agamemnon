@@ -1,4 +1,5 @@
 #include "projectagamemnon/auth.hpp"
+#include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/peer_discovery.hpp"
 #include "projectagamemnon/port_parse.hpp"
@@ -42,6 +43,9 @@ int main() {
   std::cout << projectagamemnon::kProjectName << " v" << projectagamemnon::kVersion
             << " starting...\n";
 
+  // ── Metrics registry ─────────────────────────────────────────────────────
+  projectagamemnon::MetricsRegistry metrics;
+
   // ── GitHub-backed store ──────────────────────────────────────────────────
   std::shared_ptr<projectagamemnon::IGitHubClient> gh_client;
 
@@ -58,6 +62,7 @@ int main() {
   }
 
   projectagamemnon::Store store(gh_client);
+  store.set_metrics(&metrics);
 
   // ── NATS client ──────────────────────────────────────────────────────────
   const char* nats_url_env = std::getenv("NATS_URL");
@@ -76,6 +81,7 @@ int main() {
   }
 
   projectagamemnon::NatsClient nats(nats_url);
+  nats.set_metrics(&metrics);
   if (nats.connect()) {
     std::cout << "[agamemnon] connected to NATS at " << nats_url << "\n";
     nats.ensure_streams();
@@ -137,7 +143,7 @@ int main() {
   server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
                                 1024UL * 1024UL);
 
-  projectagamemnon::register_routes(server, store, nats, rate_limiter, auth);
+  projectagamemnon::register_routes(server, store, nats, rate_limiter, auth, metrics);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;

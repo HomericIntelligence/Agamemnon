@@ -16,6 +16,8 @@ namespace projectagamemnon {
 
 using json = nlohmann::json;
 
+class MetricsRegistry;
+
 /// Generate a UUID-like string using <random>.
 std::string generate_uuid();
 
@@ -28,6 +30,9 @@ std::string now_iso8601();
 class Store {
  public:
   explicit Store(std::shared_ptr<IGitHubClient> gh = nullptr) : gh_(std::move(gh)) {}
+
+  /// Attach a MetricsRegistry for instrumentation (nullable; pass nullptr to disable).
+  void set_metrics(MetricsRegistry* metrics) noexcept { metrics_ = metrics; }
 
   // ── Agents ─────────────────────────────────────────────────────────────
   json create_agent(const json& body);
@@ -68,8 +73,8 @@ class Store {
 
  private:
   std::shared_ptr<IGitHubClient> gh_;
+  MetricsRegistry* metrics_ = nullptr;
   mutable std::shared_mutex mutex_;
-
   std::unordered_map<std::string, json> agents_;
   std::unordered_map<std::string, json> teams_;
   std::unordered_map<std::string, json> tasks_;

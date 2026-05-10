@@ -1,8 +1,8 @@
 #include "projectagamemnon/routes.hpp"
 
 #include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/nats_client.hpp"  // NatsClient derives NatsPublisher; needed for dynamic_cast
-#include "projectagamemnon/nats_publisher.hpp"
+#include "projectagamemnon/metrics.hpp"
+#include "projectagamemnon/nats_client.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
 #include "projectagamemnon/store.hpp"
 #include "projectagamemnon/version.hpp"
@@ -174,10 +174,10 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 
 // NOTE: We capture Store* and NatsPublisher* (raw pointers, not references) to
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
-// Both store and nats are owned by main() and outlive the server.
+// All are owned by main() and outlive the server.
 
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
-                     RateLimiter& rate_limiter, AuthMiddleware& auth) {
+                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics) {
   Store* sp = &store;
   NatsPublisher* np = &nats;
   // nc is non-null only when a real NatsClient is passed (production).
@@ -186,6 +186,14 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   NatsClient* nc = dynamic_cast<NatsClient*>(np);
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
+  MetricsRegistry* mp = &metrics;
+  (void)mp;  // suppress unused warning if no route uses it directly
+
+  // ── Prometheus metrics endpoint ────────────────────────────────────────
+  server.Get("/metrics", [mp](const httplib::Request&, httplib::Response& res) {
+    res.status = 200;
+    res.set_content(mp->serialize(), "text/plain; version=0.0.4; charset=utf-8");
+  });
 
   // Enforce per-IP rate limit and API key auth on every request.
   // Health endpoints are exempt from rate limiting but still require auth.

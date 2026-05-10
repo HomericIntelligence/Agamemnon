@@ -1,10 +1,11 @@
 #include "projectagamemnon/store.hpp"
 
+#include "projectagamemnon/metrics.hpp"
+
 #include <chrono>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
-#include <mutex>
 #include <random>
 #include <shared_mutex>
 #include <sstream>
@@ -218,6 +219,7 @@ json Store::create_agent(const json& body) {
   }
 
   agents_[id] = agent;
+  if (metrics_) metrics_->adjust_agent_count(1);
   return {{"id", id}, {"agent", agent}};
 }
 
@@ -239,7 +241,7 @@ json Store::get_agent_by_name(const std::string& name) {
 }
 
 json Store::list_agents(std::size_t limit, std::size_t offset) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_agents_loaded_();
   json arr = json::array();
   std::size_t idx = 0;
@@ -275,6 +277,7 @@ bool Store::delete_agent(const std::string& id) {
     gh_->close_issue(it->second["_github_issue"].get<std::string>());
   }
   agents_.erase(it);
+  if (metrics_) metrics_->adjust_agent_count(-1);
   return true;
 }
 
@@ -337,7 +340,7 @@ json Store::get_team(const std::string& id) {
 }
 
 json Store::list_teams(std::size_t limit, std::size_t offset) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_teams_loaded_();
   json arr = json::array();
   std::size_t idx = 0;
@@ -405,6 +408,9 @@ json Store::create_task(const std::string& team_id, const json& body) {
   }
 
   tasks_[id] = task;
+  if (metrics_) {
+    metrics_->record_task_created();
+  }
   return {{"task", task}};
 }
 
@@ -435,11 +441,14 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
     gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
                            make_issue_body_("tasks/" + task_id, it->second));
   }
+  if (metrics_ && body.contains("status")) {
+    metrics_->record_task_state_change("pending", body["status"].get<std::string>());
+  }
   return it->second;
 }
 
 json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_tasks_loaded_();
   json arr = json::array();
   std::size_t total = 0;
@@ -455,7 +464,7 @@ json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, s
 }
 
 json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_tasks_loaded_();
   json arr = json::array();
   std::size_t idx = 0;
@@ -472,19 +481,21 @@ void Store::mark_task_completed(const std::string& task_id) {
   ensure_tasks_loaded_();
   auto it = tasks_.find(task_id);
   if (it != tasks_.end()) {
+    std::string old_status = it->second.value("status", "pending");
     it->second["status"] = "completed";
     it->second["completedAt"] = now_iso8601();
     if (gh_ && it->second.contains("_github_issue")) {
       gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
                              make_issue_body_("tasks/" + task_id, it->second));
     }
+    if (metrics_) metrics_->record_task_state_change(old_status, "completed");
   }
 }
 
 // ── Chaos faults ──────────────────────────────────────────────────────────────
 
 json Store::list_faults(std::size_t limit, std::size_t offset) {
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_faults_loaded_();
   json arr = json::array();
   std::size_t idx = 0;
