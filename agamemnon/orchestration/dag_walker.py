@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from .models import Agent, Task, TERMINAL_STATUSES
+from .models import TERMINAL_STATUSES, Agent, Task
 
 logger = logging.getLogger(__name__)
 
@@ -16,30 +16,26 @@ class DAGWalker:
         self,
         tasks: list[Task],
         agents: list[Agent],
-        client: Optional[Any] = None,
+        client: Any | None = None,
         scan_interval: float = 60.0,
     ) -> None:
         self.tasks = tasks
         self.agents = agents
         self.client = client
         self.scan_interval = scan_interval
-        self._scan_task: Optional[asyncio.Task[None]] = None
+        self._scan_task: asyncio.Task[None] | None = None
 
     def get_available_agents(self) -> list[Agent]:
         """Return agents that are active, online, and not currently assigned a task."""
         return [
             a
             for a in self.agents
-            if a.status == "active"
-            and a.session_status == "online"
-            and a.current_task_id is None
+            if a.status == "active" and a.session_status == "online" and a.current_task_id is None
         ]
 
     def get_ready_tasks(self) -> list[Task]:
         """Return tasks whose dependencies are all in terminal status."""
-        completed_ids = {
-            t.id for t in self.tasks if t.status in TERMINAL_STATUSES
-        }
+        completed_ids = {t.id for t in self.tasks if t.status in TERMINAL_STATUSES}
         return [
             t
             for t in self.tasks
@@ -61,9 +57,7 @@ class DAGWalker:
         for t in self.tasks:
             for dep_id in t.dependencies:
                 if dep_id not in task_ids:
-                    raise ValueError(
-                        f"Unknown dependency {dep_id!r} referenced by task {t.id!r}"
-                    )
+                    raise ValueError(f"Unknown dependency {dep_id!r} referenced by task {t.id!r}")
 
         adj: dict[str, list[str]] = {t.id: list(t.dependencies) for t in self.tasks}
 
@@ -184,14 +178,10 @@ class DAGWalker:
         Uses ``asyncio.wait_for`` on *stop_event* so the loop wakes up
         immediately on shutdown rather than sleeping for the full interval.
         """
-        logger.info(
-            "DAGWalker background scan started (interval=%.1fs)", self.scan_interval
-        )
+        logger.info("DAGWalker background scan started (interval=%.1fs)", self.scan_interval)
         while not stop_event.is_set():
             try:
-                await asyncio.wait_for(
-                    stop_event.wait(), timeout=self.scan_interval
-                )
+                await asyncio.wait_for(stop_event.wait(), timeout=self.scan_interval)
                 # stop_event was set — exit cleanly.
                 break
             except asyncio.TimeoutError:
@@ -202,9 +192,7 @@ class DAGWalker:
                 logger.exception("DAGWalker background scan failed — continuing")
         logger.info("DAGWalker background scan stopped")
 
-    def start_background_scan(
-        self, stop_event: asyncio.Event
-    ) -> "asyncio.Task[None]":
+    def start_background_scan(self, stop_event: asyncio.Event) -> asyncio.Task[None]:
         """Schedule a background scan loop and return the created task (issue #98).
 
         The caller is responsible for cancelling or awaiting the returned task on

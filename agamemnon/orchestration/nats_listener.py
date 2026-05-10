@@ -9,7 +9,6 @@ from typing import Any, Protocol
 
 import nats.errors
 import nats.js.errors
-
 from pydantic import ValidationError
 
 from .models import TaskEvent
@@ -21,8 +20,7 @@ logger = logging.getLogger(__name__)
 class TaskClaimer(Protocol):
     """Protocol for objects that can handle advance_dag_tracked calls."""
 
-    def advance_dag_tracked(self, team_id: str) -> None:
-        ...
+    def advance_dag_tracked(self, team_id: str) -> None: ...
 
 
 class NATSListener:
@@ -137,9 +135,7 @@ class NATSListener:
                     "nats_jetstream_unavailable",
                     extra={"subject": subject, "stream": stream, "error": str(exc)},
                 )
-                raise RuntimeError(
-                    "JetStream is not enabled on the connected NATS server"
-                ) from exc
+                raise RuntimeError("JetStream is not enabled on the connected NATS server") from exc
 
         logger.error(
             "nats_stream_not_found_fatal",
@@ -232,7 +228,8 @@ class NATSListener:
         parts = subject.split(".")
         if len(parts) != NATSListener._SUBJECT_PART_COUNT:
             raise ValueError(
-                f"Expected {NATSListener._SUBJECT_PART_COUNT} subject parts, got {len(parts)}: {subject!r}"
+                f"Expected {NATSListener._SUBJECT_PART_COUNT} subject parts,"
+                f" got {len(parts)}: {subject!r}"
             )
         return parts[2], parts[3]  # team_id, task_id
 

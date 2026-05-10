@@ -1,4 +1,4 @@
-"""Structured JSON logging for ProjectKeystone using stdlib only."""
+"""Structured JSON logging for Agamemnon orchestration using stdlib only."""
 
 from __future__ import annotations
 
@@ -10,9 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 # Pre-computed baseline attributes of a LogRecord to detect extra fields.
-_BASELINE_ATTRS: frozenset[str] = frozenset(
-    logging.LogRecord("", 0, "", 0, "", (), None).__dict__
-)
+_BASELINE_ATTRS: frozenset[str] = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
 
 # Reserved top-level field names that would conflict with the log schema.
 _RESERVED_FIELDS = frozenset({"timestamp", "level", "logger", "message", "exception"})
@@ -21,9 +19,7 @@ _RESERVED_FIELDS = frozenset({"timestamp", "level", "logger", "message", "except
 class JsonFormatter(logging.Formatter):
     """Formats log records as single-line JSON objects."""
 
-    def __init__(
-        self, *args: Any, include_location: bool = False, **kwargs: Any
-    ) -> None:
+    def __init__(self, *args: Any, include_location: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._include_location = include_location
 
@@ -53,7 +49,7 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(output, default=str)
 
 
-class KeystoneLogger:
+class AgamemnonLogger:
     """Thread-safe logger that binds context fields to every log record."""
 
     def __init__(self, logger: logging.Logger, context: dict[str, Any]) -> None:
@@ -90,15 +86,15 @@ class KeystoneLogger:
             extra.update(self._context)
         self._logger.exception(msg, extra=extra)
 
-    def bind(self, **extra: object) -> KeystoneLogger:
-        """Return a new KeystoneLogger with merged context fields.
+    def bind(self, **extra: object) -> AgamemnonLogger:
+        """Return a new AgamemnonLogger with merged context fields.
 
         The returned logger includes all existing context plus the given extra fields.
         If a field name exists in both, the extra field takes precedence.
         """
         with self._lock:
             merged_context = {**self._context, **extra}
-        return KeystoneLogger(self._logger, merged_context)
+        return AgamemnonLogger(self._logger, merged_context)
 
 
 def configure_logging(level: int = logging.INFO) -> None:
@@ -121,15 +117,15 @@ def configure_logging(level: int = logging.INFO) -> None:
     root.addHandler(handler)
 
 
-def get_logger(*, component: str = "", **context: Any) -> KeystoneLogger:
-    """Return a KeystoneLogger bound to the given component and context.
+def get_logger(*, component: str = "", **context: Any) -> AgamemnonLogger:
+    """Return a AgamemnonLogger bound to the given component and context.
 
     Args:
-        component: Appended to the ``keystone.`` logger name prefix.
+        component: Appended to the ``agamemnon.`` logger name prefix.
         **context: Key-value pairs pre-bound to every log record.
 
     Returns:
-        A :class:`KeystoneLogger` wrapping ``logging.getLogger(name)``.
+        A :class:`AgamemnonLogger` wrapping ``logging.getLogger(name)``.
     """
-    name = f"keystone.{component}" if component else "keystone"
-    return KeystoneLogger(logging.getLogger(name), context)
+    name = f"agamemnon.{component}" if component else "agamemnon"
+    return AgamemnonLogger(logging.getLogger(name), context)

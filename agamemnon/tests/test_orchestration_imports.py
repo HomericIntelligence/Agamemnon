@@ -66,11 +66,11 @@ def test_validation_module() -> None:
 
 
 def test_logging_module() -> None:
-    """Logging module exports get_logger and KeystoneLogger."""
-    from agamemnon.orchestration.logging import KeystoneLogger, get_logger
+    """Logging module exports get_logger and AgamemnonLogger."""
+    from agamemnon.orchestration.logging import AgamemnonLogger, get_logger
 
     logger = get_logger(component="test")
-    assert isinstance(logger, KeystoneLogger)
+    assert isinstance(logger, AgamemnonLogger)
 
 
 def test_task_event_rejects_unknown_fields() -> None:

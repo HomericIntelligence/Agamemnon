@@ -26,9 +26,7 @@ def validate_id(value: str, field_name: str) -> str:
         raise ValueError(f"{field_name} must not be empty or whitespace-only")
 
     if len(value) > _MAX_ID_LENGTH:
-        raise ValueError(
-            f"{field_name} exceeds maximum length of {_MAX_ID_LENGTH} characters"
-        )
+        raise ValueError(f"{field_name} exceeds maximum length of {_MAX_ID_LENGTH} characters")
 
     for ch in value:
         if ch.isspace() or ord(ch) < 32:

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, model_validator
+
 
 
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "error", "cancelled"})
@@ -32,7 +32,7 @@ class Task:
     title: str
     status: str
     dependencies: list[str] = field(default_factory=list)
-    assigned_agent_id: Optional[str] = None
+    assigned_agent_id: str | None = None
 
 
 @dataclass
@@ -44,7 +44,7 @@ class Agent:
     session_status: str = "online"
     task_description: str = ""
     program: str = ""
-    current_task_id: Optional[str] = None
+    current_task_id: str | None = None
 
 
 class TaskEvent(BaseModel):
