@@ -34,7 +34,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get install -y ninja-build gcovr
+          sudo apt-get install -y ninja-build gcovr libgtest-dev libgmock-dev
           pip install conan
           conan profile detect --force
       - name: Install Conan dependencies

@@ -10,6 +10,8 @@ gcovr \
   --root "${ROOT_DIR}" \
   --filter "${ROOT_DIR}/include" \
   --filter "${ROOT_DIR}/src" \
+  --exclude "${ROOT_DIR}/src/server_main.cpp" \
+  --exclude "${ROOT_DIR}/src/nats_client.cpp" \
   --html-details "${ROOT_DIR}/build/coverage-report/index.html" \
   --xml "${ROOT_DIR}/build/coverage-report/coverage.xml" \
   --print-summary \

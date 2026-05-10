@@ -8,12 +8,14 @@ find_package(OpenSSL REQUIRED)
 
 # ── Unit tests ───────────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_tests
-  src/test_main.cpp
+  src/test_version.cpp
   src/test_store.cpp
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
+  src/test_routes.cpp
   src/test_routes_malformed.cpp
+  src/test_nats_client.cpp
   src/test_peer_discovery.cpp
   src/test_server_limits.cpp
   src/test_circuit_breaker.cpp
@@ -34,7 +36,7 @@ target_include_directories(${PROJECT_NAME}_tests
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_SOURCE_DIR}/src)
 
-# Suppress warnings from external headers (httplib, nlohmann, nats) in test target.
+# Suppress warnings from external headers in test binary
 target_compile_options(${PROJECT_NAME}_tests PRIVATE
   -Wno-old-style-cast
   -Wno-useless-cast
@@ -50,25 +52,15 @@ target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
     agamemnon_lib
+    agamemnon_peer_discovery
     GTest::gtest_main
+    GTest::gmock
     httplib::httplib
     nlohmann_json::nlohmann_json
-    agamemnon_peer_discovery
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
     Threads::Threads)
-
-target_compile_options(${PROJECT_NAME}_tests PRIVATE
-  -Wno-old-style-cast
-  -Wno-useless-cast
-  -Wno-conversion
-  -Wno-sign-conversion
-  -Wno-shadow
-  -Wno-format-nonliteral
-  -Wno-double-promotion
-  -Wno-cast-align
-)
 
 include(GoogleTest)
 gtest_discover_tests(${PROJECT_NAME}_tests DISCOVERY_TIMEOUT 120)
