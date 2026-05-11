@@ -27,18 +27,43 @@ else
 fi
 
 # 2. GitHub pypi environment exists with tag policy
-ENV_JSON=$(gh api "repos/${REPO}/environments/${ENV_NAME}" 2>/dev/null || true)
+# Bucket A: keep the "missing environment is a graceful FAIL not a crash" semantic,
+# but distinguish a 404 (environment absent) from a transport/auth error that
+# would otherwise be silently swallowed by `|| true`.
+ENV_JSON=""
+if env_out=$(gh api "repos/${REPO}/environments/${ENV_NAME}" 2>&1); then
+    ENV_JSON="$env_out"
+elif printf '%s' "$env_out" | grep -q "HTTP 404"; then
+    ENV_JSON=""
+else
+    fail "gh api '${ENV_NAME}' failed unexpectedly: ${env_out}"
+    ENV_JSON=""
+fi
 if [[ -z "$ENV_JSON" ]]; then
     fail "GitHub environment '${ENV_NAME}' does not exist — create it under repo Settings → Environments"
 else
     ok "GitHub environment '${ENV_NAME}' exists"
-    POLICY_JSON=$(gh api "repos/${REPO}/environments/${ENV_NAME}/deployment-branch-policies" 2>/dev/null || true)
-    TAG_POLICY=$(echo "$POLICY_JSON" | python3 -c "
+    POLICY_JSON=""
+    if pol_out=$(gh api "repos/${REPO}/environments/${ENV_NAME}/deployment-branch-policies" 2>&1); then
+        POLICY_JSON="$pol_out"
+    elif printf '%s' "$pol_out" | grep -q "HTTP 404"; then
+        POLICY_JSON=""
+    else
+        fail "gh api deployment-branch-policies failed unexpectedly: ${pol_out}"
+    fi
+    TAG_POLICY=""
+    if [[ -n "$POLICY_JSON" ]]; then
+        if parsed=$(echo "$POLICY_JSON" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 tags = [p for p in d.get('branch_policies', []) if p.get('type') == 'tag']
 print(tags[0]['name'] if tags else '')
-" 2>/dev/null || true)
+" 2>&1); then
+            TAG_POLICY="$parsed"
+        else
+            fail "Failed to parse deployment-branch-policies JSON: ${parsed}"
+        fi
+    fi
     if [[ "$TAG_POLICY" == "$TAG_PATTERN" ]]; then
         ok "  Tag deployment policy '${TAG_PATTERN}' is set"
     else

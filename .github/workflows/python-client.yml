@@ -41,17 +41,32 @@ jobs:
 
       - name: Track deprecated KEYSTONE_* env var names
         run: |
-          count=$(grep -rn --include="*.py" \
+          # Bucket D: capture once into a variable so the no-match exit code
+          # from grep does not poison the run under set -e/pipefail. `grep`
+          # without -q exits 0 (match), 1 (no match), or >1 (error); we treat
+          # 0/1 as "ran successfully" and surface anything else.
+          set +e
+          set -uo pipefail
+          raw=$(grep -rn --include="*.py" \
             "KEYSTONE_LOG_LEVEL\|KEYSTONE_POLL_INTERVAL\|KEYSTONE_SHUTDOWN_TIMEOUT" \
-            clients/python/src \
-            | grep -v '^\s*#' \
-            | wc -l)
-          if [ "$count" -gt 0 ]; then
+            clients/python/src)
+          rc=$?
+          if [ "$rc" -gt 1 ]; then
+            echo "::error::grep failed with exit code $rc"
+            exit "$rc"
+          fi
+          # Filter out comment-only lines.
+          filtered=$(printf '%s\n' "$raw" | grep -v '^\s*#')
+          frc=$?
+          if [ "$frc" -gt 1 ]; then
+            echo "::error::grep -v failed with exit code $frc"
+            exit "$frc"
+          fi
+          set -e
+          if [ -n "$filtered" ]; then
+            count=$(printf '%s\n' "$filtered" | wc -l)
             echo "::warning::Found $count reference(s) to deprecated KEYSTONE_* env vars in src/ - should be 0 before shim removal"
-            grep -rn --include="*.py" \
-              "KEYSTONE_LOG_LEVEL\|KEYSTONE_POLL_INTERVAL\|KEYSTONE_SHUTDOWN_TIMEOUT" \
-              clients/python/src \
-              | grep -v '^\s*#' || true
+            printf '%s\n' "$filtered"
           else
             echo "PASSED: No deprecated KEYSTONE_* references found in src/"
           fi
