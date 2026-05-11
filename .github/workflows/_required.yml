@@ -175,6 +175,59 @@ jobs:
       - name: Run symlink check
         run: bash scripts/check-symlinks.sh
 
+  forbid-suppressions:
+    name: forbid-suppressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Reject silent-failure workaround in shell/YAML/Dockerfile/justfile/HCL"
+        run: |
+          # Scans ProjectAgamemnon sources. Matches the forbidden idiom at end
+          # of line or before a trailing comment. See
+          # HomericIntelligence/Odysseus#280.
+          set -euo pipefail
+          mapfile -t files < <(git ls-files \
+            -- \
+            '*.sh' '*.bash' '*.yml' '*.yaml' '*.hcl' \
+            'Dockerfile*' '**/Dockerfile*' \
+            'justfile' '**/justfile' 'Justfile' '**/Justfile')
+          # Skip this workflow file itself (heredoc would otherwise self-match).
+          declare -a scan_files=()
+          for f in "${files[@]}"; do
+            case "$f" in
+              .github/workflows/_required.yml) continue ;;
+            esac
+            scan_files+=("$f")
+          done
+          if [ "${#scan_files[@]}" -eq 0 ]; then
+            echo "No files to scan"
+            exit 0
+          fi
+          if grep -nE '\|\|[[:space:]]*true([[:space:]]*$|[[:space:]]+#)' "${scan_files[@]}"; then
+            echo ""
+            echo '::error::Found silent-failure workarounds above. Refactor per HomericIntelligence/Odysseus#280.'
+            exit 1
+          fi
+          echo 'OK: no silent-failure workarounds found'
+
+      - name: "Reject continue-on-error workflow opt-out"
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git ls-files -- '.github/workflows/*.yml' '.github/workflows/*.yaml')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No workflow files"
+            exit 0
+          fi
+          if grep -nE '^[[:space:]]*continue-on-error:[[:space:]]*true[[:space:]]*$' "${files[@]}"; then
+            echo ""
+            echo '::error::Found continue-on-error true above; fix root cause.'
+            echo '::error::See HomericIntelligence/Odysseus#280.'
+            exit 1
+          fi
+          echo 'OK: no "continue-on-error: true" found'
+
   # ── 2. unit-tests ──────────────────────────────────────────────────────────
   unit-tests:
     name: unit-tests
