@@ -36,7 +36,7 @@ Register the OIDC publisher at <https://pypi.org/manage/account/publishing/>
 **before** pushing the first `v*` tag (the package does not need to exist yet):
 
 | Field | Value |
-|---|---|
+| --- | --- |
 | PyPI Project Name | `HomericIntelligence-Agamemnon` |
 | Owner | `HomericIntelligence` |
 | Repository name | `ProjectAgamemnon` |
@@ -83,3 +83,28 @@ pip index versions HomericIntelligence-Agamemnon
 pip install HomericIntelligence-Agamemnon==0.1.0 --dry-run
 python -c "import agamemnon_client; print(agamemnon_client.__version__)"
 ```
+
+## Refreshing the Dockerfile base-image digest
+
+Both the builder (`ubuntu:24.04`) and runtime (`debian:12-slim`) stages of the
+`Dockerfile` are pinned to a `@sha256:<digest>` for reproducible, Trivy-scannable
+builds. When the upstream image is rebuilt with security patches, the digest must
+be refreshed manually — there is no automated bump.
+
+To refresh:
+
+```bash
+# Pull the floating tag locally
+docker pull debian:12-slim
+docker pull ubuntu:24.04
+
+# Read the current digest the registry resolved to
+docker inspect --format '{{index .RepoDigests 0}}' debian:12-slim
+docker inspect --format '{{index .RepoDigests 0}}' ubuntu:24.04
+```
+
+Update the `FROM` lines in `Dockerfile` to use the new digest, rebuild locally
+(`docker build -t projectagamemnon .`), and verify Trivy passes
+(`trivy image projectagamemnon`). Open a PR titled
+`chore(docker): refresh base image digests` and reference the upstream Debian/
+Ubuntu security advisory that prompted the refresh.
