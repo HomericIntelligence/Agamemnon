@@ -106,12 +106,14 @@ backing store) and NATS JetStream (the transport).
    only if regulatory deletion is required.
 4. **Purge the NATS JetStream history** so cached messages do not retain the
    identifiers. From a host with NATS CLI access:
+
    ```bash
    nats stream purge hi-tasks    --subject "hi.tasks.>"
    nats stream purge hi-pipeline --subject "hi.pipeline.>"
    # Repeat per myrmidon stream as needed:
    nats stream purge hi-myrmidon-codegen --subject "hi.myrmidon.codegen.>"
    ```
+
    Replace stream names with whatever your deployment uses (Agamemnon does
    not own the stream names; consult your `Myrmidons`/`ProjectKeystone` config).
 5. **Rotate logs.** Operator stdout/stderr logs may have captured identifiers
