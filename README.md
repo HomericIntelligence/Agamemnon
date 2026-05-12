@@ -57,8 +57,15 @@ just docs-validate
 | Ninja | 1.11 | |
 | GCC or Clang | GCC 12+ / Clang 15+ | C++20 support required, no compiler extensions |
 | Conan | 2.0 | Package manager for cpp-httplib, nlohmann_json, gtest |
-| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` |
+| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` (auto-provided by pixi) |
 | pixi | any | Recommended; provides a reproducible dev environment |
+
+> **OpenSSL note for non-pixi setups.** `cmake --preset debug` calls
+> `find_package(OpenSSL)` before `FetchContent` of `nats.c`. On host systems
+> without the OpenSSL development headers this fails before any build runs.
+> The `pixi shell` environment already includes `openssl >=3` (with headers),
+> so pixi-based setups need no additional steps. For bare-host builds on
+> Debian/Ubuntu, install `libssl-dev` first: `sudo apt-get install -y libssl-dev`.
 
 ## Building
 

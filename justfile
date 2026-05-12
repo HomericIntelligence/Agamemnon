@@ -11,6 +11,10 @@ deps:
 deps-release:
   conan install . --output-folder=build/release --profile=conan/profiles/default --build=missing
 
+# Install Conan dependencies for the coverage build (separate output folder)
+deps-coverage:
+  conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing
+
 build: deps
   cmake --preset debug && cmake --build --preset debug
 
@@ -26,7 +30,7 @@ format:
 format-check:
   ./scripts/format.sh --check
 
-coverage:
+coverage: deps-coverage
   cmake --preset coverage && cmake --build --preset coverage && ./scripts/coverage.sh
 
 clean:

@@ -59,7 +59,7 @@ just build        # Configure + build (debug)
 just test         # Run tests
 just lint         # Run clang-tidy
 just format       # Run clang-format
-just coverage     # Build + run coverage report
+just coverage     # Build + run coverage report (depends on `just deps-coverage`)
 ```
 
 ## HMAS Model Tier Assignments

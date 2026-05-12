@@ -99,7 +99,19 @@ else
     ok "${PYPI_PACKAGE}==${VERSION} not yet on PyPI (publish pending)"
 fi
 
-# 5. Local main is up-to-date
+# 5. GPG signing key is available
+# Required because `just release` uses `git commit -S` and `git tag -s`. Without
+# this check the recipe fails *after* mutating clients/python/pyproject.toml,
+# leaving a dirty working tree.
+if ! command -v gpg >/dev/null 2>&1; then
+    fail "gpg is not installed — install GnuPG and configure a signing key (git config user.signingkey)"
+elif ! gpg --list-secret-keys --keyid-format=long 2>/dev/null | grep -q '^sec'; then
+    fail "No GPG secret key found — generate one (gpg --full-generate-key) and set 'git config user.signingkey <KEYID>'"
+else
+    ok "GPG secret key is available for signing commits/tags"
+fi
+
+# 6. Local main is up-to-date
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [[ "$BRANCH" == "main" ]]; then
     LOCAL=$(git rev-parse HEAD)
