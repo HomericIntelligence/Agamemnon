@@ -1,5 +1,10 @@
 name: Python Client CI
 
+# NOTE: This workflow is pure Python today (no C++ build steps). If a future change
+# adds `conan install`, `cmake --preset`, or `FetchContent` (e.g. for a C++ extension
+# in the Python client), wire in the Conan + FetchContent caches the same way
+# `_required.yml` (build-test job) does — see issue #242.
+
 on:
   push:
     branches: [main]

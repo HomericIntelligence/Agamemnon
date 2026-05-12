@@ -33,6 +33,11 @@
       "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
       "automerge": true
+    },
+    {
+      "matchManagers": ["pre-commit"],
+      "groupName": "pre-commit hooks (incl. editorconfig-checker.python)",
+      "automerge": true
     }
   ]
 }
