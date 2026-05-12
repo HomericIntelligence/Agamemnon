@@ -102,6 +102,46 @@ Components publish and subscribe to logical NATS subjects; routing is transparen
 - A task is not re-queued until the myrmidon acknowledges (success) or nacks (failure/timeout).
 - `{type}` corresponds to the myrmidon specialisation (e.g. `codegen`, `test`, `review`).
 
+> **`MaxAckPending=1` is a consumer-side contract.** Agamemnon does not configure
+> this value in its own source — it is set when each myrmidon creates its PULL
+> consumer (see `Myrmidons` repo). Agamemnon assumes the contract holds and
+> publishes one work item at a time per myrmidon `{type}`. Verifying the bound
+> requires inspecting the consumer config in the myrmidon process, not Agamemnon.
+
+---
+
+## Liveness & Readiness Probes
+
+Agamemnon exposes two HTTP health endpoints. Both are unauthenticated and safe
+to scrape from sidecars or k8s/Nomad probes.
+
+| Endpoint | Use | Status code | Body |
+| --- | --- | --- | --- |
+| `GET /health` | Liveness — process is up | `200` | `{"status":"ok","service":"ProjectAgamemnon"}` |
+| `GET /v1/health` | Readiness — versioned API surface is live | `200` | `{"status":"ok"}` |
+
+Probes should treat any non-`200` response (including connection refused) as
+failure. There is no `/v1/ready` endpoint distinct from `/v1/health`; readiness
+gating that requires NATS connectivity must be implemented externally (e.g. a
+sidecar that probes both `/v1/health` and the NATS port).
+
+---
+
+## Task Update Semantics: PUT vs PATCH
+
+The route `/v1/teams/:team_id/tasks/:task_id` is registered for both `PUT` and
+`PATCH` (see `src/routes.cpp` around line 657). They share an `update_task_handler`
+and the verbs differ semantically rather than structurally:
+
+| Verb | Intended use | Body shape | Behaviour |
+| --- | --- | --- | --- |
+| `PUT` | Telemachy-style full replace | Full task object | Replaces all mutable fields with the request body |
+| `PATCH` | Partial update | Subset of mutable fields | Replaces only the provided keys; other fields untouched |
+
+Both verbs return `200` with the updated task on success and `404` if the
+`task_id` is unknown to the given `team_id`. Telemachy callers should use `PUT`;
+incremental client updates should use `PATCH`.
+
 ---
 
 ## State Persistence
