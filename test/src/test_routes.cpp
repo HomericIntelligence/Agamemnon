@@ -205,7 +205,9 @@ TEST_F(RoutesHappyPathTest, StopAgentNotFound) {
 }
 
 TEST_F(RoutesHappyPathTest, CreateDockerAgent) {
-  auto res = Post("/v1/agents/docker", {{"name", "dock-agent"}, {"host", "docker"}});
+  // Issue #144: /v1/agents/docker was removed as a deduplicated alias. Docker agents are now
+  // created via POST /v1/agents with {"host": "docker"}.
+  auto res = Post("/v1/agents", {{"name", "dock-agent"}, {"host", "docker"}});
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 201);
   auto body = json::parse(res->body);

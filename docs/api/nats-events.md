@@ -12,8 +12,7 @@ All payloads are JSON-encoded strings.
 
 | Endpoint | NATS Subject | Trigger | Payload |
 |----------|-------------|---------|---------|
-| `POST /v1/agents` | `hi.agents.{host}.{name}.created` | Always | Full `{"id":..., "agent":{...}}` response |
-| `POST /v1/agents/docker` | `hi.agents.{host}.{name}.created` | Always | Full `{"id":..., "agent":{...}}` response |
+| `POST /v1/agents` | `hi.agents.{host}.{name}.created` | Always | Full `{"id":..., "agent":{...}}` response (use `host: docker` for docker-hosted agents) |
 | `POST /v1/agents/{id}/start` | `hi.agents.{host}.{name}.updated` | Always | `{"status":"online","id":"..."}` |
 | `POST /v1/agents/{id}/stop` | `hi.agents.{host}.{name}.updated` | Always | `{"status":"offline","id":"..."}` |
 | `PATCH /v1/agents/{id}` | `hi.agents.{host}.{name}.updated` | Always | Full agent object |
@@ -33,7 +32,6 @@ All payloads are JSON-encoded strings.
 | Endpoint | NATS Subject | Trigger | Payload |
 |----------|-------------|---------|---------|
 | `POST /v1/agents` | `hi.logs.agamemnon.agent_created` | Always | Log envelope with `agent_id`, `name`, `type`, `host` |
-| `POST /v1/agents/docker` | `hi.logs.agamemnon.agent_created` | Always | Log envelope with `agent_id`, `name`, `type`, `host` |
 | `POST /v1/teams/{team_id}/tasks` | `hi.logs.agamemnon.task_dispatched` | Always | Log envelope with `task_id`, `team_id`, `type`, `subject` |
 | `PUT /v1/teams/{team_id}/tasks/{task_id}` | `hi.logs.agamemnon.task_completed` | Only when `status == "completed"` | Log envelope with `task_id`, `team_id`, `type`, `assignee` |
 | `PATCH /v1/teams/{team_id}/tasks/{task_id}` | `hi.logs.agamemnon.task_completed` | Only when `status == "completed"` | Log envelope with `task_id`, `team_id`, `type`, `assignee` |

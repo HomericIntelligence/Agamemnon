@@ -147,9 +147,10 @@ TEST_F(AgentEndpointTest, DeleteAgentReturns200ThenGetReturns404) {
 }
 
 TEST_F(AgentEndpointTest, CreateDockerAgentReturns201) {
+  // Issue #144: /v1/agents/docker removed; docker agents use POST /v1/agents with host=docker.
   json body = {
       {"name", "docker-agent"}, {"type", "worker"}, {"host", "docker"}, {"image", "ubuntu:22.04"}};
-  auto res = client().Post("/v1/agents/docker", body.dump(), "application/json");
+  auto res = client().Post("/v1/agents", body.dump(), "application/json");
   ASSERT_NE(res, nullptr);
   EXPECT_EQ(res->status, 201);
   EXPECT_TRUE(nats().has_subject_prefix("hi.agents.docker.docker-agent.created"));

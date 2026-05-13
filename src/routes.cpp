@@ -281,44 +281,12 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     reply_json(res, 200, sp->list_agents(p->limit, p->offset));
   });
 
-  // POST /v1/agents/docker — registered BEFORE generic /v1/agents POST
-  server.Post("/v1/agents/docker", [sp, np](const httplib::Request& req, httplib::Response& res) {
-    json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "name")) return;
-    if (body.contains("name") &&
-        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
-      return;
-    if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
-      return;
-    if (body.contains("label") &&
-        !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
-      return;
-    if (body.contains("program") &&
-        !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
-      return;
-    if (body.contains("taskDescription") &&
-        !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
-    if (body.contains("status") && body["status"].is_string() &&
-        !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
-      return;
-    // Docker agents are created the same way but with hostId and image fields
-    json result = sp->create_agent(body);
-    auto& agent = result["agent"];
-    std::string host = agent.value("host", "docker");
-    std::string name = agent.value("name", "unknown");
-    std::string agent_id = agent.value("id", "unknown");
-    std::string agent_type = agent.value("type", "unknown");
-    np->publish("hi.agents." + host + "." + name + ".created", result.dump());
-    np->publish_log("hi.logs.agamemnon.agent_created", "info", "Agent created: " + agent_id,
-                    {{"agent_id", agent_id}, {"name", name}, {"type", agent_type}, {"host", host}});
-    reply_json(res, 201, result);
-  });
-
   // POST /v1/agents
+  //
+  // NOTE: `/v1/agents/docker` was removed (issue #144) — it was a deduplicated alias of this
+  // route with no docker-specific logic. Docker-hosted agents are created by posting here with
+  // `{"host": "docker", "image": "..."}`; the resulting NATS subject
+  // `hi.agents.docker.{name}.created` is unchanged.
   server.Post("/v1/agents", [sp, np](const httplib::Request& req, httplib::Response& res) {
     json body;
     if (!parse_body(req, res, body)) return;
