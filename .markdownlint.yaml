@@ -20,3 +20,11 @@ MD041: false
 
 MD046:
   style: fenced
+
+# Table rules (issue #141): explicitly enforce table formatting so header
+# separators, pipe style, and column counts are validated in CI rather than
+# relying on markdownlint's default ruleset.
+MD055:
+  style: leading_and_trailing  # Require leading and trailing pipes on every row (forces a clear header separator)
+MD056: true                    # table-column-count: every row must have the same column count as the header
+MD058: true                    # blanks-around-tables: tables must be surrounded by blank lines
