@@ -106,9 +106,36 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
       return;
     }
 
-    // L3 tasks go InProgress → Completed.
-    // Higher-layer tasks also resolve when myrmidon reports done.
-    if (task->state == TaskState::Delegated) state_machine_.try_transition(*task, TaskEvent::Start);
+    // Drive the task through every transition required to reach InProgress before
+    // attempting Complete.  A myrmidon may report completion faster than the
+    // orchestrator's intermediate transitions (Submit/Delegate/Start) were applied,
+    // so we walk the state machine here instead of assuming a single starting state.
+    //
+    // Path from any non-terminal state to InProgress:
+    //   Pending     -> (Delegate)  -> Delegated   [L3 leaves only; guard rejects others]
+    //   Pending     -> (Submit)    -> Decomposing -> (Delegate) -> Delegated
+    //   Decomposing -> (Delegate)  -> Delegated
+    //   Delegated   -> (Start)     -> InProgress
+    //   Escalated   -> (Retry)     -> Delegated   -> (Start) -> InProgress
+    //
+    // Each try_transition is a no-op when the event is not valid for the current
+    // state, so the chained calls below safely advance the task toward InProgress
+    // without ever moving past it, and Complete is only applied from InProgress.
+    if (task->state == TaskState::Escalated) {
+      state_machine_.try_transition(*task, TaskEvent::Retry);
+    }
+    if (task->state == TaskState::Pending) {
+      // L3 leaves go straight Pending -> Delegated; others must Submit first.
+      if (!state_machine_.try_transition(*task, TaskEvent::Delegate)) {
+        state_machine_.try_transition(*task, TaskEvent::Submit);
+      }
+    }
+    if (task->state == TaskState::Decomposing) {
+      state_machine_.try_transition(*task, TaskEvent::Delegate);
+    }
+    if (task->state == TaskState::Delegated) {
+      state_machine_.try_transition(*task, TaskEvent::Start);
+    }
     state_machine_.try_transition(*task, TaskEvent::Complete);
     store_.update_hmas_task(*task);
 

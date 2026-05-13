@@ -520,6 +520,57 @@ TEST_F(RoutesHappyPathTest, CompleteTaskSuccess) {
   auto body = json::parse(res->body);
   EXPECT_EQ(body["task_id"], task_id);
   EXPECT_TRUE(body["completed"].get<bool>());
+
+  // Regression guard for #158: the /complete route must actually advance the
+  // task through the state machine to Completed — not leave it stranded in an
+  // earlier state.
+  auto state = Get("/v1/tasks/" + task_id + "/state");
+  ASSERT_TRUE(state);
+  ASSERT_EQ(state->status, 200);
+  EXPECT_EQ(json::parse(state->body)["state"], "Completed");
+}
+
+// Regression test for #158: a myrmidon may report completion before the
+// orchestrator has been able to Start the task.  In that race the task is
+// still in Pending (or Delegated) when /complete fires, and the old code only
+// handled the Delegated case — leaving Pending tasks stuck.  The fix must
+// drive the task through the TaskStateMachine to Completed regardless of
+// which valid non-terminal state it started in.
+TEST_F(RoutesHappyPathTest, CompleteTaskFromPendingReachesCompleted) {
+  auto create = Post("/v1/briefs", {{"title", "race brief"},
+                                    {"repos", json::array({"repo-r"})},
+                                    {"modules", json::object({{"repo-r", json::array({"mod"})}})}});
+  ASSERT_TRUE(create);
+  ASSERT_EQ(create->status, 201);
+  auto plan = json::parse(create->body);
+
+  // Pick the L3 leaf — planning_breakdown creates it in TaskState::Pending and
+  // submit() only Delegates the L0 root, so this task is genuinely Pending.
+  std::string leaf_id;
+  for (const auto& t : plan["tasks"]) {
+    if (t["layer"] == "L3_TaskAgent") {
+      leaf_id = t["id"];
+      break;
+    }
+  }
+  ASSERT_FALSE(leaf_id.empty()) << "expected an L3 leaf task in the plan";
+
+  // Sanity check: leaf starts in Pending.
+  auto before = Get("/v1/tasks/" + leaf_id + "/state");
+  ASSERT_TRUE(before);
+  ASSERT_EQ(before->status, 200);
+  EXPECT_EQ(json::parse(before->body)["state"], "Pending");
+
+  auto res = Post("/v1/tasks/" + leaf_id + "/complete", json::object());
+  ASSERT_TRUE(res);
+  ASSERT_EQ(res->status, 200);
+
+  auto after = Get("/v1/tasks/" + leaf_id + "/state");
+  ASSERT_TRUE(after);
+  ASSERT_EQ(after->status, 200);
+  EXPECT_EQ(json::parse(after->body)["state"], "Completed")
+      << "POST /v1/tasks/:id/complete must drive Pending tasks through the "
+         "TaskStateMachine to Completed (#158)";
 }
 
 }  // namespace projectagamemnon::test
