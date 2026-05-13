@@ -61,3 +61,60 @@ just lint         # Run clang-tidy
 just format       # Run clang-format
 just coverage     # Build + run coverage report
 ```
+
+## Python Package: `agamemnon/`
+
+The `agamemnon/` directory holds the Python orchestration sub-package
+(`HomericIntelligence-Agamemnon-Orchestration`) migrated from ProjectKeystone.
+It is a hatchling-built, mypy-strict, pixi-managed package targeting Python
+3.11+.
+
+### Layout
+
+```
+agamemnon/
+├── pyproject.toml          # hatchling build, ruff + mypy(strict) + pytest config
+├── pixi.toml               # pixi env (default + test feature)
+├── __init__.py             # top-level package marker
+├── orchestration/          # main Python modules
+│   ├── config.py           # Settings dataclass + load_settings()
+│   ├── daemon.py           # async daemon entry; routes NATS -> DAG walker
+│   ├── dag_walker.py       # walks Task graph, advances state machine
+│   ├── logging.py          # structured JSON stdlib logger (AgamemnonLogger)
+│   ├── models.py           # pydantic Task / Agent / TaskEvent models
+│   ├── nats_listener.py    # NATSListener: subscribes to hi.* subjects
+│   ├── task_claimer.py     # per-team concurrency guard for claim ops
+│   ├── validation.py       # validate_id() — safe URL path construction
+│   └── __main__.py         # `python -m agamemnon.orchestration` entry
+└── tests/                  # pytest suite (asyncio mode = auto)
+```
+
+### Dependency rationale
+
+- **pydantic (>=2,<3)** — typed `Task` / `Agent` / `TaskEvent` models with
+  runtime validation at the NATS message boundary.
+- **nats-py (>=2,<3)** — async NATS JetStream client powering `NATSListener`
+  (Keystone routes `hi.tasks.>` / `hi.pipeline.>` / `hi.myrmidon.*` traffic
+  to this daemon).
+- **httpx (>=0.27,<1)** — used by `MaestroClient` (in
+  `clients/python/src/agamemnon_client/`) to talk to the `/v1/*` REST API
+  shipped from the C++ core.
+
+### Common commands
+
+```bash
+cd agamemnon && pixi run test       # pytest (tests/)
+cd agamemnon && pixi run lint       # ruff check
+cd agamemnon && pixi run format     # ruff format
+cd agamemnon && pixi run typecheck  # mypy --strict src/agamemnon/
+```
+
+### Migration context
+
+Modules under `agamemnon/orchestration/` were lifted from ProjectKeystone as
+part of consolidating orchestration logic into Agamemnon. Keystone retains
+only the invisible transport layer (BlazingMQ + NATS routing); all task
+state-machine, DAG walking, and claim-coordination logic now lives here. A
+parallel copy under `clients/python/src/agamemnon/orchestration/` exists for
+the published client package and is kept in sync until the consumer split
+lands.
