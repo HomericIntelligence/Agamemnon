@@ -30,7 +30,7 @@ class NATSListener:
     Both ``team_id`` and ``task_id`` are validated before dispatch to prevent
     path traversal or injection from malformed NATS messages.
 
-    Event payloads are parsed through :class:`~keystone.models.TaskEvent` for
+    Event payloads are parsed through :class:`~agamemnon.orchestration.models.TaskEvent` for
     type-safe, validated deserialization. Both flat (``{"status": "completed"}``)
     and Hermes-nested (``{"data": {"status": "completed"}}``) formats are handled.
 
@@ -161,7 +161,7 @@ class NATSListener:
         """Handle an incoming NATS task event, validating IDs and payload before dispatch.
 
         Validates both ``team_id`` and ``task_id`` extracted from the NATS subject.
-        If a raw payload is provided, it is parsed through :class:`~keystone.models.TaskEvent`
+        If a raw payload is provided, it is parsed through :class:`~agamemnon.orchestration.models.TaskEvent`
         for type-safe deserialization. Malformed IDs or invalid JSON produce a
         warning log and the event is dropped without raising.
 
