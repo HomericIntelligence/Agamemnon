@@ -20,6 +20,18 @@ info:
 servers:
   - url: http://localhost:8080
     description: Local development (default port; override with PORT env var)
+  - url: http://{tailscaleHost}:{port}
+    description: |
+      Production / mesh access over Tailscale. Requires the caller to be
+      authenticated to the same tailnet. `tailscaleHost` is either the peer's
+      Tailscale IPv4 address (`100.x.y.z`) or its MagicDNS name.
+    variables:
+      tailscaleHost:
+        default: 100.64.0.1
+        description: Tailscale IPv4 (100.x.y.z) or MagicDNS hostname of the Agamemnon peer
+      port:
+        default: "8080"
+        description: Port Agamemnon is listening on (PORT env var; default 8080)
 
 tags:
   - name: health
