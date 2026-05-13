@@ -114,3 +114,6 @@ jobs:
 
       - name: Run tests
         run: pixi run --manifest-path clients/python/pixi.toml test
+
+      - name: Run script coverage (bump-version)
+        run: pixi run --manifest-path clients/python/pixi.toml coverage-scripts

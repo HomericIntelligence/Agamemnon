@@ -1,14 +1,40 @@
-"""Tests for scripts/bump-version.py."""
+"""Tests for scripts/bump-version.py.
+
+The tests in this file come in two flavors:
+
+* **Subprocess tests** (the original) exercise the script end-to-end via a
+  patched copy in ``tmp_path``. These verify CLI behavior but cannot be
+  measured by ``coverage.py`` because the subprocess copy lives outside the
+  configured ``[tool.coverage.run] source`` list.
+* **Direct-call tests** (added for #104) import the script as a module via
+  :func:`importlib.util.spec_from_file_location` and exercise
+  ``bump_version`` / ``main`` in-process so the file appears in coverage
+  reports when ``--cov`` is pointed at ``scripts/bump-version.py``.
+"""
 
 from __future__ import annotations
 
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "bump-version.py"
+
+
+def _load_bump_version_module() -> Any:
+    """Import scripts/bump-version.py as a module despite its hyphenated name."""
+    spec = importlib.util.spec_from_file_location("_bump_version_under_test", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+bump_version_module = _load_bump_version_module()
 
 MINIMAL_TOML = """\
 [build-system]
@@ -140,3 +166,106 @@ def test_no_tmp_file_left_after_success(tmp_path: Path) -> None:
     _run("1.2.3", tmp_path=tmp_path)
     tmp_files = list(tmp_path.glob("*.tmp"))
     assert tmp_files == [], f"unexpected .tmp files: {tmp_files}"
+
+
+# ── Direct-call tests (for coverage measurement, see #104) ────────────────────
+#
+# These tests import scripts/bump-version.py as a module so coverage.py can
+# trace it. They complement the subprocess tests above which exercise CLI
+# behavior end-to-end.
+
+
+def test_direct_bump_version_replaces_version(tmp_path: Path) -> None:
+    toml = tmp_path / "pyproject.toml"
+    toml.write_text(MINIMAL_TOML, encoding="utf-8")
+
+    bump_version_module.bump_version(toml, "2.3.4")
+
+    content = toml.read_text(encoding="utf-8")
+    assert 'version = "2.3.4"' in content
+
+
+def test_direct_bump_version_only_replaces_project_section(tmp_path: Path) -> None:
+    toml = tmp_path / "pyproject.toml"
+    toml.write_text(TOML_MULTI_VERSION, encoding="utf-8")
+
+    bump_version_module.bump_version(toml, "9.9.9")
+
+    content = toml.read_text(encoding="utf-8")
+    assert 'version = "9.9.9"' in content
+    assert 'requires = ["hatchling>=1.0.0"]' in content
+
+
+def test_direct_bump_version_exits_when_no_version(tmp_path: Path) -> None:
+    toml = tmp_path / "pyproject.toml"
+    toml.write_text(TOML_NO_VERSION, encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc_info:
+        bump_version_module.bump_version(toml, "1.0.0")
+    assert exc_info.value.code == 1
+
+
+def test_direct_bump_version_removes_tmp_file(tmp_path: Path) -> None:
+    toml = tmp_path / "pyproject.toml"
+    toml.write_text(MINIMAL_TOML, encoding="utf-8")
+
+    bump_version_module.bump_version(toml, "1.2.3")
+
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_direct_main_missing_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(sys, "argv", ["bump-version.py"])
+    with pytest.raises(SystemExit) as exc_info:
+        bump_version_module.main()
+    assert exc_info.value.code == 1
+
+
+@pytest.mark.parametrize("bad_version", ["abc", "1.2", "1.2.3.4", "v1.2.3", ""])
+def test_direct_main_rejects_invalid_semver(
+    bad_version: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["bump-version.py", bad_version])
+    with pytest.raises(SystemExit) as exc_info:
+        bump_version_module.main()
+    assert exc_info.value.code == 1
+
+
+def test_direct_main_missing_toml(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Redirect the module's __file__ so repo_root resolves into tmp_path
+    # (which has no clients/python/pyproject.toml).
+    fake_script = tmp_path / "scripts" / "bump-version.py"
+    fake_script.parent.mkdir(parents=True)
+    fake_script.write_text("# placeholder\n", encoding="utf-8")
+
+    monkeypatch.setattr(bump_version_module, "__file__", str(fake_script))
+    monkeypatch.setattr(sys, "argv", ["bump-version.py", "1.2.3"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        bump_version_module.main()
+    assert exc_info.value.code == 1
+
+
+def test_direct_main_happy_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Build a fake repo layout: <tmp_path>/scripts/bump-version.py and
+    # <tmp_path>/clients/python/pyproject.toml. Redirect the module's
+    # ``__file__`` so ``repo_root`` resolves into <tmp_path>.
+    fake_script = tmp_path / "scripts" / "bump-version.py"
+    fake_script.parent.mkdir(parents=True)
+    fake_script.write_text("# placeholder\n", encoding="utf-8")
+
+    toml = tmp_path / "clients" / "python" / "pyproject.toml"
+    toml.parent.mkdir(parents=True)
+    toml.write_text(MINIMAL_TOML, encoding="utf-8")
+
+    monkeypatch.setattr(bump_version_module, "__file__", str(fake_script))
+    monkeypatch.setattr(sys, "argv", ["bump-version.py", "5.6.7"])
+
+    bump_version_module.main()
+
+    assert 'version = "5.6.7"' in toml.read_text(encoding="utf-8")
+    assert "bumped version to 5.6.7" in capsys.readouterr().out

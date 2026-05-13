@@ -26,6 +26,10 @@ pyyaml = ">=6.0,<7"
 
 [feature.dev.tasks]
 test = "python -m pytest tests/ -v --cov=agamemnon_client --cov-report=term-missing --cov-fail-under=96"
+# Coverage for repo-root utility scripts (e.g. scripts/bump-version.py).
+# Tracked separately from the client-library coverage gate (see #104) so
+# script-level regressions cannot silently lower the client-library number.
+coverage-scripts = "python -m pytest tests/test_bump_version.py -v --cov=../../scripts --cov-report=term-missing --cov-fail-under=95"
 lint = "ruff check src/ tests/"
 format = "ruff format src/ tests/"
 typecheck = "mypy src/"
