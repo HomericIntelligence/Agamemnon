@@ -104,8 +104,7 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/v1/agents` | List all agents |
-| `POST` | `/v1/agents` | Create a generic agent |
-| `POST` | `/v1/agents/docker` | Create a Docker agent |
+| `POST` | `/v1/agents` | Create an agent (set `host: docker` for docker-hosted agents) |
 | `GET` | `/v1/agents/by-name/<name>` | Get agent by name |
 | `GET` | `/v1/agents/<id>` | Get agent by ID |
 | `POST` | `/v1/agents/<id>/start` | Start agent |

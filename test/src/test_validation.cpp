@@ -115,12 +115,13 @@ TEST_F(ValidationTest, AgentAcceptsValidName) {
 }
 
 TEST_F(ValidationTest, AgentDockerRejectsEmptyName) {
-  auto [status, body] = Post("/v1/agents/docker", {{"name", ""}});
+  // Issue #144: /v1/agents/docker removed; docker agents use POST /v1/agents with host=docker.
+  auto [status, body] = Post("/v1/agents", {{"name", ""}, {"host", "docker"}});
   EXPECT_EQ(status, 400);
 }
 
 TEST_F(ValidationTest, AgentDockerAcceptsValidName) {
-  auto [status, body] = Post("/v1/agents/docker", {{"name", "docker-1"}});
+  auto [status, body] = Post("/v1/agents", {{"name", "docker-1"}, {"host", "docker"}});
   EXPECT_EQ(status, 201);
 }
 

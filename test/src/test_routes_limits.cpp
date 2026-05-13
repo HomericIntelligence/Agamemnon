@@ -109,9 +109,10 @@ TEST_F(RoutesLimitsTest, AgentTaskDescriptionTooLong) {
 }
 
 TEST_F(RoutesLimitsTest, DockerAgentNameTooLong) {
-  json body{{"name", std::string(257, 'x')}, {"type", "docker"}};
+  // Issue #144: /v1/agents/docker removed; docker agents use POST /v1/agents with host=docker.
+  json body{{"name", std::string(257, 'x')}, {"type", "docker"}, {"host", "docker"}};
   auto c = client();
-  auto res = c.Post("/v1/agents/docker", body.dump(), "application/json");
+  auto res = c.Post("/v1/agents", body.dump(), "application/json");
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 400);
 }

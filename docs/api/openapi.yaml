@@ -135,43 +135,10 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
-  /v1/agents/docker:
-    post:
-      operationId: createDockerAgent
-      tags: [agents]
-      summary: Create a Docker agent
-      description: |
-        Functionally identical to `POST /v1/agents` but semantically typed for Docker-hosted
-        agents. Expects `host` and `image` fields in the body.
-
-        **Registration order:** This route is registered in cpp-httplib *before* the generic
-        `POST /v1/agents`, so requests to `/v1/agents/docker` are correctly routed here rather
-        than matching a generic handler.
-
-        Publishes to NATS: `hi.agents.{host}.{name}.created`
-      x-nats-events:
-        - subject: "hi.agents.{host}.{name}.created"
-          trigger: always
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/AgentCreate"
-            example:
-              name: docker-worker
-              host: docker
-              program: python
-              programArgs: [worker.py]
-      responses:
-        "201":
-          description: Docker agent created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AgentCreateResponse"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+  # NOTE: `/v1/agents/docker` was removed in issue #144. It was a deduplicated alias of
+  # `POST /v1/agents` with no docker-specific logic. Docker-hosted agents are now created
+  # via `POST /v1/agents` with `{"host": "docker", "image": "..."}`; the resulting NATS
+  # subject `hi.agents.docker.{name}.created` is unchanged.
 
   /v1/agents/by-name/{name}:
     get:

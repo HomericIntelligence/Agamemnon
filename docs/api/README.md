@@ -25,8 +25,7 @@ Full machine-readable spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
 | Method | Path | Summary | Request Body | Response |
 |--------|------|---------|-------------|----------|
 | GET | `/v1/agents` | List all agents | — | `{"agents":[...]}` |
-| POST | `/v1/agents` | Create agent | `AgentCreate` | 201 `{"id":"...","agent":{...}}` |
-| POST | `/v1/agents/docker` | Create Docker agent | `AgentCreate` | 201 `{"id":"...","agent":{...}}` |
+| POST | `/v1/agents` | Create agent (set `host: docker` for docker-hosted agents) | `AgentCreate` | 201 `{"id":"...","agent":{...}}` |
 | GET | `/v1/agents/by-name/{name}` | Get agent by name | — | `{"agent":{...}}` |
 | GET | `/v1/agents/{id}` | Get agent by ID | — | `{"agent":{...}}` |
 | PATCH | `/v1/agents/{id}` | Partially update agent | `AgentPatch` | `{"agent":{...}}` |
@@ -52,10 +51,10 @@ Full machine-readable spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
 | `status` | `online`\|`offline` | Always `"offline"` at creation |
 | `createdAt` | ISO 8601 UTC | Assigned at creation; immutable |
 
-**Route registration note:** `POST /v1/agents/docker` and `GET /v1/agents/by-name/{name}` and
-`POST /v1/agents/{id}/start` / `POST /v1/agents/{id}/stop` are registered in cpp-httplib
-*before* the generic `POST /v1/agents` and `GET /v1/agents/{id}` routes to avoid prefix
-collision.
+**Route registration note:** `GET /v1/agents/by-name/{name}` and `POST /v1/agents/{id}/start`
+/ `POST /v1/agents/{id}/stop` are registered in cpp-httplib *before* the generic
+`GET /v1/agents/{id}` route to avoid prefix collision. `POST /v1/agents/docker` was removed
+in issue #144 — docker-hosted agents are created via `POST /v1/agents` with `host: docker`.
 
 ---
 
