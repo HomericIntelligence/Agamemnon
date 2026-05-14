@@ -103,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
         "--log-level",
         default=None,
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Logging verbosity level (default: from KEYSTONE_LOG_LEVEL env var or INFO)",
+        help="Logging verbosity level (default: from AGAMEMNON_LOG_LEVEL env var or INFO)",
     )
     parser.add_argument(
         "--poll-interval",
