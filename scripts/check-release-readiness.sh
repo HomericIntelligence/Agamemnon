@@ -19,6 +19,20 @@ warn() { printf '\033[33m[WARN]\033[0m %s\n' "$1"; }
 
 FAILED=0
 
+# 0. GPG signing key is available
+# `just release` runs `git commit -S` and `git tag -s`, both of which require a
+# usable GPG secret key. If none is configured, those commands fail with an
+# opaque "gpg failed to sign the data" error *after* bump-version.py has
+# already mutated pyproject.toml — leaving the working tree dirty. Detect the
+# missing key here so the user gets an actionable error before any mutation.
+if ! command -v gpg >/dev/null 2>&1; then
+    fail "gpg is not installed — install GnuPG (e.g. 'apt install gnupg' or 'brew install gnupg') and configure a signing key; see RELEASING.md"
+elif ! gpg --list-secret-keys --with-colons 2>/dev/null | grep -q '^sec:'; then
+    fail "No GPG secret key found — 'just release' uses 'git commit -S' and 'git tag -s'; generate or import a signing key and run 'git config --global user.signingkey <KEYID>'; see RELEASING.md"
+else
+    ok "GPG secret key is available for signing"
+fi
+
 # 1. Workflow file exists on main
 if git show "origin/main:.github/workflows/${WORKFLOW}" &>/dev/null; then
     ok "Workflow '${WORKFLOW}' is present on main"

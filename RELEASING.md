@@ -38,6 +38,23 @@ Register the OIDC publisher at <https://pypi.org/manage/account/publishing/>
 These five values must match the workflow file exactly or the OIDC exchange
 will be rejected.
 
+#### 3. GPG signing key
+
+`just release` runs `git commit -S` and `git tag -s`, both of which require a
+usable GPG secret key. The readiness check verifies a key is present *before*
+any files are mutated.
+
+```bash
+# Verify you have a secret key:
+gpg --list-secret-keys
+
+# If none, generate one (or import an existing key) and tell git to use it:
+gpg --full-generate-key
+git config --global user.signingkey <KEYID>
+git config --global commit.gpgsign true
+git config --global tag.gpgsign true
+```
+
 ### Cutting a release
 
 ```bash
