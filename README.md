@@ -88,6 +88,16 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
 |---|---|---|
 | `NATS_URL` | `nats://localhost:4222` | NATS server connection URL |
 | `PORT` | `8080` | TCP port the HTTP server listens on |
+| `AGAMEMNON_LOG_LEVEL` | `INFO` | Orchestration daemon logging verbosity |
+| `AGAMEMNON_POLL_INTERVAL` | `1.0` | Orchestration daemon routing-loop poll interval (seconds) |
+| `AGAMEMNON_SHUTDOWN_TIMEOUT` | `30.0` | Orchestration daemon graceful-shutdown wait (seconds) |
+
+> **Upgrading from ProjectKeystone?** The `KEYSTONE_LOG_LEVEL`,
+> `KEYSTONE_POLL_INTERVAL`, and `KEYSTONE_SHUTDOWN_TIMEOUT` variables were
+> renamed to their `AGAMEMNON_*` equivalents. Setting the legacy names against
+> the server-side daemon is a silent no-op. See
+> [docs/migration-from-keystone.md](docs/migration-from-keystone.md) for the
+> full rename table and remediation steps.
 
 ## API Endpoints
 

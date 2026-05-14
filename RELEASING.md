@@ -1,5 +1,13 @@
 # Releasing
 
+> **Operator note:** When releasing a version that drops the legacy
+> `KEYSTONE_*` deprecation shim from `agamemnon_client.config`, call this out
+> explicitly in the release notes and link
+> [docs/migration-from-keystone.md](docs/migration-from-keystone.md). The
+> server-side daemon (`agamemnon.orchestration.config`) has never accepted the
+> legacy names — operators who skipped the rename will see silent default
+> regressions unless they read the migration guide.
+
 ## Python Client (`HomericIntelligence-Agamemnon`)
 
 Releases are triggered by pushing a `v*` tag (e.g. `v0.1.0`). The
