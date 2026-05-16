@@ -220,6 +220,11 @@ Run `pixi run pre-commit install` once after cloning to activate them. Never byp
 | [nlohmann_json](https://github.com/nlohmann/json) | 3.11.3 | JSON serialization |
 | [GoogleTest](https://github.com/google/googletest) | 1.14.0 | Unit and integration testing |
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for the current development roadmap and upcoming
+milestones.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit message conventions, and
