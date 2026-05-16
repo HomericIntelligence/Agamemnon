@@ -59,8 +59,21 @@ just build        # Configure + build (debug)
 just test         # Run tests
 just lint         # Run clang-tidy
 just format       # Run clang-format
-just coverage     # Build + run coverage report
+just coverage     # Build + run coverage report (depends on `just deps-coverage`)
 ```
+
+## HMAS Model Tier Assignments
+
+The 4-layer agent hierarchy (also documented in `AGENTS.md`) has fixed model
+tiers. Keep these in sync with `AGENTS.md` — divergence between the two files
+is treated as a documentation bug.
+
+| Layer | Role | Approved Model |
+| --- | --- | --- |
+| L0 | ChiefArchitect | Opus |
+| L1 | ComponentLead | Opus |
+| L2 | ModuleLead | Sonnet |
+| L3 | TaskAgent | Sonnet |
 
 ## Python Package: `agamemnon/`
 

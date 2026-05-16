@@ -658,7 +658,7 @@ packages:
 - pypi: .
   name: homericintelligence-agamemnon
   version: 0.1.0
-  sha256: 02b25314fc60a9fdcf287a870657cc84a6f4f23160d0514d5640803ba673993e
+  sha256: 8a33dc4820dbcb2a5a8a565f8ba08bf1a0e9fc5d427128f66df254f71abbc930
   requires_dist:
   - httpx>=0.27,<1
   - pydantic>=2.0,<3

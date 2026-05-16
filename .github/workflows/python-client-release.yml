@@ -1,5 +1,10 @@
 name: Python Client Release
 
+# NOTE: This release workflow is pure Python today. If a future change adds C++
+# extension build steps (conan install / cmake / FetchContent), add Conan +
+# FetchContent caches matching the build-test job in `_required.yml` — see
+# issue #242.
+
 on:
   push:
     tags:

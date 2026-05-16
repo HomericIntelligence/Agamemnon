@@ -43,6 +43,22 @@ just build
 just test
 ```
 
+> **GTest ABI compatibility (important).** The Conan-managed GoogleTest is built
+> with the pixi environment's GCC 14. If you run `just build` with the system
+> GCC (e.g. GCC 10 on stock Ubuntu) the test binary will silently fail to link
+> against `libstdc++` ABI 14. Always run inside `pixi shell` (preferred) or set
+> `CXX="$(pixi run which g++)"` before invoking CMake. If your system compiler
+> is older than GCC 12 / Clang 15, building outside pixi is unsupported.
+
+### nats.c version updates
+
+When bumping the `nats.c` `FetchContent` pin in `CMakeLists.txt`, you must also
+update the matching version in `.github/cpp-fetchcontent-deps.cdx.json` in the
+**same PR**. The Grype CVE scan in CI consumes that SBOM fragment, so the two
+files must agree or scan results will reflect the wrong version. There is no
+automated enforcement — reviewers should reject any PR that touches one without
+the other.
+
 ### Install Pre-commit Hooks
 
 ```bash

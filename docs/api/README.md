@@ -10,13 +10,14 @@ Full machine-readable spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
 
 ## Endpoint Summary
 
-### Health
+### Health & Observability
 
 | Method | Path | Summary | Response |
 |--------|------|---------|----------|
 | GET | `/health` | Root health check | `{"status":"ok","service":"ProjectAgamemnon"}` |
 | GET | `/v1/health` | Versioned health check | `{"status":"ok"}` |
 | GET | `/v1/version` | Service version | `{"version":"0.1.0","name":"ProjectAgamemnon"}` |
+| GET | `/metrics` | Prometheus metrics — see [`docs/metrics.md`](../metrics.md) | `text/plain` exposition format |
 
 ---
 

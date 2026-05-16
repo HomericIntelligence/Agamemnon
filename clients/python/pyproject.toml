@@ -59,6 +59,11 @@ timeout = 60
 timeout_method = "thread"
 
 [tool.coverage.run]
+# Coverage scope is intentionally limited to the published package(s).
+# `scripts/bump-version.py` is excluded — it is a developer release helper
+# (exercised only by `just release`) and tests for it live separately as
+# `tests/test_bump_version.py`. If `bump-version.py` is ever moved into the
+# shipped package, add it to `source` so coverage drift becomes visible. See #104.
 source = ["agamemnon_client", "agamemnon"]
 
 [tool.coverage.report]

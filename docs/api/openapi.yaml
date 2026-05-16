@@ -628,6 +628,12 @@ paths:
       description: |
         Creates a new fault of the given type. The fault is immediately active.
 
+        The fault type is taken **entirely from the URL path parameter**. Any
+        request body sent with this call is silently ignored — the underlying
+        `Store::create_fault(type)` API does not accept configuration. Callers
+        that want to pass parameters (duration, intensity, etc.) must encode
+        them into the `type` segment until the API is extended.
+
         Publishes to NATS: `hi.agents.chaos.injected`
       x-nats-events:
         - subject: "hi.agents.chaos.injected"

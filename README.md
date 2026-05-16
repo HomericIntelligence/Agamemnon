@@ -57,8 +57,15 @@ just docs-validate
 | Ninja | 1.11 | |
 | GCC or Clang | GCC 12+ / Clang 15+ | C++20 support required, no compiler extensions |
 | Conan | 2.0 | Package manager for cpp-httplib, nlohmann_json, gtest |
-| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` |
+| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` (auto-provided by pixi) |
 | pixi | any | Recommended; provides a reproducible dev environment |
+
+> **OpenSSL note for non-pixi setups.** `cmake --preset debug` calls
+> `find_package(OpenSSL)` before `FetchContent` of `nats.c`. On host systems
+> without the OpenSSL development headers this fails before any build runs.
+> The `pixi shell` environment already includes `openssl >=3` (with headers),
+> so pixi-based setups need no additional steps. For bare-host builds on
+> Debian/Ubuntu, install `libssl-dev` first: `sudo apt-get install -y libssl-dev`.
 
 ## Building
 
@@ -91,6 +98,14 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
 | `AGAMEMNON_LOG_LEVEL` | `INFO` | Orchestration daemon logging verbosity |
 | `AGAMEMNON_POLL_INTERVAL` | `1.0` | Orchestration daemon routing-loop poll interval (seconds) |
 | `AGAMEMNON_SHUTDOWN_TIMEOUT` | `30.0` | Orchestration daemon graceful-shutdown wait (seconds) |
+| `RATE_LIMIT_RPS` | `60` | Per-client steady-state request rate limit (requests/sec) |
+| `RATE_LIMIT_BURST` | `120` | Per-client burst capacity for the token bucket |
+| `SERVER_THREAD_COUNT` | `8` | HTTP worker thread pool size |
+| `SERVER_READ_TIMEOUT_SEC` | `10` | Per-request socket read timeout (seconds) |
+| `SERVER_WRITE_TIMEOUT_SEC` | `10` | Per-request socket write timeout (seconds) |
+| `SERVER_REQUEST_SIZE_LIMIT_MB` | `4` | Maximum request body size before 413 is returned |
+| `NATS_STREAM_MAX_BYTES_MB` | (stream default) | JetStream max byte budget per Agamemnon-owned stream |
+| `NATS_STREAM_MAX_AGE_SEC` | (stream default) | JetStream max retention age per Agamemnon-owned stream |
 
 > **Upgrading from ProjectKeystone?** The `KEYSTONE_LOG_LEVEL`,
 > `KEYSTONE_POLL_INTERVAL`, and `KEYSTONE_SHUTDOWN_TIMEOUT` variables were
@@ -210,6 +225,11 @@ Run `pixi run pre-commit install` once after cloning to activate them. Never byp
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit message conventions, and
 the pull request process. Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before
 participating. To report a security vulnerability, follow [SECURITY.md](SECURITY.md).
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for what is implemented today versus what is planned, with
+status and acceptance criteria for each deferred feature.
 
 ## License
 

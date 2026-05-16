@@ -1,5 +1,27 @@
 # Security Policy
 
+## Secrets Scanning Gate
+
+The `security/secrets-scan` CI job runs Gitleaks against the full git history
+on every PR with `--exit-code 1`. A finding will block merge.
+
+If the scan blocks your PR:
+
+1. Inspect the uploaded `gitleaks-report` artifact in the failed run for the
+   exact file, line, and rule that fired.
+2. If the finding is a real secret: rotate it immediately (treat any committed
+   secret as compromised), then `git filter-repo` or BFG to scrub history and
+   force-push the fix branch.
+3. If the finding is a false positive (test fixture, documentation example,
+   public key fingerprint), add a narrowly scoped allowlist entry to
+   `.gitleaks.toml`. Prefer a path or commit allowlist over a regex.
+4. Allowlist changes that affect production code paths require security-team
+   review (see CODEOWNERS). Do not silently widen the allowlist to bypass a
+   real finding.
+
+Never disable the scan or set `continue-on-error: true` — both are forbidden
+by repo CI and the org-wide pre-commit guard.
+
 ## Reporting Security Vulnerabilities
 
 **Do not open public issues for security vulnerabilities.**

@@ -36,7 +36,7 @@ Register the OIDC publisher at <https://pypi.org/manage/account/publishing/>
 **before** pushing the first `v*` tag (the package does not need to exist yet):
 
 | Field | Value |
-|---|---|
+| --- | --- |
 | PyPI Project Name | `HomericIntelligence-Agamemnon` |
 | Owner | `HomericIntelligence` |
 | Repository name | `ProjectAgamemnon` |
@@ -83,3 +83,69 @@ pip index versions HomericIntelligence-Agamemnon
 pip install HomericIntelligence-Agamemnon==0.1.0 --dry-run
 python -c "import agamemnon_client; print(agamemnon_client.__version__)"
 ```
+
+## Operator runbook: data deletion
+
+This section is the actionable companion to the Data & Privacy section in
+`SECURITY.md`. Use it when an operator needs to purge agent/task records
+(for example, after rotating Tailscale identifiers or decommissioning a host).
+The full deletion path crosses two systems: GitHub Issues/Projects (the
+backing store) and NATS JetStream (the transport).
+
+1. **Identify the records to delete.** Cross-reference the agent ID(s) or
+   task ID(s) using the API:
+   - `GET /v1/agents/by-name/{name}` to resolve a name to an agent ID
+   - `GET /v1/teams/{team_id}/tasks` to enumerate tasks for a team
+2. **Delete via the REST API** so Agamemnon emits the matching `hi.agents.*`
+   / `hi.tasks.*` deletion events:
+   - `DELETE /v1/agents/{id}` for each agent
+   - There is no direct task-delete REST endpoint; transition the task to
+     `completed` or close the underlying GitHub Issue (next step).
+3. **Close or delete the backing GitHub Issues/Projects items.** Closure is
+   reversible (audit trail preserved); deletion is permanent. Choose deletion
+   only if regulatory deletion is required.
+4. **Purge the NATS JetStream history** so cached messages do not retain the
+   identifiers. From a host with NATS CLI access:
+
+   ```bash
+   nats stream purge hi-tasks    --subject "hi.tasks.>"
+   nats stream purge hi-pipeline --subject "hi.pipeline.>"
+   # Repeat per myrmidon stream as needed:
+   nats stream purge hi-myrmidon-codegen --subject "hi.myrmidon.codegen.>"
+   ```
+
+   Replace stream names with whatever your deployment uses (Agamemnon does
+   not own the stream names; consult your `Myrmidons`/`ProjectKeystone` config).
+5. **Rotate logs.** Operator stdout/stderr logs may have captured identifiers
+   in transit. Apply your platform's log retention/rotation policy.
+6. **Verify.** Re-issue `GET /v1/agents` / `GET /v1/teams/{team_id}/tasks` and
+   confirm the records are gone. Run `nats stream info <stream>` and check
+   that `messages = 0` for the purged subjects.
+
+For the legal/regulatory framing of when each step is required, see the
+*Data & Privacy* section in `SECURITY.md`.
+
+## Refreshing the Dockerfile base-image digest
+
+Both the builder (`ubuntu:24.04`) and runtime (`debian:12-slim`) stages of the
+`Dockerfile` are pinned to a `@sha256:<digest>` for reproducible, Trivy-scannable
+builds. When the upstream image is rebuilt with security patches, the digest must
+be refreshed manually — there is no automated bump.
+
+To refresh:
+
+```bash
+# Pull the floating tag locally
+docker pull debian:12-slim
+docker pull ubuntu:24.04
+
+# Read the current digest the registry resolved to
+docker inspect --format '{{index .RepoDigests 0}}' debian:12-slim
+docker inspect --format '{{index .RepoDigests 0}}' ubuntu:24.04
+```
+
+Update the `FROM` lines in `Dockerfile` to use the new digest, rebuild locally
+(`docker build -t projectagamemnon .`), and verify Trivy passes
+(`trivy image projectagamemnon`). Open a PR titled
+`chore(docker): refresh base image digests` and reference the upstream Debian/
+Ubuntu security advisory that prompted the refresh.
