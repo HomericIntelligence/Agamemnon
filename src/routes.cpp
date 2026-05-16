@@ -213,8 +213,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     }
     // Health and version endpoints are exempt from rate limiting
     // (operational liveness/readiness/version probes by orchestrators).
-    if (req.path == "/health" || req.path == "/v1/health" ||
-        req.path == "/v1/version") {
+    if (req.path == "/health" || req.path == "/v1/health" || req.path == "/v1/version") {
       return httplib::Server::HandlerResponse::Unhandled;
     }
     if (!rl->allow(req.remote_addr)) {

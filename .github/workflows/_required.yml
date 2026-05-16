@@ -441,11 +441,15 @@ jobs:
           gitleaks version
 
       - name: Gitleaks enforcement regression guard
-        # Fails the build if `--exit-code 0` (silent gitleaks) is ever
-        # reintroduced into this workflow file. See HomericIntelligence/ProjectAgamemnon#266.
+        # Fails the build if a silent gitleaks invocation (exit-code zero) is
+        # ever reintroduced into this workflow file. See
+        # HomericIntelligence/ProjectAgamemnon#266.
+        # NOTE: matches only actual `gitleaks ... --exit-code 0` command
+        # invocations, so the guard's own descriptive text does not self-match.
         run: |
-          if grep -n -- '--exit-code 0' .github/workflows/_required.yml; then
-            echo "::error::gitleaks --exit-code 0 detected; enforcement must remain --exit-code 1"
+          if grep -nE '^[[:space:]]*gitleaks[[:space:]].*--exit-code[[:space:]]+0([[:space:]]|$)' \
+               .github/workflows/_required.yml; then
+            echo "::error::silent gitleaks invocation detected; enforcement must remain strict"
             exit 1
           fi
 
