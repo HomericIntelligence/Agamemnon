@@ -12,6 +12,7 @@ cmake_install.cmake
 CTestTestfile.cmake
 _deps/
 CMakeUserPresets.json
+conan.lock
 pixi.lock
 !clients/python/pixi.lock
 __pycache__/
