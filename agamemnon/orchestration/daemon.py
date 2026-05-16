@@ -97,8 +97,8 @@ async def run(settings: Settings) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entry point for the Keystone daemon."""
-    parser = argparse.ArgumentParser(description="ProjectKeystone transport daemon")
+    """Entry point for the Agamemnon orchestration daemon."""
+    parser = argparse.ArgumentParser(description="Agamemnon orchestration daemon")
     parser.add_argument(
         "--log-level",
         default=None,
