@@ -440,6 +440,15 @@ jobs:
           rm -f "$TARBALL"
           gitleaks version
 
+      - name: Gitleaks enforcement regression guard
+        # Fails the build if `--exit-code 0` (silent gitleaks) is ever
+        # reintroduced into this workflow file. See HomericIntelligence/ProjectAgamemnon#266.
+        run: |
+          if grep -n -- '--exit-code 0' .github/workflows/_required.yml; then
+            echo "::error::gitleaks --exit-code 0 detected; enforcement must remain --exit-code 1"
+            exit 1
+          fi
+
       - name: Run Gitleaks
         run: |
           if [ -f .gitleaks.toml ]; then
