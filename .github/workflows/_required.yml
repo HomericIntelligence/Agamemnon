@@ -361,9 +361,11 @@ jobs:
 
       - name: Install Trivy
         run: |
-          TRIVY_VERSION=0.58.1
-          # Pinned binary download — the upstream install.sh has been flaky
-          # for v0.58.1 (locates the tag, then exits 1 before extracting).
+          # v0.58.1 has been removed from upstream releases (404 from the
+          # binary URL and from the install.sh tag lookup, which is why CI
+          # was failing). Bump to v0.69.3 — current at time of fix — and use
+          # a direct binary download to keep the install deterministic.
+          TRIVY_VERSION=0.69.3
           curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             -o /tmp/trivy.tar.gz
           tar -xz -C /usr/local/bin -f /tmp/trivy.tar.gz trivy
