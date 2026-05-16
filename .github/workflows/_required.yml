@@ -362,8 +362,11 @@ jobs:
       - name: Install Trivy
         run: |
           TRIVY_VERSION=0.58.1
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-            | sh -s -- -b /usr/local/bin "v${TRIVY_VERSION}"
+          # Pinned binary download — the upstream install.sh has been flaky
+          # for v0.58.1 (locates the tag, then exits 1 before extracting).
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            -o /tmp/trivy.tar.gz
+          tar -xz -C /usr/local/bin -f /tmp/trivy.tar.gz trivy
           trivy --version
 
       - name: Trivy filesystem scan
