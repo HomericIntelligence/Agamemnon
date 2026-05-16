@@ -180,6 +180,8 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
 // All are owned by main() and outlive the server.
 
+// cppcheck-suppress unusedFunction
+// register_routes is the public entry point invoked from server_main.cpp.
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
                      Orchestrator& orchestrator) {
