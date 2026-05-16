@@ -223,18 +223,14 @@ Run `pixi run pre-commit install` once after cloning to activate them. Never byp
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for the current development roadmap and upcoming
-milestones.
+milestones, including what is implemented today versus what is planned, with
+status and acceptance criteria for each deferred feature.
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming, commit message conventions, and
 the pull request process. Please read [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before
 participating. To report a security vulnerability, follow [SECURITY.md](SECURITY.md).
-
-## Roadmap
-
-See [ROADMAP.md](ROADMAP.md) for what is implemented today versus what is planned, with
-status and acceptance criteria for each deferred feature.
 
 ## License
 
