@@ -169,6 +169,13 @@ just build
 # The build uses CMake with Ninja generator and CMakePresets.json
 ```
 
+> **GTest ABI compatibility:** Tests must be built with the pixi-managed GCC 14
+> (`CXX=$PIXI_PROJECT_ROOT/.pixi/envs/default/bin/g++`), not the system GCC 10.
+> Conan installs GTest compiled against GCC 14's libstdc++; linking it against
+> a different libstdc++ produces a silent link or runtime ABI failure. Always
+> run `pixi shell` (or `pixi run just build`) before invoking the build so the
+> pixi compiler is on PATH.
+
 ### Test
 
 ```bash
