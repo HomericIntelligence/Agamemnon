@@ -1,4 +1,5 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
+#include <cerrno>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -139,13 +140,27 @@ TEST_F(HealthcheckTest, HealthcheckUsesDefaultPort8080) {
   // Instead, we test the code logic without actually running the binary
   // This is a unit test verifying the port parsing logic
   auto get_port = [](const char* env_val) {
-    int port = env_val ? std::atoi(env_val) : 8080;
+    int port = 8080;
+    if (env_val) {
+      errno = 0;
+      char* endptr = nullptr;
+      long port_val = std::strtol(env_val, &endptr, 10);
+      if (errno == 0 && endptr != env_val && *endptr == '\0' && port_val >= 1 &&
+          port_val <= 65535) {
+        port = static_cast<int>(port_val);
+      }
+    }
     return port;
   };
 
   EXPECT_EQ(get_port(nullptr), 8080) << "default port should be 8080";
-  EXPECT_EQ(get_port("9000"), 9000) << "should parse PORT env var";
-  EXPECT_EQ(get_port("0"), 0) << "should allow parsing 0 (even though invalid)";
+  EXPECT_EQ(get_port("9000"), 9000) << "should parse valid PORT env var";
+  EXPECT_EQ(get_port("1"), 1) << "should accept port 1 (minimum)";
+  EXPECT_EQ(get_port("65535"), 65535) << "should accept port 65535 (maximum)";
+  EXPECT_EQ(get_port("0"), 8080) << "should reject port 0 (below range)";
+  EXPECT_EQ(get_port("65536"), 8080) << "should reject port 65536 (above range)";
+  EXPECT_EQ(get_port("-1"), 8080) << "should reject negative port";
+  EXPECT_EQ(get_port("abc"), 8080) << "should reject non-numeric port";
 }
 
 }  // namespace projectagamemnon::test
