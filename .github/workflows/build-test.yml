@@ -53,7 +53,7 @@ jobs:
         env:
           BUILD_TYPE: ${{ matrix.build_type }}
         run: |
-          BUILD_TYPE_CAP=$(echo "$BUILD_TYPE" | sed 's/./\u&/')
+          BUILD_TYPE_CAP="${BUILD_TYPE^}"
           conan install . --build=missing -s build_type="$BUILD_TYPE_CAP" \
             --output-folder "build/$BUILD_TYPE"
 
