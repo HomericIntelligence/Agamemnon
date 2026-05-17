@@ -73,7 +73,7 @@ jobs:
         run: pip install mypy
 
       - name: Enforce Python client type check
-        run: mypy clients/python/ --ignore-missing-imports
+        run: mypy clients/python/
 
       - name: Check GitHub Actions workflow schemas
         run: actionlint
