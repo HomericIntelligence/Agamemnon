@@ -202,6 +202,8 @@ jobs:
           cmake --build --preset debug --target ProjectAgamemnon_server
 
       - name: Negative PORT parsing smoke test
+        env:
+          AGAMEMNON_API_KEY: ${{ secrets.AGAMEMNON_API_KEY }}
         run: |
           SERVER=./build/debug/ProjectAgamemnon_server
           # PORT=abc must warn and fall back to 8080
