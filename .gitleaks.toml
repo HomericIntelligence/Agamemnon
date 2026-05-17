@@ -9,16 +9,12 @@ title = "ProjectAgamemnon Gitleaks Config"
     '''clients/python/tests/''',
     '''docs/''',
   ]
-
-# Allowlist common test/example patterns
-[[allowlist]]
-  description = "AWS example IAM key pattern (AKIA...EXAMPLE)"
-  regex = '''AKIA[A-Z0-9]{0,4}EXAMPLE'''
-
-[[allowlist]]
-  description = "Test token placeholder pattern (TEST_TOKEN_*)"
-  regex = '''TEST_TOKEN_[A-Za-z0-9]+'''
-
-[[allowlist]]
-  description = "Localhost/loopback connection strings (development only)"
-  regex = '''(localhost|127\.0\.0\.1|::1)(?::\d+)?'''
+  # Allowlist common test/example patterns
+  regexes = [
+    # AWS example IAM key pattern (AKIA...EXAMPLE)
+    '''AKIA[A-Z0-9]{0,4}EXAMPLE''',
+    # Test token placeholder pattern (TEST_TOKEN_*)
+    '''TEST_TOKEN_[A-Za-z0-9]+''',
+    # Localhost/loopback connection strings (development only)
+    '''(localhost|127\.0\.0\.1|::1)(?::\d+)?''',
+  ]
