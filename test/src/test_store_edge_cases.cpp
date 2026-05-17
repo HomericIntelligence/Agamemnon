@@ -208,6 +208,44 @@ TEST_F(StoreEdgeCases, GetAgentByNameEmptyName) {
   EXPECT_TRUE(store_.get_agent_by_name("").is_null());
 }
 
+// ── Null-json guards (#209) ───────────────────────────────────────────────────
+
+TEST_F(StoreEdgeCases, UpdateTaskNullJsonReturnsNull) {
+  auto team_result = store_.create_team({{"name", "guard-team"}});
+  std::string team_id = team_result["team"]["id"];
+  auto task_result = store_.create_task(team_id, {{"subject", "s"}});
+  std::string task_id = task_result["task"]["id"];
+
+  // nlohmann::json{} is a null json value — must not throw and must return null.
+  EXPECT_NO_THROW({
+    json result = store_.update_task(team_id, task_id, nlohmann::json{});
+    EXPECT_TRUE(result.is_null());
+  });
+}
+
+TEST_F(StoreEdgeCases, UpdateTaskNullJsonArray) {
+  auto team_result = store_.create_team({{"name", "guard-team2"}});
+  std::string team_id = team_result["team"]["id"];
+  auto task_result = store_.create_task(team_id, {{"subject", "s"}});
+  std::string task_id = task_result["task"]["id"];
+
+  // An array is not an object — must return null without throwing.
+  EXPECT_NO_THROW({
+    json result = store_.update_task(team_id, task_id, json::array());
+    EXPECT_TRUE(result.is_null());
+  });
+}
+
+TEST_F(StoreEdgeCases, UpdateAgentNullJsonReturnsNull) {
+  auto agent_result = store_.create_agent({{"name", "guard-agent"}});
+  std::string id = agent_result["id"];
+
+  EXPECT_NO_THROW({
+    json result = store_.update_agent(id, nlohmann::json{});
+    EXPECT_TRUE(result.is_null());
+  });
+}
+
 // ── Task team_id mismatch ─────────────────────────────────────────────────────
 
 TEST_F(StoreEdgeCases, GetTaskWrongTeamId) {
