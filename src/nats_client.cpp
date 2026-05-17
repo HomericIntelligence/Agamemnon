@@ -76,6 +76,20 @@ static void load_cb_state(const std::string& /*path*/) {
   // Future: implement when CircuitBreaker supports state injection
 }
 
+// ── effective_retry_base_ms ───────────────────────────────────────────────────
+
+// static
+int NatsClient::effective_retry_base_ms() noexcept {
+  const char* env = std::getenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+  if (!env) return kBaseRetryMs;
+  try {
+    int val = std::stoi(env);
+    return (val >= 0) ? val : kBaseRetryMs;
+  } catch (...) {
+    return kBaseRetryMs;
+  }
+}
+
 // ── Lifetime ─────────────────────────────────────────────────────────────────
 
 NatsClient::NatsClient(const std::string& url) : url_(url) {
@@ -235,7 +249,7 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     return false;
   }
 
-  int delay_ms = kBaseRetryMs;
+  int delay_ms = effective_retry_base_ms();
   for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
     auto s = static_cast<natsStatus>(do_publish_once(subject, payload));
     if (s == NATS_OK) {
@@ -258,7 +272,11 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     }
 
     // Exponential backoff before next retry.
-    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    // delay_ms is tunable via AGAMEMNON_NATS_RETRY_BASE_MS to reduce httplib
+    // request-thread blocking (#290).
+    if (delay_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
     delay_ms *= 2;
   }
 
@@ -295,7 +313,7 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
     return;
   }
 
-  int delay_ms = kBaseRetryMs;
+  int delay_ms = effective_retry_base_ms();
   for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
     auto s = static_cast<natsStatus>(do_publish_once(subject, payload_str));
     if (s == NATS_OK) {
@@ -316,7 +334,10 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
       return;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    // delay_ms is tunable via AGAMEMNON_NATS_RETRY_BASE_MS (#290).
+    if (delay_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
     delay_ms *= 2;
   }
 }
@@ -344,13 +365,20 @@ extern "C" void nats_msg_handler(natsConnection* /*nc*/, natsSubscription* /*sub
   natsMsg_Destroy(msg);
 }
 
+// Called once by nats.c when the subscription is destroyed (after the last
+// message callback has returned).  Releases the CallbackContext so that
+// subscribe() can be called more than once without leaking.
+extern "C" void nats_sub_complete(void* closure) {
+  delete static_cast<CallbackContext*>(closure);  // NOLINT(cppcoreguidelines-owning-memory)
+}
+
 }  // anonymous namespace
 
 bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
   if (!connected_ || !conn_) return false;
 
-  // Heap-allocate the context; it lives for the lifetime of the subscription.
-  // For this server the subscription lives for the lifetime of the process.
+  // Heap-allocate the context; ownership is transferred to the subscription.
+  // nats_sub_complete() deletes it when the subscription is destroyed.
   auto* ctx =
       new CallbackContext{std::move(cb), metrics_};  // NOLINT(cppcoreguidelines-owning-memory)
 
@@ -362,6 +390,10 @@ bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
     delete ctx;  // NOLINT(cppcoreguidelines-owning-memory) — reclaiming from failed C API transfer
     return false;
   }
+
+  // Register teardown callback so ctx is deleted when the subscription is destroyed,
+  // not leaked if subscribe() is ever called more than once (#202).
+  natsSubscription_SetOnCompleteCB(sub, nats_sub_complete, ctx);
   return true;
 }
 
