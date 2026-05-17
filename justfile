@@ -46,7 +46,7 @@ ci:
   cmake --preset ci && cmake --build --preset ci && ctest --preset ci
 
 # Cut a release: bump version, commit, tag, and push
-release VERSION:
+release VERSION push='true':
   #!/usr/bin/env bash
   set -euo pipefail
   if ! [[ "{{VERSION}}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -58,4 +58,6 @@ release VERSION:
   git add clients/python/pyproject.toml
   git commit -S -m "chore: bump version to v{{VERSION}}"
   git tag -s "v{{VERSION}}" -m "v{{VERSION}}"
-  git push --follow-tags
+  if [ "{{push}}" = "true" ]; then
+    git push --follow-tags
+  fi
