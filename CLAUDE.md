@@ -88,17 +88,19 @@ It is a hatchling-built, mypy-strict, pixi-managed package targeting Python
 agamemnon/
 ├── pyproject.toml          # hatchling build, ruff + mypy(strict) + pytest config
 ├── pixi.toml               # pixi env (default + test feature)
-├── __init__.py             # top-level package marker
-├── orchestration/          # main Python modules
-│   ├── config.py           # Settings dataclass + load_settings()
-│   ├── daemon.py           # async daemon entry; routes NATS -> DAG walker
-│   ├── dag_walker.py       # walks Task graph, advances state machine
-│   ├── logging.py          # structured JSON stdlib logger (AgamemnonLogger)
-│   ├── models.py           # pydantic Task / Agent / TaskEvent models
-│   ├── nats_listener.py    # NATSListener: subscribes to hi.* subjects
-│   ├── task_claimer.py     # per-team concurrency guard for claim ops
-│   ├── validation.py       # validate_id() — safe URL path construction
-│   └── __main__.py         # `python -m agamemnon.orchestration` entry
+├── pixi.lock               # committed lock file (reproducible builds)
+├── src/agamemnon/          # canonical src-layout package
+│   ├── __init__.py         # exposes __version__
+│   └── orchestration/      # main Python modules
+│       ├── config.py       # Settings dataclass + load_settings()
+│       ├── daemon.py       # async daemon entry; routes NATS -> DAG walker
+│       ├── dag_walker.py   # walks Task graph, advances state machine
+│       ├── logging.py      # structured JSON stdlib logger (AgamemnonLogger)
+│       ├── models.py       # pydantic Task / Agent / TaskEvent models
+│       ├── nats_listener.py # NATSListener: subscribes to hi.* subjects
+│       ├── task_claimer.py # per-team concurrency guard for claim ops
+│       ├── validation.py   # validate_id() — safe URL path construction
+│       └── __main__.py     # `python -m agamemnon.orchestration` entry
 └── tests/                  # pytest suite (asyncio mode = auto)
 ```
 
@@ -124,10 +126,17 @@ cd agamemnon && pixi run typecheck  # mypy --strict src/agamemnon/
 
 ### Migration context
 
-Modules under `agamemnon/orchestration/` were lifted from ProjectKeystone as
-part of consolidating orchestration logic into Agamemnon. Keystone retains
-only the invisible transport layer (BlazingMQ + NATS routing); all task
-state-machine, DAG walking, and claim-coordination logic now lives here. A
-parallel copy under `clients/python/src/agamemnon/orchestration/` exists for
-the published client package and is kept in sync until the consumer split
-lands.
+Modules under `agamemnon/src/agamemnon/orchestration/` were lifted from
+ProjectKeystone as part of consolidating orchestration logic into Agamemnon.
+Keystone retains only the invisible transport layer (BlazingMQ + NATS routing);
+all task state-machine, DAG walking, and claim-coordination logic now lives
+here.
+
+There is exactly **one** copy of the orchestration package. The
+`clients/python/` wheel (`HomericIntelligence-Agamemnon`) no longer vendors
+its own copy — it pins `HomericIntelligence-Agamemnon-Orchestration` as an
+editable dev dependency so the client tests under
+`clients/python/tests/orchestration/` exercise the canonical implementation
+directly. The triple-copy that previously existed (one legacy, one canonical,
+one client-vendored) was consolidated in
+`refactor/orchestration-single-source-2026-05-17` (audit finding S1).
