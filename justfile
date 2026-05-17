@@ -5,21 +5,21 @@ default:
 
 # Install Conan dependencies (cpp-httplib, nlohmann_json, gtest)
 deps:
-  conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing
+  pixi run -- conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing
 
 # Install Conan dependencies for release
 deps-release:
-  conan install . --output-folder=build/release --profile=conan/profiles/default --build=missing
+  pixi run -- conan install . --output-folder=build/release --profile=conan/profiles/default --build=missing
 
 # Install Conan dependencies for the coverage build (separate output folder)
 deps-coverage:
-  conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing
+  pixi run -- conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing
 
 build: deps
-  cmake --preset debug && cmake --build --preset debug
+  pixi run -- cmake --preset debug && pixi run -- cmake --build --preset debug
 
 test:
-  ctest --preset debug --output-on-failure
+  pixi run -- ctest --preset debug --output-on-failure
 
 lint:
   ./scripts/lint.sh
@@ -43,7 +43,7 @@ agamemnon-typecheck:
   cd agamemnon && pixi run typecheck
 
 coverage: deps-coverage
-  cmake --preset coverage && cmake --build --preset coverage && ./scripts/coverage.sh
+  pixi run -- cmake --preset coverage && pixi run -- cmake --build --preset coverage && ./scripts/coverage.sh
 
 clean:
   rm -rf build install
@@ -52,7 +52,7 @@ docs-validate:
   ./scripts/validate-openapi.sh
 
 ci:
-  cmake --preset ci && cmake --build --preset ci && ctest --preset ci
+  pixi run -- cmake --preset ci && pixi run -- cmake --build --preset ci && pixi run -- ctest --preset ci
 
 # Cut a release: bump version, commit, tag, and push
 release VERSION push='true':
