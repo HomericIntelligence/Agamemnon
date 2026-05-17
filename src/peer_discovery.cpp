@@ -188,11 +188,34 @@ std::string discover_nats_url(const std::string& hostname_pattern) {
     if (env) pattern = env;
   }
 
+  // Read configurable ports and timeout from environment
+  int nats_port = 4222;  // default
+  int monitor_port = 8222;  // default
+  int timeout_ms = 500;  // default
+
+  const char* env_nats_port = std::getenv("NATS_PORT");
+  if (env_nats_port) {
+    nats_port = std::atoi(env_nats_port);
+    if (nats_port <= 0 || nats_port > 65535) nats_port = 4222;
+  }
+
+  const char* env_monitor_port = std::getenv("NATS_MONITOR_PORT");
+  if (env_monitor_port) {
+    monitor_port = std::atoi(env_monitor_port);
+    if (monitor_port <= 0 || monitor_port > 65535) monitor_port = 8222;
+  }
+
+  const char* env_timeout = std::getenv("NATS_DISCOVERY_TIMEOUT_MS");
+  if (env_timeout) {
+    timeout_ms = std::atoi(env_timeout);
+    if (timeout_ms <= 0) timeout_ms = 500;
+  }
+
   auto peers = enumerate_tailscale_peers();
   for (const auto& peer : peers) {
     if (!matches_hostname_pattern(peer.hostname, pattern)) continue;
-    if (probe_nats_peer(peer.tailscale_ip)) {
-      return "nats://" + peer.tailscale_ip + ":4222";
+    if (probe_nats_peer(peer.tailscale_ip, nats_port, monitor_port, timeout_ms)) {
+      return "nats://" + peer.tailscale_ip + ":" + std::to_string(nats_port);
     }
   }
   return "";
