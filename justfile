@@ -44,6 +44,7 @@ agamemnon-lint:
 
 agamemnon-typecheck:
   cd agamemnon && pixi run typecheck
+
 coverage: deps-coverage
   pixi run -- cmake --preset coverage && pixi run -- cmake --build --preset coverage && ./scripts/coverage.sh
 
