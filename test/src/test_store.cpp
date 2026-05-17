@@ -259,9 +259,10 @@ TEST_F(StoreTaskTest, GetTaskWrongTeam) {
 TEST_F(StoreTaskTest, GetTaskEmptyTeamId) {
   json result = store.create_task(team_id, {{"subject", "x"}});
   std::string task_id = result["task"]["id"];
-  // Empty team_id skips the team check
+  // #222: empty team_id is not a valid wildcard — must return null to prevent
+  // cross-team access. Callers must provide the owning team_id.
   json task = store.get_task("", task_id);
-  EXPECT_FALSE(task.is_null());
+  EXPECT_TRUE(task.is_null());
 }
 
 TEST_F(StoreTaskTest, GetTaskNotFound) {

@@ -263,15 +263,49 @@ TEST_F(StoreEdgeCases, GetTaskWrongTeamId) {
   EXPECT_TRUE(not_found.is_null());
 }
 
-TEST_F(StoreEdgeCases, GetTaskEmptyTeamIdBypassesCheck) {
+// #222 — team_id scope enforcement on update_task
+TEST_F(StoreEdgeCases, UpdateTaskEmptyTeamIdReturnsNull) {
   auto team_result = store_.create_team({{"name", "t"}});
   std::string team_id = team_result["team"]["id"];
   auto task_result = store_.create_task(team_id, {{"subject", "s"}});
   std::string task_id = task_result["task"]["id"];
 
-  // Empty team_id skips team check, returns task by ID only
+  // Empty team_id must return null — cannot update without scoping to a team.
+  json result = store_.update_task("", task_id, {{"subject", "new"}});
+  EXPECT_TRUE(result.is_null());
+}
+
+TEST_F(StoreEdgeCases, UpdateTaskWrongTeamIdReturnsNull) {
+  auto team_result = store_.create_team({{"name", "t"}});
+  std::string team_id = team_result["team"]["id"];
+  auto task_result = store_.create_task(team_id, {{"subject", "s"}});
+  std::string task_id = task_result["task"]["id"];
+
+  json result = store_.update_task("wrong-team", task_id, {{"subject", "new"}});
+  EXPECT_TRUE(result.is_null());
+}
+
+TEST_F(StoreEdgeCases, GetTaskCorrectTeamIdReturnsTask) {
+  auto team_result = store_.create_team({{"name", "t"}});
+  std::string team_id = team_result["team"]["id"];
+  auto task_result = store_.create_task(team_id, {{"subject", "s"}});
+  std::string task_id = task_result["task"]["id"];
+
+  // Correct team_id must still find the task.
+  json result = store_.get_task(team_id, task_id);
+  EXPECT_FALSE(result.is_null());
+  EXPECT_EQ(result["id"], task_id);
+}
+
+TEST_F(StoreEdgeCases, GetTaskEmptyTeamIdEnforcesScope) {
+  auto team_result = store_.create_team({{"name", "t"}});
+  std::string team_id = team_result["team"]["id"];
+  auto task_result = store_.create_task(team_id, {{"subject", "s"}});
+  std::string task_id = task_result["task"]["id"];
+
+  // #222: empty team_id must return null — no longer a wildcard bypass.
   json found = store_.get_task("", task_id);
-  EXPECT_FALSE(found.is_null());
+  EXPECT_TRUE(found.is_null());
 }
 
 }  // namespace projectagamemnon::test

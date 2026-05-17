@@ -453,11 +453,14 @@ json Store::create_task(const std::string& team_id, const json& body) {
 }
 
 json Store::get_task(const std::string& team_id, const std::string& task_id) {
+  // #222: require a non-empty team_id scope; empty team_id is not a valid
+  // wildcard — callers must provide the owning team for cross-team safety.
+  if (team_id.empty()) return nullptr;
   ensure_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
-  if (!team_id.empty() && it->second.value("teamId", "") != team_id) return nullptr;
+  if (it->second.value("teamId", "") != team_id) return nullptr;
   return it->second;
 }
 
@@ -465,11 +468,13 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
   // Guard against null/non-object payloads from direct (non-route) callers;
   // body.items() throws type_error.306 on a null json. See #209.
   if (!body.is_object()) return nullptr;
+  // #222: require a non-empty team_id to prevent cross-team writes.
+  if (team_id.empty()) return nullptr;
   ensure_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
-  if (!team_id.empty() && it->second.value("teamId", "") != team_id) return nullptr;
+  if (it->second.value("teamId", "") != team_id) return nullptr;
   for (auto& [key, val] : body.items()) {
     if (key != "id" && key != "teamId" && key != "createdAt" && key != "_github_issue")
       it->second[key] = val;
