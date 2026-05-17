@@ -30,10 +30,6 @@ add_executable(${PROJECT_NAME}_tests
   src/test_orchestrator.cpp
   src/test_planning_breakdown.cpp
   src/test_state_machine.cpp
-  ${PROJECT_SOURCE_DIR}/src/routes.cpp
-  ${PROJECT_SOURCE_DIR}/src/store.cpp
-  ${PROJECT_SOURCE_DIR}/src/nats_client.cpp
-  ${PROJECT_SOURCE_DIR}/src/version_info.cpp
 )
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
@@ -59,7 +55,7 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    agamemnon_lib
+    ProjectAgamemnon_core
     agamemnon_peer_discovery
     GTest::gtest_main
     GTest::gmock
@@ -98,7 +94,7 @@ target_include_directories(${PROJECT_NAME}_routes_tests
 
 target_link_libraries(${PROJECT_NAME}_routes_tests
   PRIVATE
-    agamemnon_lib
+    ProjectAgamemnon_core
     GTest::gtest_main
     httplib::httplib
     nlohmann_json::nlohmann_json
@@ -137,7 +133,7 @@ target_compile_options(${PROJECT_NAME}_integration_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_integration_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    agamemnon_lib
+    ProjectAgamemnon_core
     GTest::gtest_main
     httplib::httplib
     nlohmann_json::nlohmann_json)
