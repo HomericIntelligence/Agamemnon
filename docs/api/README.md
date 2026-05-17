@@ -4,7 +4,17 @@ Full machine-readable spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
 
 **Base URL:** `http://localhost:8080` (override port with `PORT` env var)
 
-**Authentication:** None — Phase 1 is unauthenticated. All endpoints are open.
+**Authentication:** All endpoints other than `/health` and `/v1/health` require an API key
+when the server is launched with the `AGAMEMNON_API_KEY` environment variable set. Two
+header forms are accepted:
+
+- `Authorization: Bearer <key>`
+- `X-API-Key: <key>`
+
+The expected key is the value of the server's `AGAMEMNON_API_KEY` env var. If
+`AGAMEMNON_API_KEY` is **unset or empty** in the server environment, authentication is
+disabled and all requests are accepted (development escape hatch). Production deployments
+MUST set this variable.
 
 ---
 
