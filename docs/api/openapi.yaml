@@ -7,8 +7,15 @@ info:
     REST API for ProjectAgamemnon — the planning, coordination, and agentic orchestration
     service for the HomericIntelligence distributed agent mesh.
 
-    **Authentication:** Phase 1 has no authentication. All endpoints are unauthenticated.
-    Authentication will be added in a future phase.
+    **Authentication:** All endpoints (except `/health` and `/v1/health`) require an API key
+    when the server is launched with `AGAMEMNON_API_KEY` set. Two header forms are accepted:
+
+    * `Authorization: Bearer <key>`
+    * `X-API-Key: <key>`
+
+    If `AGAMEMNON_API_KEY` is unset or empty in the server environment, authentication is
+    disabled and requests are accepted unauthenticated (development escape hatch). In
+    production deployments the environment variable MUST be set.
 
     **Transport:** Internal mesh traffic only (no TLS). Intended to be reached over Tailscale
     (100.x.x.x) or localhost.
@@ -32,6 +39,10 @@ servers:
       port:
         default: "8080"
         description: Port Agamemnon is listening on (PORT env var; default 8080)
+
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
 
 tags:
   - name: health
@@ -57,6 +68,7 @@ paths:
       tags: [health]
       summary: Root health check
       description: Unauthenticated liveness probe. Returns service name.
+      security: []
       responses:
         "200":
           description: Service is alive
@@ -74,6 +86,7 @@ paths:
       tags: [health]
       summary: Versioned health check
       description: Preferred liveness probe for v1 clients.
+      security: []
       responses:
         "200":
           description: Service is alive
@@ -675,6 +688,25 @@ paths:
 # ── Components ────────────────────────────────────────────────────────────────
 
 components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API key supplied as `Authorization: Bearer <key>`. The expected key is the
+        value of the server's `AGAMEMNON_API_KEY` environment variable. When the
+        server is launched without `AGAMEMNON_API_KEY` (or with an empty value),
+        authentication is disabled (development escape hatch).
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key supplied as `X-API-Key: <key>`. The expected key is the value of
+        the server's `AGAMEMNON_API_KEY` environment variable. When the server is
+        launched without `AGAMEMNON_API_KEY` (or with an empty value),
+        authentication is disabled (development escape hatch).
 
   parameters:
     AgentId:
