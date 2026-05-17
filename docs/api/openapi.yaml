@@ -1075,8 +1075,10 @@ components:
           default: local
         status:
           type: string
-          enum: [online, offline]
-          description: Set to `offline` at creation; changed by /start and /stop
+          enum: [online, offline, error]
+          description: |
+            Set to `offline` at creation; changed by `/start` (`online`) and `/stop`
+            (`offline`). May also be `error` if the agent reports a fatal failure.
         createdAt:
           type: string
           format: date-time
@@ -1143,7 +1145,7 @@ components:
           type: string
         status:
           type: string
-          enum: [online, offline]
+          enum: [online, offline, error]
 
     AgentWrapper:
       type: object
@@ -1168,7 +1170,7 @@ components:
       properties:
         status:
           type: string
-          enum: [online, offline]
+          enum: [online, offline, error]
         id:
           type: string
 
@@ -1282,7 +1284,7 @@ components:
           default: general
         status:
           type: string
-          enum: [pending, in_progress, completed, failed]
+          enum: [pending, running, completed, failed, blocked]
           default: pending
         createdAt:
           type: string
@@ -1327,7 +1329,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, in_progress, completed, failed]
+          enum: [pending, running, completed, failed, blocked]
 
     TaskWrapper:
       type: object

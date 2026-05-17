@@ -112,7 +112,7 @@ in issue #144 — docker-hosted agents are created via `POST /v1/agents` with `h
 | `assigneeAgentId` | string | Assigned agent UUID; empty if unassigned |
 | `blockedBy` | string[] | Task IDs blocking this task |
 | `type` | string | Default `"general"`; used as myrmidon queue key |
-| `status` | string | `pending`\|`in_progress`\|`completed`\|`failed`; always `"pending"` at creation |
+| `status` | string | `pending`\|`running`\|`completed`\|`failed`\|`blocked`; always `"pending"` at creation |
 | `createdAt` | ISO 8601 UTC | Assigned at creation; immutable |
 | `completedAt` | ISO 8601 UTC \| null | Auto-set when `status` → `"completed"` |
 
