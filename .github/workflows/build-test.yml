@@ -161,6 +161,14 @@ jobs:
       - name: Verify image exists
         run: docker image inspect agamemnon:ci-test
 
+      - name: Scan image for vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: agamemnon:ci-test
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
   cyclonedx-validate:
     name: cyclonedx-validate
     runs-on: ubuntu-24.04
