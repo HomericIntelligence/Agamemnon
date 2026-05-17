@@ -53,6 +53,16 @@
       "cacheVariables": {
         "ProjectAgamemnon_WARNINGS_AS_ERRORS": "ON"
       }
+    },
+    {
+      "name": "asan",
+      "displayName": "AddressSanitizer",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ProjectAgamemnon_BUILD_TESTING": "ON",
+        "ProjectAgamemnon_ENABLE_ASAN": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -71,6 +81,10 @@
     {
       "name": "ci",
       "configurePreset": "ci"
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan"
     }
   ],
   "testPresets": [
@@ -98,6 +112,13 @@
     {
       "name": "coverage",
       "configurePreset": "coverage",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan",
       "output": {
         "outputOnFailure": true
       }
