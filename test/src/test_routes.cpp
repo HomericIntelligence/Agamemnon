@@ -671,8 +671,8 @@ class RateLimitedRouteTest : public ::testing::Test {
 
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};
-  RateLimiter rate_limiter_{2, 1e9};  // 2 requests max; large window
-  AuthMiddleware auth_{""};           // allow all requests
+  RateLimiter rate_limiter_{2, 2};  // 2 tokens/sec, burst=2 → 3rd request triggers 429
+  AuthMiddleware auth_{""};         // allow all requests
   MetricsRegistry metrics_;
   Orchestrator orchestrator_{store_, nats_};
   httplib::Server server_;
@@ -681,18 +681,19 @@ class RateLimitedRouteTest : public ::testing::Test {
 };
 
 TEST_F(RateLimitedRouteTest, RateLimitExceededReturns429WithRetryAfterHeader) {
+  // Use /v1/teams — /health is exempt from rate limiting by design (liveness probes).
   // First request should succeed.
-  auto res1 = Get("/health");
+  auto res1 = Get("/v1/teams");
   ASSERT_TRUE(res1);
   EXPECT_EQ(res1->status, 200);
 
   // Second request should succeed.
-  auto res2 = Get("/health");
+  auto res2 = Get("/v1/teams");
   ASSERT_TRUE(res2);
   EXPECT_EQ(res2->status, 200);
 
   // Third request exceeds the limit (2 per window).
-  auto res3 = Get("/health");
+  auto res3 = Get("/v1/teams");
   ASSERT_TRUE(res3);
   EXPECT_EQ(res3->status, 429);
 

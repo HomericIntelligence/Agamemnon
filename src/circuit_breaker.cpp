@@ -1,6 +1,10 @@
 #include "projectagamemnon/circuit_breaker.hpp"
 
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <iostream>
+#include <string>
 
 namespace projectagamemnon {
 
@@ -18,11 +22,13 @@ void CircuitBreaker::transition_to_open() noexcept {
 }
 
 bool CircuitBreaker::allow_attempt() noexcept {
-  auto s = static_cast<State>(state_.load(std::memory_order_acquire));
-  if (s == State::Closed) return true;
+  const auto cur_state = static_cast<State>(state_.load(std::memory_order_acquire));
+  if (cur_state == State::Closed) {
+    return true;
+  }
 
-  if (s == State::Open) {
-    int64_t elapsed = now_ms() - open_since_ms_.load(std::memory_order_relaxed);
+  if (cur_state == State::Open) {
+    const int64_t elapsed = now_ms() - open_since_ms_.load(std::memory_order_relaxed);
     if (elapsed >= cfg_.probe_interval.count()) {
       state_.store(static_cast<uint8_t>(State::HalfOpen), std::memory_order_release);
       std::cerr << "[circuit_breaker] NATS circuit HALF-OPEN — sending probe\n";
@@ -36,8 +42,8 @@ bool CircuitBreaker::allow_attempt() noexcept {
 }
 
 void CircuitBreaker::record_success() noexcept {
-  auto s = static_cast<State>(state_.load(std::memory_order_acquire));
-  if (s != State::Closed) {
+  const auto cur_state = static_cast<State>(state_.load(std::memory_order_acquire));
+  if (cur_state != State::Closed) {
     std::cerr << "[circuit_breaker] NATS circuit CLOSED — connection restored\n";
   }
   failure_count_.store(0, std::memory_order_relaxed);
@@ -45,15 +51,15 @@ void CircuitBreaker::record_success() noexcept {
 }
 
 void CircuitBreaker::record_failure() noexcept {
-  int count = failure_count_.fetch_add(1, std::memory_order_relaxed) + 1;
-  auto s = static_cast<State>(state_.load(std::memory_order_acquire));
+  const int count = failure_count_.fetch_add(1, std::memory_order_relaxed) + 1;
+  const auto cur_state = static_cast<State>(state_.load(std::memory_order_acquire));
 
-  if (s == State::HalfOpen) {
+  if (cur_state == State::HalfOpen) {
     transition_to_open();
     return;
   }
 
-  if (s == State::Closed && count >= cfg_.failure_threshold) {
+  if (cur_state == State::Closed && count >= cfg_.failure_threshold) {
     transition_to_open();
   }
 }

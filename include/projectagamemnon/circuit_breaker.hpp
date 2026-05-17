@@ -36,14 +36,16 @@ class CircuitBreaker {
   /// Call after a failed publish attempt.
   void record_failure() noexcept;
 
-  State state() const noexcept {
+  [[nodiscard]] State state() const noexcept {
     return static_cast<State>(state_.load(std::memory_order_acquire));
   }
 
-  int failure_count() const noexcept { return failure_count_.load(std::memory_order_relaxed); }
+  [[nodiscard]] int failure_count() const noexcept {
+    return failure_count_.load(std::memory_order_relaxed);
+  }
 
   /// Human-readable state label for health endpoints.
-  std::string state_label() const noexcept;
+  [[nodiscard]] std::string state_label() const noexcept;
 
  private:
   Config cfg_;
