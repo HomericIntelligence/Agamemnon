@@ -46,6 +46,29 @@ def bump_version(toml_path: Path, new_version: str) -> None:
     print(f"bumped version to {new_version}")
 
 
+def sync_security_md(security_md_path: Path, new_version: str) -> None:
+    """Update the Supported Versions table in SECURITY.md.
+
+    Replaces the first version in the table with the new version and "Current" status.
+    """
+    if not security_md_path.exists():
+        return
+
+    text = security_md_path.read_text(encoding="utf-8")
+    # Replace the version in the first table row (assumes format: | X.Y.Z   | Status |)
+    updated = re.sub(
+        r"^\|\s+\d+\.\d+\.\d+\s+\|",
+        f"| {new_version}   |",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+
+    if updated != text:
+        security_md_path.write_text(updated, encoding="utf-8")
+        print(f"synced SECURITY.md version to {new_version}")
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} VERSION", file=sys.stderr)
@@ -61,12 +84,14 @@ def main() -> None:
 
     repo_root = Path(__file__).resolve().parent.parent
     toml_path = repo_root / "clients" / "python" / "pyproject.toml"
+    security_md_path = repo_root / "SECURITY.md"
 
     if not toml_path.exists():
         print(f"error: {toml_path} does not exist", file=sys.stderr)
         sys.exit(1)
 
     bump_version(toml_path, new_version)
+    sync_security_md(security_md_path, new_version)
 
 
 if __name__ == "__main__":

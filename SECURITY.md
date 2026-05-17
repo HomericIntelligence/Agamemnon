@@ -1,5 +1,11 @@
 # Security Policy
 
+## Supported Versions
+
+| Version | Status        |
+|---------|---------------|
+| 0.1.0   | Current       |
+
 ## Secrets Scanning Gate
 
 The `security/secrets-scan` CI job runs Gitleaks against the full git history
