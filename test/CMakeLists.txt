@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.20)
 find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
 find_package(httplib REQUIRED)
-find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(prometheus-cpp REQUIRED)
 
@@ -60,7 +59,6 @@ target_link_libraries(${PROJECT_NAME}_tests
     GTest::gtest_main
     GTest::gmock
     httplib::httplib
-    nlohmann_json::nlohmann_json
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -97,7 +95,6 @@ target_link_libraries(${PROJECT_NAME}_routes_tests
     ProjectAgamemnon_core
     GTest::gtest_main
     httplib::httplib
-    nlohmann_json::nlohmann_json
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -135,8 +132,7 @@ target_link_libraries(${PROJECT_NAME}_integration_tests
     ${PROJECT_NAME}::${PROJECT_NAME}
     ProjectAgamemnon_core
     GTest::gtest_main
-    httplib::httplib
-    nlohmann_json::nlohmann_json)
+    httplib::httplib)
 
 gtest_discover_tests(${PROJECT_NAME}_integration_tests
   PROPERTIES LABELS "integration")

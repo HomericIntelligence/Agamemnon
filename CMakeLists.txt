@@ -57,8 +57,9 @@ target_include_directories(
 
 target_link_libraries(
   ${PROJECT_NAME}
-  PRIVATE
+  PUBLIC
     nlohmann_json::nlohmann_json
+  PRIVATE
     prometheus-cpp::core)
 
 set_project_warnings(${PROJECT_NAME})
