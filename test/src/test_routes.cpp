@@ -379,6 +379,46 @@ TEST_F(RoutesTaskTest, PutTaskStatusCompletedSetsCompletedAt) {
   EXPECT_FALSE(body["task"]["completedAt"].is_null());
 }
 
+// ── PUT/PATCH task endpoint error cases (#197) ────────────────────────────────
+
+TEST_F(RoutesTaskTest, PatchTaskWithMalformedJSON) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res =
+      client_->Patch("/v1/teams/" + team_id + "/tasks/" + task_id, "{bad json", "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  auto body = json::parse(res->body);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(RoutesTaskTest, PutTaskWithMalformedJSON) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res =
+      client_->Put("/v1/teams/" + team_id + "/tasks/" + task_id, "{bad json", "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  auto body = json::parse(res->body);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(RoutesTaskTest, PutTaskWithInvalidStatus) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "invalid_status"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(RoutesTaskTest, PatchTaskWithInvalidStatus) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "invalid_status"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+}
+
 // ── Chaos ─────────────────────────────────────────────────────────────────────
 
 TEST_F(RoutesHappyPathTest, ListChaosEmpty) {
