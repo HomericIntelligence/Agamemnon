@@ -149,10 +149,22 @@ jobs:
       - name: Test agamemnon/
         run: cd agamemnon && pixi run test
 
+  docs:
+    name: docs-validate
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate OpenAPI spec
+        run: just docs-validate
+
+
+>>>>>>> 5c14d3c (ci(docs): add docs-validate job for openapi spec changes (#143))
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
-    needs: [build-test, asan, python-orchestration]
+    needs: [build-test, asan, python-orchestration, docs]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -160,6 +172,7 @@ jobs:
           BUILD_TEST_RESULT: ${{ needs.build-test.result }}
           ASAN_RESULT: ${{ needs.asan.result }}
           PYTHON_ORCHESTRATION_RESULT: ${{ needs.python-orchestration.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
         run: |
           if [ "$BUILD_TEST_RESULT" != "success" ]; then
             echo "build-test failed"
@@ -171,6 +184,10 @@ jobs:
           fi
           if [ "$PYTHON_ORCHESTRATION_RESULT" != "success" ]; then
             echo "python-orchestration failed"
+            exit 1
+          fi
+          if [ "$DOCS_RESULT" != "success" ] && [ "$DOCS_RESULT" != "skipped" ]; then
+            echo "docs-validate failed"
             exit 1
           fi
           echo "All checks passed"
