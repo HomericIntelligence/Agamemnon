@@ -169,6 +169,33 @@ jobs:
           exit-code: "1"
           severity: CRITICAL
 
+  schema-validation:
+    name: schema-validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install check-jsonschema
+        run: pip install check-jsonschema
+
+      - name: Validate GitHub Actions workflow files
+        run: |
+          check-jsonschema \
+            --builtin-schema vendor.github-workflows \
+            .github/workflows/*.yml
+
+      - name: Validate CMakePresets.json
+        run: |
+          check-jsonschema \
+            --builtin-schema vendor.cmake-presets \
+            CMakePresets.json
+
+      - name: Validate .markdownlint.yaml
+        run: |
+          check-jsonschema \
+            --schemafile https://raw.githubusercontent.com/DavidAnson/markdownlint/main/schema/markdownlint-config-schema.json \
+            .markdownlint.yaml
+
   cyclonedx-validate:
     name: cyclonedx-validate
     runs-on: ubuntu-24.04
@@ -260,7 +287,7 @@ jobs:
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
-    needs: [build-test, asan, python-orchestration, docker-build, cyclonedx-validate, port-smoke-test, docs]
+    needs: [build-test, asan, python-orchestration, docker-build, schema-validation, cyclonedx-validate, port-smoke-test, docs]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -270,6 +297,7 @@ jobs:
           PYTHON_ORCHESTRATION_RESULT: ${{ needs.python-orchestration.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
           DOCKER_BUILD_RESULT: ${{ needs.docker-build.result }}
+          SCHEMA_VALIDATION_RESULT: ${{ needs.schema-validation.result }}
           CYCLONEDX_RESULT: ${{ needs.cyclonedx-validate.result }}
           PORT_SMOKE_RESULT: ${{ needs.port-smoke-test.result }}
         run: |
@@ -291,6 +319,10 @@ jobs:
           fi
           if [ "$DOCKER_BUILD_RESULT" != "success" ]; then
             echo "docker-build failed"
+            exit 1
+          fi
+          if [ "$SCHEMA_VALIDATION_RESULT" != "success" ]; then
+            echo "schema-validation failed"
             exit 1
           fi
           if [ "$CYCLONEDX_RESULT" != "success" ]; then
