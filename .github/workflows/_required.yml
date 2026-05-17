@@ -75,6 +75,9 @@ jobs:
       - name: Enforce Python client type check
         run: mypy clients/python/ --ignore-missing-imports
 
+      - name: Check GitHub Actions workflow schemas
+        run: actionlint
+
   markdownlint:
     name: markdownlint
     runs-on: ubuntu-24.04

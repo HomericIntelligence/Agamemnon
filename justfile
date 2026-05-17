@@ -30,6 +30,9 @@ format:
 format-check:
   ./scripts/format.sh --check
 
+actionlint:
+  actionlint
+
 coverage: deps-coverage
   cmake --preset coverage && cmake --build --preset coverage && ./scripts/coverage.sh
 

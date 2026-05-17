@@ -15,6 +15,7 @@ clang-tools = ">=17"
 gcovr = ">=7"
 pre-commit = ">=3"
 libcurl = ">=8.20.0,<9"
+actionlint = ">=1.6"
 
 [tasks]
 deps = "conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing"
@@ -22,4 +23,5 @@ build = { cmd = "cmake --preset debug -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CX
 test = "ctest --preset debug --output-on-failure"
 lint = "./scripts/lint.sh"
 format = "./scripts/format.sh"
+actionlint = "actionlint"
 coverage = "conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing && cmake --preset coverage && cmake --build --preset coverage && ./scripts/coverage.sh"
