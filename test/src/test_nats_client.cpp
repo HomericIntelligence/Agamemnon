@@ -94,8 +94,8 @@ TEST(NatsClientTest, PublishLogEmitsADR005Structure) {
                                      {{"request_id", "req-123"}, {"user", "alice"}}));
 
   // Test different log levels to verify structure robustness
-  EXPECT_NO_THROW(
-      client.publish_log("hi.logs.test.error", "error", "something went wrong", json::object()));
+  EXPECT_NO_THROW(client.publish_log("hi.logs.test.error", "error", "something went wrong",
+                                     nlohmann::json::object()));
   EXPECT_NO_THROW(
       client.publish_log("hi.logs.test.warning", "warning", "be careful", {{"priority", "high"}}));
 }
