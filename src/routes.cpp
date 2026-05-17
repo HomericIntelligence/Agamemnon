@@ -398,12 +398,24 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
         if (body.contains("name") &&
             !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
           return;
+        if (body.contains("label") && !body["label"].is_string()) {
+          reply_bad_request(res, "'label' must be a string");
+          return;
+        }
         if (body.contains("label") &&
             !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
           return;
+        if (body.contains("program") && !body["program"].is_string()) {
+          reply_bad_request(res, "'program' must be a string");
+          return;
+        }
         if (body.contains("program") &&
             !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
           return;
+        if (body.contains("taskDescription") && !body["taskDescription"].is_string()) {
+          reply_bad_request(res, "'taskDescription' must be a string");
+          return;
+        }
         if (body.contains("taskDescription") &&
             !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
                                 kMaxDescriptionLen))
@@ -545,6 +557,10 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     if (body.contains("subject") &&
         !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
       return;
+    if (body.contains("description") && !body["description"].is_string()) {
+      reply_bad_request(res, "'description' must be a string");
+      return;
+    }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
@@ -597,9 +613,17 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     std::string task_id = req.matches[2];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (body.contains("subject") && !body["subject"].is_string()) {
+      reply_bad_request(res, "'subject' must be a string");
+      return;
+    }
     if (body.contains("subject") &&
         !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
       return;
+    if (body.contains("description") && !body["description"].is_string()) {
+      reply_bad_request(res, "'description' must be a string");
+      return;
+    }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
@@ -642,9 +666,17 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     std::string task_id = req.matches[2];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (body.contains("subject") && !body["subject"].is_string()) {
+      reply_bad_request(res, "'subject' must be a string");
+      return;
+    }
     if (body.contains("subject") &&
         !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
       return;
+    if (body.contains("description") && !body["description"].is_string()) {
+      reply_bad_request(res, "'description' must be a string");
+      return;
+    }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
