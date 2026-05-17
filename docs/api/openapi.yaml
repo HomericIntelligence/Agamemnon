@@ -57,6 +57,11 @@ tags:
     description: Workflow management (placeholder — not yet implemented)
   - name: chaos
     description: Chaos fault injection (for ProjectCharybdis integration)
+  - name: HMAS
+    description: |
+      Hierarchical Multi-Agent System (HMAS) orchestration — submit researched
+      briefs, retrieve generated task trees, and drive L0–L3 state transitions
+      (escalate / complete / state lookup).
 
 paths:
 
@@ -617,6 +622,153 @@ paths:
                 $ref: "#/components/schemas/WorkflowList"
               example:
                 workflows: []
+
+  # ── HMAS Orchestration ────────────────────────────────────────────────────────
+
+  /v1/briefs:
+    post:
+      operationId: submitBrief
+      tags: [HMAS]
+      summary: Submit a TaskBrief for HMAS orchestration
+      description: |
+        Accepts a researched `TaskBrief` (title, description, repos, modules,
+        per-module impl notes) and registers it with the orchestrator. The
+        orchestrator decomposes the brief into a tree of HMAS tasks and returns
+        the resulting plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskBrief"
+            example:
+              title: Wire X-API-Key header into SDK
+              description: Auth roundtrip implementation
+              repos: ["ProjectAgamemnon"]
+              modules:
+                ProjectAgamemnon: ["clients/python"]
+              impls:
+                ProjectAgamemnon:
+                  clients/python: ["Add api_key to AgamemnonConfig"]
+      responses:
+        "201":
+          description: Brief submitted; returns the generated plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/briefs/{id}/plan:
+    get:
+      operationId: getBriefPlan
+      tags: [HMAS]
+      summary: Retrieve the HMAS task tree for a brief
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Brief ID returned by `POST /v1/briefs`
+      responses:
+        "200":
+          description: Plan found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasPlan"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/tasks/{id}/escalate:
+    post:
+      operationId: escalateHmasTask
+      tags: [HMAS]
+      summary: Escalate an in-progress HMAS task
+      description: |
+        Escalates the task to the parent layer in the HMAS hierarchy. The escalation
+        record (with `reason` and `from_layer`) is appended to the task's
+        `escalations` array and published to NATS.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAS task ID
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HmasEscalateRequest"
+            example:
+              reason: blocked on upstream decision
+      responses:
+        "200":
+          description: Task escalated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasEscalateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/tasks/{id}/complete:
+    post:
+      operationId: completeHmasTask
+      tags: [HMAS]
+      summary: Mark an HMAS task as completed
+      description: |
+        Reports completion of an HMAS task (used by myrmidons via the Telemachy
+        completion protocol). The orchestrator records the completion and may
+        unblock dependent tasks.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAS task ID
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Optional completion payload (free-form for now)
+              additionalProperties: true
+      responses:
+        "200":
+          description: Task marked completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasCompleteResponse"
+
+  /v1/tasks/{id}/state:
+    get:
+      operationId: getHmasTaskState
+      tags: [HMAS]
+      summary: Get current HMAS task state
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAS task ID
+      responses:
+        "200":
+          description: HMAS task state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasTaskStateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   # ── Chaos ─────────────────────────────────────────────────────────────────────
 
@@ -1196,3 +1348,169 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Fault"
+
+    # ── HMAS ────────────────────────────────────────────────────────────────
+
+    HmasLayer:
+      type: string
+      enum: [L0_ChiefArchitect, L1_ComponentLead, L2_ModuleLead, L3_TaskAgent]
+      description: HMAS hierarchy layer (L0 highest, L3 lowest)
+
+    HmasTaskState:
+      type: string
+      enum: [Pending, Decomposing, Delegated, InProgress, Escalated, Completed, Failed]
+      description: HMAS task state machine value
+
+    HmasEscalationRecord:
+      type: object
+      required: [task_id, reason, escalated_at, from_layer]
+      properties:
+        task_id:
+          type: string
+        reason:
+          type: string
+        escalated_at:
+          type: string
+          format: date-time
+        from_layer:
+          $ref: "#/components/schemas/HmasLayer"
+
+    HmasTask:
+      type: object
+      required:
+        - id
+        - brief_id
+        - layer
+        - state
+        - subject
+        - blocked_by
+        - child_task_ids
+        - escalations
+      properties:
+        id:
+          type: string
+        brief_id:
+          type: string
+        parent_task_id:
+          type: string
+          description: Empty string for the root task
+        layer:
+          $ref: "#/components/schemas/HmasLayer"
+        state:
+          $ref: "#/components/schemas/HmasTaskState"
+        subject:
+          type: string
+        description:
+          type: string
+        repo:
+          type: string
+        module:
+          type: string
+        assigned_lead_id:
+          type: string
+        blocked_by:
+          type: array
+          items:
+            type: string
+        child_task_ids:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: ["string", "null"]
+          format: date-time
+        escalations:
+          type: array
+          items:
+            $ref: "#/components/schemas/HmasEscalationRecord"
+
+    TaskBrief:
+      type: object
+      required: [title]
+      properties:
+        id:
+          type: string
+          description: Optional client-supplied ID; server generates one if omitted
+        title:
+          type: string
+        description:
+          type: string
+        repos:
+          type: array
+          items:
+            type: string
+          description: Repos in scope for this brief
+        modules:
+          type: object
+          description: Map of repo → list of module names
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        impls:
+          type: object
+          description: Nested map repo → module → list of implementation tasks
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: array
+              items:
+                type: string
+
+    HmasPlan:
+      type: object
+      required: [brief_id, root, tasks]
+      properties:
+        brief_id:
+          type: string
+        root:
+          oneOf:
+            - $ref: "#/components/schemas/HmasTask"
+            - type: "null"
+          description: Root task of the plan tree, or null if no tasks were generated
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HmasTask"
+
+    HmasEscalateRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Free-form escalation reason; defaults to "unspecified"
+          default: unspecified
+
+    HmasEscalateResponse:
+      type: object
+      required: [task_id, escalated]
+      properties:
+        task_id:
+          type: string
+        escalated:
+          type: boolean
+
+    HmasCompleteResponse:
+      type: object
+      required: [task_id, completed]
+      properties:
+        task_id:
+          type: string
+        completed:
+          type: boolean
+
+    HmasTaskStateResponse:
+      type: object
+      required: [task_id, state, layer, task]
+      properties:
+        task_id:
+          type: string
+        state:
+          $ref: "#/components/schemas/HmasTaskState"
+        layer:
+          $ref: "#/components/schemas/HmasLayer"
+        task:
+          $ref: "#/components/schemas/HmasTask"
