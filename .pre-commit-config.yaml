@@ -66,6 +66,18 @@ repos:
         entry: '^\s*continue-on-error:\s*true\s*$'
         files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: true
+
+      - id: check-changelog
+        name: "warn on missing CHANGELOG.md update"
+        description: >
+          Warns (exit 0) if a commit modifies src/ or agamemnon/ but does not
+          update CHANGELOG.md [Unreleased] block. Intended to nudge developers
+          to keep the changelog current.
+        language: script
+        entry: scripts/check-changelog.sh
+        stages: [commit-msg]
+        pass_filenames: false
+
       - id: require-signed-commits
         name: "require gpg/ssh-signed commits on push"
         description: >
