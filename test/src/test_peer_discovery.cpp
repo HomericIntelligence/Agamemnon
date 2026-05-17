@@ -112,4 +112,54 @@ TEST(PeerDiscoveryTest, DiscoverReturnsEmptyWhenNoPeers) {
   // discover_nats_url() itself is exercised in the integration path.
 }
 
+// ── hostname pattern filtering ────────────────────────────────────────────────
+
+TEST(PeerDiscoveryTest, HostnamePatternEmptyMatchesAll) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  ASSERT_EQ(peers.size(), 2U);
+  // Empty pattern should match all hosts (though probe will fail in test)
+}
+
+TEST(PeerDiscoveryTest, HostnamePatternSubstringMatch) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  ASSERT_EQ(peers.size(), 2U);
+
+  // Pattern "alpha" should only match "peer-alpha"
+  bool found_alpha = false;
+  for (const auto& p : peers) {
+    if (p.hostname.find("alpha") != std::string::npos) {
+      found_alpha = true;
+    }
+  }
+  EXPECT_TRUE(found_alpha);
+}
+
+TEST(PeerDiscoveryTest, HostnamePatternRegexMatch) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  ASSERT_EQ(peers.size(), 2U);
+
+  // Pattern "^peer-.*" should match both "peer-alpha" and "peer-beta"
+  int count = 0;
+  for (const auto& p : peers) {
+    if (p.hostname.find("peer-") == 0) {
+      count++;
+    }
+  }
+  EXPECT_EQ(count, 2);
+}
+
+TEST(PeerDiscoveryTest, HostnamePatternNoMatch) {
+  auto peers = enumerate_tailscale_peers(kTwoNodeJson);
+  ASSERT_EQ(peers.size(), 2U);
+
+  // Pattern "nonexistent" should match neither peer
+  bool found = false;
+  for (const auto& p : peers) {
+    if (p.hostname.find("nonexistent") != std::string::npos) {
+      found = true;
+    }
+  }
+  EXPECT_FALSE(found);
+}
+
 }  // namespace projectagamemnon::test

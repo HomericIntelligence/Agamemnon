@@ -4,8 +4,10 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include <netinet/in.h>
 #include <nlohmann/json.hpp>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
@@ -66,6 +68,25 @@ bool tcp_connect_with_timeout(const std::string& ip, int port, int timeout_ms) {
   bool ok = (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0);
   close(sock);
   return ok;
+}
+
+bool matches_hostname_pattern(const std::string& hostname, const std::string& pattern) {
+  if (pattern.empty()) return true;  // no pattern = match all
+  if (hostname.empty()) return false;  // empty hostname cannot match
+
+  // If pattern starts with ^ or contains .*, treat as regex
+  if (pattern.find('^') != std::string::npos || pattern.find(".*") != std::string::npos) {
+    try {
+      std::regex re(pattern);
+      return std::regex_match(hostname, re);
+    } catch (const std::regex_error&) {
+      // Invalid regex — fall back to substring match
+      return hostname.find(pattern) != std::string::npos;
+    }
+  }
+
+  // Otherwise, simple substring match
+  return hostname.find(pattern) != std::string::npos;
 }
 
 bool check_nats_monitoring(const std::string& ip, int monitor_port, int timeout_ms) {
@@ -160,9 +181,16 @@ bool probe_nats_peer(const std::string& ip, int nats_port, int monitor_port, int
   return tcp_connect_with_timeout(ip, nats_port, timeout_ms);
 }
 
-std::string discover_nats_url() {
+std::string discover_nats_url(const std::string& hostname_pattern) {
+  std::string pattern = hostname_pattern;
+  if (pattern.empty()) {
+    const char* env = std::getenv("NATS_PEER_HOSTNAME_PATTERN");
+    if (env) pattern = env;
+  }
+
   auto peers = enumerate_tailscale_peers();
   for (const auto& peer : peers) {
+    if (!matches_hostname_pattern(peer.hostname, pattern)) continue;
     if (probe_nats_peer(peer.tailscale_ip)) {
       return "nats://" + peer.tailscale_ip + ":4222";
     }
