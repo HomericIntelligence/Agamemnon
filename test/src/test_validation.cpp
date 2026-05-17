@@ -366,8 +366,7 @@ TEST_F(ValidationTest, TaskPutRejectsNonStringDescription) {
   ASSERT_EQ(s1, 201);
   std::string task_id = b1["task"].value("id", "");
 
-  auto [status, body] =
-      Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"description", 42}});
+  auto [status, body] = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"description", 42}});
   EXPECT_EQ(status, 400);
   EXPECT_TRUE(body.contains("error"));
 }
@@ -390,8 +389,7 @@ TEST_F(ValidationTest, TaskPatchRejectsNonStringDescription) {
   ASSERT_EQ(s1, 201);
   std::string task_id = b1["task"].value("id", "");
 
-  auto [status, body] =
-      Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"description", 99}});
+  auto [status, body] = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"description", 99}});
   EXPECT_EQ(status, 400);
   EXPECT_TRUE(body.contains("error"));
 }

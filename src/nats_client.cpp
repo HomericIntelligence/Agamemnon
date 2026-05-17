@@ -276,7 +276,7 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
 
   const std::string service = "agamemnon";
   nlohmann::json payload = {
-      {"timestamp", ts},    {"service", service}, {"level", level},
+      {"timestamp", ts},    {"service", service},   {"level", level},
       {"message", message}, {"metadata", metadata},
   };
 

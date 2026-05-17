@@ -18,8 +18,8 @@ void DeadLetterQueue::push(std::string subject, std::string payload, int attempt
               << "), evicting oldest entry\n";
     queue_.pop_front();
   }
-  queue_.push_back({std::move(subject), std::move(payload), attempts, now_ms(),
-                    std::move(level), std::move(service)});
+  queue_.push_back({std::move(subject), std::move(payload), attempts, now_ms(), std::move(level),
+                    std::move(service)});
 }
 
 std::vector<DeadLetterQueue::Entry> DeadLetterQueue::drain() {

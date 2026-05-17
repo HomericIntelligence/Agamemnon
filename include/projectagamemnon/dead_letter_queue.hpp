@@ -28,8 +28,8 @@ class DeadLetterQueue {
 
   /// Enqueue a failed message. Evicts the oldest entry if at capacity.
   /// level and service are extracted from ADR-005 structured log payloads, if present.
-  void push(std::string subject, std::string payload, int attempts,
-            std::string level = "", std::string service = "");
+  void push(std::string subject, std::string payload, int attempts, std::string level = "",
+            std::string service = "");
 
   /// Remove and return all entries (drains the queue).
   std::vector<Entry> drain();

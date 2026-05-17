@@ -79,8 +79,8 @@ TEST(DeadLetterQueueTest, TimestampIsSet) {
 
 TEST(DeadLetterQueueTest, StoresLevelAndService) {
   DeadLetterQueue dlq;
-  dlq.push("hi.logs.agamemnon.task_completed", R"({"timestamp":1.0,"level":"info"})", 2,
-           "info", "agamemnon");
+  dlq.push("hi.logs.agamemnon.task_completed", R"({"timestamp":1.0,"level":"info"})", 2, "info",
+           "agamemnon");
 
   auto entries = dlq.drain();
   ASSERT_EQ(entries.size(), 1u);

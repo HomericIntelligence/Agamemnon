@@ -3,8 +3,8 @@
 #include <arpa/inet.h>
 #include <array>
 #include <cstdio>
-#include <cstring>
 #include <cstdlib>
+#include <cstring>
 #include <netinet/in.h>
 #include <nlohmann/json.hpp>
 #include <regex>
@@ -78,7 +78,7 @@ bool tcp_connect_with_timeout(const std::string& ip, int port, int timeout_ms) {
 }
 
 bool matches_hostname_pattern(const std::string& hostname, const std::string& pattern) {
-  if (pattern.empty()) return true;  // no pattern = match all
+  if (pattern.empty()) return true;    // no pattern = match all
   if (hostname.empty()) return false;  // empty hostname cannot match
 
   // If pattern starts with ^ or contains .*, treat as regex
@@ -196,9 +196,9 @@ std::string discover_nats_url(const std::string& hostname_pattern) {
   }
 
   // Read configurable ports and timeout from environment
-  int nats_port = 4222;  // default
+  int nats_port = 4222;     // default
   int monitor_port = 8222;  // default
-  int timeout_ms = 500;  // default
+  int timeout_ms = 500;     // default
 
   const char* env_nats_port = std::getenv("NATS_PORT");
   if (env_nats_port) {
