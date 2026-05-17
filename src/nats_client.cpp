@@ -76,6 +76,20 @@ static void load_cb_state(const std::string& /*path*/) {
   // Future: implement when CircuitBreaker supports state injection
 }
 
+// ── effective_retry_base_ms ───────────────────────────────────────────────────
+
+// static
+int NatsClient::effective_retry_base_ms() noexcept {
+  const char* env = std::getenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+  if (!env) return kBaseRetryMs;
+  try {
+    int val = std::stoi(env);
+    return (val >= 0) ? val : kBaseRetryMs;
+  } catch (...) {
+    return kBaseRetryMs;
+  }
+}
+
 // ── Lifetime ─────────────────────────────────────────────────────────────────
 
 NatsClient::NatsClient(const std::string& url) : url_(url) {
@@ -235,7 +249,7 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     return false;
   }
 
-  int delay_ms = kBaseRetryMs;
+  int delay_ms = effective_retry_base_ms();
   for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
     auto s = static_cast<natsStatus>(do_publish_once(subject, payload));
     if (s == NATS_OK) {
@@ -258,7 +272,11 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     }
 
     // Exponential backoff before next retry.
-    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    // delay_ms is tunable via AGAMEMNON_NATS_RETRY_BASE_MS to reduce httplib
+    // request-thread blocking (#290).
+    if (delay_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
     delay_ms *= 2;
   }
 
@@ -295,7 +313,7 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
     return;
   }
 
-  int delay_ms = kBaseRetryMs;
+  int delay_ms = effective_retry_base_ms();
   for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
     auto s = static_cast<natsStatus>(do_publish_once(subject, payload_str));
     if (s == NATS_OK) {
@@ -316,7 +334,10 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
       return;
     }
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    // delay_ms is tunable via AGAMEMNON_NATS_RETRY_BASE_MS (#290).
+    if (delay_ms > 0) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    }
     delay_ms *= 2;
   }
 }

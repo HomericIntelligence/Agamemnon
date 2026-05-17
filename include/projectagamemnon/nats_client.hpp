@@ -28,6 +28,13 @@ class NatsClient : public NatsPublisher {
   static constexpr int kMaxRetries = 3;
   static constexpr int kBaseRetryMs = 50;
 
+  /// Return the effective base retry delay in milliseconds.
+  /// Reads AGAMEMNON_NATS_RETRY_BASE_MS from the environment; falls back to
+  /// kBaseRetryMs.  Setting to 0 effectively disables the inter-retry sleep,
+  /// which reduces httplib request-thread blocking at the cost of tighter retry
+  /// loops (#290).
+  static int effective_retry_base_ms() noexcept;
+
   explicit NatsClient(const std::string& url);
   NatsClient(const std::string& url, CircuitBreaker::Config cb_cfg, std::size_t dlq_capacity);
   ~NatsClient();

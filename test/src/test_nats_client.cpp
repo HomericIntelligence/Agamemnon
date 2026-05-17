@@ -119,4 +119,41 @@ TEST(NatsClientTest, PublishLogEmitsADR005Structure) {
       client.publish_log("hi.logs.test.warning", "warning", "be careful", {{"priority", "high"}}));
 }
 
+// ── Configurable retry delay (#290) ───────────────────────────────────────────
+
+TEST(NatsClientTest, EffectiveRetryBaseMsDefaultsToKBaseRetryMs) {
+  // Without AGAMEMNON_NATS_RETRY_BASE_MS set, should return the compiled default.
+  // (Unset the env var in case a previous test left it.)
+  unsetenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+  EXPECT_EQ(NatsClient::effective_retry_base_ms(), NatsClient::kBaseRetryMs);
+}
+
+TEST(NatsClientTest, EffectiveRetryBaseMsReadsEnvVar) {
+  // Happy path: env var overrides the default.
+  setenv("AGAMEMNON_NATS_RETRY_BASE_MS", "5", /*overwrite=*/1);
+  EXPECT_EQ(NatsClient::effective_retry_base_ms(), 5);
+  unsetenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+}
+
+TEST(NatsClientTest, EffectiveRetryBaseMsZeroIsAllowed) {
+  // Zero disables the inter-retry sleep — valid setting to eliminate blocking.
+  setenv("AGAMEMNON_NATS_RETRY_BASE_MS", "0", /*overwrite=*/1);
+  EXPECT_EQ(NatsClient::effective_retry_base_ms(), 0);
+  unsetenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+}
+
+TEST(NatsClientTest, EffectiveRetryBaseMsNegativeFallsBackToDefault) {
+  // Negative values are treated as invalid — fall back to default.
+  setenv("AGAMEMNON_NATS_RETRY_BASE_MS", "-10", /*overwrite=*/1);
+  EXPECT_EQ(NatsClient::effective_retry_base_ms(), NatsClient::kBaseRetryMs);
+  unsetenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+}
+
+TEST(NatsClientTest, EffectiveRetryBaseMsNonNumericFallsBackToDefault) {
+  // Non-numeric value — fall back to default.
+  setenv("AGAMEMNON_NATS_RETRY_BASE_MS", "garbage", /*overwrite=*/1);
+  EXPECT_EQ(NatsClient::effective_retry_base_ms(), NatsClient::kBaseRetryMs);
+  unsetenv("AGAMEMNON_NATS_RETRY_BASE_MS");
+}
+
 }  // namespace projectagamemnon::test
