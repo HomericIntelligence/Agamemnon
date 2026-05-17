@@ -1,0 +1,39 @@
+{
+  "routes": [
+    {
+      "method": "DELETE",
+      "path": "/v1/agents/*",
+      "status": 200,
+      "body": {}
+    }
+  ],
+  "default_status": 200,
+  "default_body": [
+    {
+      "id": "mid1",
+      "name": "managed-agent",
+      "status": "active",
+      "label": "Managed Agent",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/managed",
+      "programArgs": "",
+      "taskDescription": "managed agent for prune convergence test",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    },
+    {
+      "id": "uid1",
+      "name": "unmanaged-agent",
+      "status": "active",
+      "label": "Unmanaged Agent",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/unmanaged",
+      "programArgs": "",
+      "taskDescription": "unmanaged prune convergence test",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    }
+  ]
+}

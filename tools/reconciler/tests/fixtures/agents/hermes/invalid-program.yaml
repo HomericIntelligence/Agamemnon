@@ -1,0 +1,18 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: test-invalid-program
+  host: hermes
+spec:
+  label: Invalid-Program
+  program: badvalue
+  model: null
+  workingDirectory: /tmp
+  programArgs: ""
+  taskDescription: "Agent with invalid program value"
+  tags: [test]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: local
+  desiredState: active

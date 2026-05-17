@@ -1,0 +1,18 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: test-label-mismatch
+  host: hermes
+spec:
+  label: WrongLabelName
+  program: claude-code
+  model: null
+  workingDirectory: /tmp
+  programArgs: ""
+  taskDescription: "Agent where filename stem does not match lowercase(spec.label)"
+  tags: [test]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: local
+  desiredState: active

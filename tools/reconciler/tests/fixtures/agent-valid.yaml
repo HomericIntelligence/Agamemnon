@@ -1,0 +1,18 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: test-agent
+  host: hermes
+spec:
+  label: Test Agent
+  program: claude-code
+  model: null
+  workingDirectory: /home/mvillmow/TestProject
+  programArgs: "--verbose"
+  taskDescription: "A test agent for unit tests"
+  tags: [testing, ci]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: local
+  desiredState: active

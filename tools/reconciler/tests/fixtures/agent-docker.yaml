@@ -1,0 +1,16 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: docker-agent
+  host: hermes
+spec:
+  label: Docker Agent
+  program: claude-code
+  workingDirectory: /workspace
+  deployment:
+    type: docker
+    docker:
+      image: my-claude:latest
+      cpus: "2"
+      memory: "4g"
+  desiredState: active

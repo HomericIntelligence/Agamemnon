@@ -1,0 +1,22 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: test-valid-docker-agent
+  host: hermes
+spec:
+  label: Valid-Docker-Agent
+  program: claude-code
+  model: null
+  workingDirectory: /tmp
+  programArgs: ""
+  taskDescription: "A valid docker agent for testing"
+  tags: [test]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: docker
+    docker:
+      image: achaean-claude:latest
+      cpus: 2
+      memory: 4g
+  desiredState: active

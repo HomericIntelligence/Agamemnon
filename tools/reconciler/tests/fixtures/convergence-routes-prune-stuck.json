@@ -1,0 +1,50 @@
+{
+  "routes": [
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agents/*",
+      "status": 200,
+      "body": {
+        "id": "cid1",
+        "name": "convergence-agent",
+        "status": "active",
+        "label": "Convergence Agent"
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agents/*",
+      "status": 200,
+      "body": {}
+    }
+  ],
+  "default_status": 200,
+  "default_body": [
+    {
+      "id": "cid1",
+      "name": "convergence-agent",
+      "status": "active",
+      "label": "OldLabel",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/conv",
+      "programArgs": "",
+      "taskDescription": "convergence integration test",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    },
+    {
+      "id": "cid2",
+      "name": "stray-agent",
+      "status": "offline",
+      "label": "Stray Agent",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/stray",
+      "programArgs": "",
+      "taskDescription": "unmanaged stray agent",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    }
+  ]
+}

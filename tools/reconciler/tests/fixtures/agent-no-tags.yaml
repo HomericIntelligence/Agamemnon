@@ -1,0 +1,16 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: notags-agent
+  host: hermes
+spec:
+  label: No Tags Agent
+  program: claude-code
+  workingDirectory: /home/mvillmow/NoTags
+  programArgs: ""
+  taskDescription: "Agent with no tags"
+  owner: mvillmow
+  role: member
+  deployment:
+    type: local
+  desiredState: active
