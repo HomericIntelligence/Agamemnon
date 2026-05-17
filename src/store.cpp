@@ -278,12 +278,13 @@ json Store::get_agent_by_name(const std::string& name) {
 json Store::list_agents(std::size_t limit, std::size_t offset) {
   ensure_agents_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
+  // #340: deterministic pagination — collect into sorted vector, then slice.
+  std::vector<std::pair<std::string, json>> sorted(agents_.begin(), agents_.end());
+  std::sort(sorted.begin(), sorted.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
   json arr = json::array();
-  std::size_t idx = 0;
-  for (auto& [id, agent] : agents_) {
-    if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
-    arr.push_back(agent);
+  for (std::size_t i = offset; i < sorted.size() && arr.size() < limit; ++i) {
+    arr.push_back(sorted[i].second);
   }
   return {{"agents", arr}, {"total", agents_.size()}, {"limit", limit}, {"offset", offset}};
 }
@@ -380,12 +381,13 @@ json Store::get_team(const std::string& id) {
 json Store::list_teams(std::size_t limit, std::size_t offset) {
   ensure_teams_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
+  // #340: deterministic pagination — sort by key then slice.
+  std::vector<std::pair<std::string, json>> sorted(teams_.begin(), teams_.end());
+  std::sort(sorted.begin(), sorted.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
   json arr = json::array();
-  std::size_t idx = 0;
-  for (auto& [id, team] : teams_) {
-    if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
-    arr.push_back(team);
+  for (std::size_t i = offset; i < sorted.size() && arr.size() < limit; ++i) {
+    arr.push_back(sorted[i].second);
   }
   return {{"teams", arr}, {"total", teams_.size()}, {"limit", limit}, {"offset", offset}};
 }
@@ -496,15 +498,17 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
 json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset) {
   ensure_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
-  json arr = json::array();
-  std::size_t total = 0;
-  std::size_t idx = 0;
+  // #340: deterministic pagination — collect team tasks, sort by key, then slice.
+  std::vector<std::pair<std::string, json>> team_tasks;
   for (auto& [id, task] : tasks_) {
-    if (task.value("teamId", "") != team_id) continue;
-    ++total;
-    if (idx++ < offset) continue;
-    if (arr.size() >= limit) continue;
-    arr.push_back(task);
+    if (task.value("teamId", "") == team_id) team_tasks.emplace_back(id, task);
+  }
+  std::sort(team_tasks.begin(), team_tasks.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
+  const std::size_t total = team_tasks.size();
+  json arr = json::array();
+  for (std::size_t i = offset; i < team_tasks.size() && arr.size() < limit; ++i) {
+    arr.push_back(team_tasks[i].second);
   }
   return {{"tasks", arr}, {"total", total}, {"limit", limit}, {"offset", offset}};
 }
@@ -512,12 +516,13 @@ json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, s
 json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
   ensure_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
+  // #340: deterministic pagination — sort by key then slice.
+  std::vector<std::pair<std::string, json>> sorted(tasks_.begin(), tasks_.end());
+  std::sort(sorted.begin(), sorted.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
   json arr = json::array();
-  std::size_t idx = 0;
-  for (auto& [id, task] : tasks_) {
-    if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
-    arr.push_back(task);
+  for (std::size_t i = offset; i < sorted.size() && arr.size() < limit; ++i) {
+    arr.push_back(sorted[i].second);
   }
   return {{"tasks", arr}, {"total", tasks_.size()}, {"limit", limit}, {"offset", offset}};
 }
@@ -543,12 +548,13 @@ void Store::mark_task_completed(const std::string& task_id) {
 json Store::list_faults(std::size_t limit, std::size_t offset) {
   ensure_faults_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
+  // #340: deterministic pagination — sort by key then slice.
+  std::vector<std::pair<std::string, json>> sorted(faults_.begin(), faults_.end());
+  std::sort(sorted.begin(), sorted.end(),
+            [](const auto& a, const auto& b) { return a.first < b.first; });
   json arr = json::array();
-  std::size_t idx = 0;
-  for (auto& [id, fault] : faults_) {
-    if (idx++ < offset) continue;
-    if (arr.size() >= limit) break;
-    arr.push_back(fault);
+  for (std::size_t i = offset; i < sorted.size() && arr.size() < limit; ++i) {
+    arr.push_back(sorted[i].second);
   }
   return {{"faults", arr}, {"total", faults_.size()}, {"limit", limit}, {"offset", offset}};
 }
