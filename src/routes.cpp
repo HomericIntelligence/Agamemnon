@@ -610,19 +610,19 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       reply_not_found(res, "task");
       return;
     }
-    const auto& task = result["task"].is_null() ? result : result["task"];
-    std::string status = task.value("status", "");
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", result.dump());
+    std::string status = result.value("status", "");
+    json wrapped = {{"task", result}};
+    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", wrapped.dump());
     if (status == "completed") {
-      std::string task_type = task.value("type", "unknown");
-      std::string assignee = task.value("assigneeAgentId", "");
+      std::string task_type = result.value("type", "unknown");
+      std::string assignee = result.value("assigneeAgentId", "");
       np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
                       {{"task_id", task_id},
                        {"team_id", team_id},
                        {"type", task_type},
                        {"assignee", assignee}});
     }
-    reply_json(res, 200, {{"task", result}});
+    reply_json(res, 200, wrapped);
   };
 
   // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
@@ -647,19 +647,19 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       reply_not_found(res, "task");
       return;
     }
-    const auto& task = result["task"].is_null() ? result : result["task"];
-    std::string status = task.value("status", "");
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", result.dump());
+    std::string status = result.value("status", "");
+    json wrapped = {{"task", result}};
+    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", wrapped.dump());
     if (status == "completed") {
-      std::string task_type = task.value("type", "unknown");
-      std::string assignee = task.value("assigneeAgentId", "");
+      std::string task_type = result.value("type", "unknown");
+      std::string assignee = result.value("assigneeAgentId", "");
       np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
                       {{"task_id", task_id},
                        {"team_id", team_id},
                        {"type", task_type},
                        {"assignee", assignee}});
     }
-    reply_json(res, 200, {{"task", result}});
+    reply_json(res, 200, wrapped);
   });
 
   // ── Chaos ────────────────────────────────────────────────────────────────
