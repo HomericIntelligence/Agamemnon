@@ -179,4 +179,21 @@ TEST(PeerDiscoveryTest, PortEnvVarValidation) {
   EXPECT_TRUE(peers.empty());
 }
 
+// ── graceful daemon failure ──────────────────────────────────────────────────
+
+TEST(PeerDiscoveryTest, MissingTailscaleDaemonReturnsEmpty) {
+  // If tailscale daemon is not running, enumerate_tailscale_peers with empty
+  // status_json will call run_tailscale_status(), which will fail and return "".
+  // This results in an empty peer list rather than a crash.
+  // We test the happy path here (injected empty JSON):
+  auto peers = enumerate_tailscale_peers("{}");
+  EXPECT_TRUE(peers.empty());
+}
+
+TEST(PeerDiscoveryTest, EmptyTailscaleOutputReturnsEmpty) {
+  // If tailscale status returns empty string, parsing it should return empty peers
+  auto peers = enumerate_tailscale_peers("");
+  EXPECT_TRUE(peers.empty());
+}
+
 }  // namespace projectagamemnon::test

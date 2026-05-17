@@ -37,13 +37,20 @@ bool is_tailscale_ip(const std::string& ip) {
 
 std::string run_tailscale_status() {
   std::FILE* pipe = popen("tailscale status --json 2>/dev/null", "r");
-  if (!pipe) return "";
+  if (!pipe) {
+    // popen failed - daemon likely not running or command not found
+    return "";
+  }
   std::string result;
   std::array<char, 4096> buf{};
   while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr) {
     result += buf.data();
   }
-  pclose(pipe);
+  int exit_code = pclose(pipe);
+  if (exit_code != 0) {
+    // tailscale command failed - daemon not running or error
+    return "";
+  }
   return result;
 }
 
