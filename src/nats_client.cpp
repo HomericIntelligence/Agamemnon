@@ -274,14 +274,51 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
   auto now = std::chrono::system_clock::now();
   double ts = std::chrono::duration<double>(now.time_since_epoch()).count();
 
+  const std::string service = "agamemnon";
   nlohmann::json payload = {
-      {"timestamp", ts},    {"service", "agamemnon"}, {"level", level},
+      {"timestamp", ts},    {"service", service}, {"level", level},
       {"message", message}, {"metadata", metadata},
   };
 
+  std::string payload_str = payload.dump();
+
   // Fire-and-forget: ignore publish return value so NATS errors never affect
-  // the caller's request handling path.
-  publish(subject, payload.dump());
+  // the caller's request handling path. However, we store level/service with DLQ entries.
+  if (!connected_ || !conn_) {
+    dlq_.push(subject, payload_str, 0, level, service);
+    return;
+  }
+
+  if (!breaker_.allow_attempt()) {
+    std::cerr << "[nats] ERROR: circuit OPEN — dropping publish to " << subject << "\n";
+    dlq_.push(subject, payload_str, 0, level, service);
+    return;
+  }
+
+  int delay_ms = kBaseRetryMs;
+  for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
+    auto s = static_cast<natsStatus>(do_publish_once(subject, payload_str));
+    if (s == NATS_OK) {
+      breaker_.record_success();
+      save_cb_state(breaker_);
+      return;
+    }
+
+    std::cerr << "[nats] publish error on " << subject << " (attempt " << attempt << "/"
+              << kMaxRetries << "): " << natsStatus_GetText(s) << "\n";
+
+    if (!is_infra_error(s) || attempt == kMaxRetries) {
+      breaker_.record_failure();
+      save_cb_state(breaker_);
+      dlq_.push(subject, payload_str, attempt, level, service);
+      std::cerr << "[nats] ERROR: publish to " << subject
+                << " failed after all retries — message dead-lettered\n";
+      return;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    delay_ms *= 2;
+  }
 }
 
 // ── subscribe ─────────────────────────────────────────────────────────────────
