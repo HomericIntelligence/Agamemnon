@@ -842,8 +842,6 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/FaultWrapper"
-
-  /v1/chaos/{id}:
     delete:
       operationId: removeFault
       tags: [chaos]
@@ -858,7 +856,12 @@ paths:
         - subject: "hi.agents.chaos.removed"
           trigger: always
       parameters:
-        - $ref: "#/components/parameters/FaultId"
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Fault ID (same parameter reused for backward compatibility)
       responses:
         "200":
           description: Fault removed
@@ -967,14 +970,6 @@ components:
       schema:
         type: string
       description: Fault type identifier (e.g. `latency`, `drop`, `corrupt`)
-
-    FaultId:
-      name: id
-      in: path
-      required: true
-      schema:
-        type: string
-      description: Fault UUID
 
   responses:
     BadRequest:

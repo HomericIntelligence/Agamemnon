@@ -13,8 +13,10 @@ if [[ ! -f "${SPEC_PATH}" ]]; then
   exit 1
 fi
 
+RULESET="${REPO_ROOT}/.spectral.yaml"
+
 if command -v spectral &>/dev/null; then
-  spectral lint --ruleset @stoplight/spectral-openapi "${SPEC_PATH}"
+  spectral lint --ruleset "${RULESET}" "${SPEC_PATH}"
 else
-  npx --yes @stoplight/spectral-cli@latest lint --ruleset @stoplight/spectral-openapi "${SPEC_PATH}"
+  npx --yes @stoplight/spectral-cli@latest lint --ruleset "${RULESET}" "${SPEC_PATH}"
 fi
