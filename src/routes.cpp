@@ -681,6 +681,14 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
       return;
+    if (body.contains("status") && body["status"].is_string() &&
+        !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
+      return;
+    if (body.contains("type") && body["type"].is_string() &&
+        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
+      return;
+    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
+      return;
     json result = sp->update_task(team_id, task_id, body);
     if (result.is_null()) {
       reply_not_found(res, "task");
