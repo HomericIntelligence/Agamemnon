@@ -149,6 +149,65 @@ jobs:
       - name: Test agamemnon/
         run: cd agamemnon && pixi run test
 
+  port-smoke-test:
+    name: port-smoke-test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-debug-
+            fetchcontent-${{ runner.os }}-gcc-
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          pip install conan
+          conan profile detect --force
+
+      - name: Build server binary
+        run: |
+          conan install . --build=missing -s build_type=Debug --output-folder build/debug
+          cmake --preset debug
+          cmake --build --preset debug --target ProjectAgamemnon_server
+
+      - name: Negative PORT parsing smoke test
+        run: |
+          SERVER=./build/debug/ProjectAgamemnon_server
+          # PORT=abc must warn and fall back to 8080
+          output=$(PORT=abc timeout 2s "$SERVER" 2>&1 || true)
+          if echo "$output" | grep -qi "invalid\|warn\|8080\|fallback"; then
+            echo "PORT=abc: warning emitted as expected"
+          else
+            echo "PORT=abc: expected warning not found in output:"
+            echo "$output"
+            exit 1
+          fi
+          # PORT=99999 must warn and fall back to 8080
+          output=$(PORT=99999 timeout 2s "$SERVER" 2>&1 || true)
+          if echo "$output" | grep -qi "invalid\|warn\|8080\|fallback\|out.*range\|range"; then
+            echo "PORT=99999: warning emitted as expected"
+          else
+            echo "PORT=99999: expected warning not found in output:"
+            echo "$output"
+            exit 1
+          fi
+
   docs:
     name: docs-validate
     runs-on: ubuntu-24.04
@@ -164,7 +223,7 @@ jobs:
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
-    needs: [build-test, asan, python-orchestration, docs]
+    needs: [build-test, asan, python-orchestration, port-smoke-test, docs]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -173,6 +232,7 @@ jobs:
           ASAN_RESULT: ${{ needs.asan.result }}
           PYTHON_ORCHESTRATION_RESULT: ${{ needs.python-orchestration.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
+          PORT_SMOKE_RESULT: ${{ needs.port-smoke-test.result }}
         run: |
           if [ "$BUILD_TEST_RESULT" != "success" ]; then
             echo "build-test failed"
@@ -188,6 +248,10 @@ jobs:
           fi
           if [ "$DOCS_RESULT" != "success" ] && [ "$DOCS_RESULT" != "skipped" ]; then
             echo "docs-validate failed"
+            exit 1
+          fi
+          if [ "$PORT_SMOKE_RESULT" != "success" ]; then
+            echo "port-smoke-test failed"
             exit 1
           fi
           echo "All checks passed"
