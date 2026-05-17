@@ -149,6 +149,21 @@ jobs:
       - name: Test agamemnon/
         run: cd agamemnon && pixi run test
 
+  cyclonedx-validate:
+    name: cyclonedx-validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install check-jsonschema
+        run: pip install check-jsonschema
+
+      - name: Validate cpp-fetchcontent-deps.cdx.json
+        run: |
+          check-jsonschema \
+            --builtin-schema vendor.cyclonedx \
+            .github/cpp-fetchcontent-deps.cdx.json
+
   port-smoke-test:
     name: port-smoke-test
     runs-on: ubuntu-24.04
@@ -223,7 +238,7 @@ jobs:
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
-    needs: [build-test, asan, python-orchestration, port-smoke-test, docs]
+    needs: [build-test, asan, python-orchestration, cyclonedx-validate, port-smoke-test, docs]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -232,6 +247,7 @@ jobs:
           ASAN_RESULT: ${{ needs.asan.result }}
           PYTHON_ORCHESTRATION_RESULT: ${{ needs.python-orchestration.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
+          CYCLONEDX_RESULT: ${{ needs.cyclonedx-validate.result }}
           PORT_SMOKE_RESULT: ${{ needs.port-smoke-test.result }}
         run: |
           if [ "$BUILD_TEST_RESULT" != "success" ]; then
@@ -248,6 +264,10 @@ jobs:
           fi
           if [ "$DOCS_RESULT" != "success" ] && [ "$DOCS_RESULT" != "skipped" ]; then
             echo "docs-validate failed"
+            exit 1
+          fi
+          if [ "$CYCLONEDX_RESULT" != "success" ]; then
+            echo "cyclonedx-validate failed"
             exit 1
           fi
           if [ "$PORT_SMOKE_RESULT" != "success" ]; then
