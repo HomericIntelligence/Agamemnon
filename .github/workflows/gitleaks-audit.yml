@@ -1,0 +1,38 @@
+name: Gitleaks Allowlist Audit
+
+on:
+  schedule:
+    # Run on the 1st of every month at 06:00 UTC
+    - cron: "0 6 1 * *"
+  push:
+    branches: [main]
+    paths:
+      - ".gitleaks.toml"
+  workflow_dispatch: {}
+
+jobs:
+  audit:
+    name: Gitleaks audit scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks audit
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: detect --config .gitleaks.toml --report-format json --report-path gitleaks-report.json
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report-${{ github.run_id }}
+          path: gitleaks-report.json
+          retention-days: 90

@@ -1,0 +1,13 @@
+# CODEOWNERS — HomericIntelligence/ProjectAgamemnon
+#
+# Each line is a pattern followed by one or more owners.
+# Owners are notified and must approve PRs that touch matching paths.
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Security-sensitive allowlist: any change to the gitleaks configuration
+# requires review from the security owner to prevent inadvertently silencing
+# real secret detections.
+.gitleaks.toml @mvillmow
+
+# Security policy documents live alongside the gitleaks config review cadence.
+docs/security/ @mvillmow
