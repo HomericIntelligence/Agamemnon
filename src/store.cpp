@@ -2,13 +2,17 @@
 
 #include "projectagamemnon/metrics.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
+#include <optional>
 #include <random>
 #include <shared_mutex>
 #include <sstream>
+#include <utility>
 
 namespace projectagamemnon {
 
@@ -552,11 +556,22 @@ void Store::create_hmas_task(const HmasTask& task) {
   hmas_tasks_[task.id] = task;
 }
 
-HmasTask* Store::get_hmas_task(const std::string& id) {
+std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
   std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(id);
-  if (it == hmas_tasks_.end()) return nullptr;
-  return &it->second;
+  if (it == hmas_tasks_.end()) return std::nullopt;
+  return it->second;  // value copy — safe to use outside the lock
+}
+
+bool Store::update_hmas_task_state_and_record_escalation(const std::string& id,
+                                                          TaskState new_state,
+                                                          const EscalationRecord& escalation) {
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  auto it = hmas_tasks_.find(id);
+  if (it == hmas_tasks_.end()) return false;
+  it->second.state = new_state;
+  it->second.escalations.push_back(escalation);
+  return true;
 }
 
 bool Store::update_hmas_task_state(const std::string& id, TaskState state) {

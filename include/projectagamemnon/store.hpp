@@ -3,9 +3,12 @@
 #include "projectagamemnon/github_client.hpp"
 #include "projectagamemnon/hmas_types.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
@@ -74,8 +77,12 @@ class Store {
 
   // ── HMAS typed tasks ───────────────────────────────────────────────────
   void create_hmas_task(const HmasTask& task);
-  HmasTask* get_hmas_task(const std::string& id);
+  /// Returns a value copy of the task; safe to use outside the mutex.
+  std::optional<HmasTask> get_hmas_task(const std::string& id);
   bool update_hmas_task_state(const std::string& id, TaskState state);
+  /// Atomically update the task state and append an escalation record.
+  bool update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
+                                                    const EscalationRecord& escalation);
   bool update_hmas_task(const HmasTask& task);
   std::vector<HmasTask> list_hmas_tasks_by_layer(HmasLayer layer);
   std::vector<HmasTask> list_hmas_tasks_by_parent(const std::string& parent_id);
@@ -91,10 +98,15 @@ class Store {
   std::unordered_map<std::string, json> faults_;
   std::unordered_map<std::string, HmasTask> hmas_tasks_;
 
-  bool agents_loaded_{false};
-  bool teams_loaded_{false};
-  bool tasks_loaded_{false};
-  bool faults_loaded_{false};
+  // Atomic flags: checked outside the lock; once_flags guard the single fetch.
+  std::atomic<bool> agents_loaded_{false};
+  std::atomic<bool> teams_loaded_{false};
+  std::atomic<bool> tasks_loaded_{false};
+  std::atomic<bool> faults_loaded_{false};
+  mutable std::once_flag agents_once_;
+  mutable std::once_flag teams_once_;
+  mutable std::once_flag tasks_once_;
+  mutable std::once_flag faults_once_;
 
   // Called while holding mutex_; loads entity type from GitHub on first access.
   void ensure_agents_loaded_();
