@@ -24,7 +24,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["agamemnon"]
+packages = ["src/agamemnon"]
 
 [tool.ruff]
 line-length = 100
@@ -36,6 +36,7 @@ select = ["E", "F", "I", "UP"]
 [tool.mypy]
 strict = true
 python_version = "3.9"
+mypy_path = "src"
 packages = ["agamemnon"]
 
 [[tool.mypy.overrides]]
@@ -49,7 +50,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 source = ["agamemnon"]
-omit = ["agamemnon/orchestration/__main__.py"]
+omit = ["src/agamemnon/orchestration/__main__.py"]
 
 [tool.coverage.report]
 # Threshold reflects current orchestration coverage with only import smoke tests
