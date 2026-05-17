@@ -125,6 +125,9 @@ paths:
       operationId: listAgents
       tags: [agents]
       summary: List all agents
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of all registered agents
@@ -325,6 +328,9 @@ paths:
       operationId: listTeams
       tags: [teams]
       summary: List all teams
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of all teams
@@ -441,6 +447,9 @@ paths:
       operationId: listAllTasks
       tags: [tasks]
       summary: List all tasks across all teams
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of all tasks
@@ -456,6 +465,8 @@ paths:
       summary: List tasks for a team
       parameters:
         - $ref: "#/components/parameters/TeamIdPath"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of tasks belonging to this team
@@ -777,6 +788,9 @@ paths:
       operationId: listFaults
       tags: [chaos]
       summary: List active chaos faults
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of active faults
@@ -861,6 +875,33 @@ components:
         authentication is disabled (development escape hatch).
 
   parameters:
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 1000
+        default: 100
+      description: |
+        Maximum number of items to return. Defaults to 100; capped at 1000.
+        Values outside the allowed range may be silently clamped by the server.
+
+    OffsetParam:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        default: 0
+      description: |
+        Number of items to skip before starting to return results. Pair with
+        `limit` to paginate through large collections.
+
     AgentId:
       name: id
       in: path
