@@ -1,8 +1,8 @@
 # NATS Payload PII Audit
 
-**Issue:** #351  
-**Date:** 2026-05-17  
-**Auditor:** automated audit (hard-tier Sonnet agent)  
+**Issue:** #351
+**Date:** 2026-05-17
+**Auditor:** automated audit (hard-tier Sonnet agent)
 **Scope:** All publish call sites on `hi.tasks.>`, `hi.pipeline.>`, `hi.myrmidon.{type}.>`, `hi.agents.>`, and `hi.logs.>`
 
 ---
@@ -109,21 +109,24 @@ Payload: `{"id": <uuid>}` — no PII.
 
 ### `hi.agents.team.created` / `.updated` / `.deleted` (`src/routes.cpp:477`, `513`, `525`)
 
-Team object fields (`src/store.cpp:315-334`): `id` (UUID), `name` (free-text label), `agentIds` (array of UUIDs), `createdAt` (timestamp).  
-`name` is an operator-assigned team label — low risk, no personal data expected.
+Team object fields (`src/store.cpp:315-334`): `id` (UUID), `name`,
+`agentIds`, `createdAt`. Operator-assigned team label, low risk.
 
 ### `hi.agents.chaos.injected` / `.removed` (`src/routes.cpp:727`, `739`)
 
-Fault object (`src/store.cpp:516-534`): `id` (UUID), `type` (free-text chaos type), `active` (bool), `createdAt` (timestamp).  
-No PII.
+Fault object (`src/store.cpp:516-534`): `id` (UUID), `type`, `active`,
+`createdAt`. No PII.
 
 ### `hi.logs.agamemnon.*` (`src/routes.cpp:330`, `588`, `650`, `703`; `src/orchestrator.cpp:35`, `84`, `149`)
 
-Structured log events.  Fields published in metadata objects are all UUIDs, enum strings, and counts.  The human-readable `message` strings include UUIDs only (e.g. `"Agent created: <uuid>"`).  No free-text user content is interpolated.
+Structured log events. Metadata fields are UUIDs, enums, counts.
+Human-readable `message` strings include UUIDs only (e.g. `"Agent created:
+<uuid>"`). No free-text user content is interpolated.
 
 ### `hi.pipeline.>` — not observed
 
-No publish call site targeting `hi.pipeline.>` was found in `src/` or `include/`.  The Python `NATSListener` in `agamemnon/orchestration/nats_listener.py` _subscribes_ to `hi.pipeline.>` but Agamemnon itself does not publish to this subject.
+No `hi.pipeline.>` publish in `src/` or `include/`. Python `NATSListener`
+subscribes to it; Agamemnon does not publish to this subject.
 
 ---
 
@@ -150,7 +153,7 @@ No publish call site targeting `hi.pipeline.>` was found in `src/` or `include/`
 
 2. **Free-text fields are present** on three subject families: `hi.tasks.*`,
    `hi.myrmidon.*`, and `hi.agents.*`.  Fields `subject`, `description`, and
-   `taskDescription` carry operator/Nestor-authored text that *could* contain
+   `taskDescription` carry operator/Nestor-authored text that _could_ contain
    user-identifying information if Nestor briefs incorporate user-supplied queries
    verbatim.  At the current system boundary (Agamemnon receives pre-processed
    briefs from Nestor), this is a second-order risk rather than a direct one.
