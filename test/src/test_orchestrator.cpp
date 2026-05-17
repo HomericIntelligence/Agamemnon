@@ -1,4 +1,4 @@
-#include "projectagamemnon/nats_client.hpp"
+#include "projectagamemnon/fake_nats_publisher.hpp"
 #include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/store.hpp"
 
@@ -23,21 +23,17 @@ TaskBrief make_brief(std::string title = "test", std::vector<std::string> repos 
 
 }  // namespace
 
-// NatsClient is a heavy dependency; these tests use a real NatsClient that
-// simply fails to connect (connected_ = false) so all publish/subscribe calls
-// are no-ops.  This validates Orchestrator logic without requiring a live NATS server.
+// OrchestratorTest uses FakeNatsPublisher — no real NATS connection is required.
+// This removes the ~690ms per-test overhead and makes tests order-independent.
 
 class OrchestratorTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    nats_ = std::make_unique<NatsClient>("nats://localhost:14222");  // port unlikely to be open
-    // connect() gracefully degrades — no exception on failure
-    nats_->connect();
-    orch_ = std::make_unique<Orchestrator>(store_, *nats_);
+    orch_ = std::make_unique<Orchestrator>(store_, fake_nats_);
   }
 
   Store store_;
-  std::unique_ptr<NatsClient> nats_;
+  FakeNatsPublisher fake_nats_;
   std::unique_ptr<Orchestrator> orch_;
 };
 
@@ -137,6 +133,30 @@ TEST_F(OrchestratorTest, OnMyrmidonCompletionMarksTaskCompleted) {
   ASSERT_TRUE(after.has_value());
   EXPECT_EQ(after->state, TaskState::Completed);
   EXPECT_FALSE(after->completed_at.empty());
+}
+
+// ── FakeNatsPublisher injection tests (#159) ──────────────────────────────────
+
+TEST_F(OrchestratorTest, SubmitPublishesToMyrmidonSubject) {
+  // Verifies that submit() triggers at least one publish() via FakeNatsPublisher.
+  // This would time out for ~690ms previously (real NatsClient connect attempt).
+  fake_nats_.clear();
+  orch_->submit(make_brief("pub-test", {"repo-a"}, {{"repo-a", {"m1"}}}));
+  EXPECT_TRUE(fake_nats_.has_subject_prefix("hi.myrmidon."));
+}
+
+TEST_F(OrchestratorTest, FakeNatsPublisherReturnsTrueOnPublish) {
+  // Verify the fake publish always succeeds (happy path for caller logic).
+  EXPECT_TRUE(fake_nats_.publish("hi.test.subj", R"({"k":"v"})"));
+  ASSERT_EQ(fake_nats_.calls.size(), 1u);
+  EXPECT_EQ(fake_nats_.calls[0].subject, "hi.test.subj");
+}
+
+TEST_F(OrchestratorTest, FakeNatsPublisherRecordsPublishLog) {
+  // Verify publish_log() is recorded in log_calls.
+  fake_nats_.publish_log("hi.logs.agamemnon.info", "info", "msg", {});
+  ASSERT_EQ(fake_nats_.log_calls.size(), 1u);
+  EXPECT_EQ(fake_nats_.log_calls[0], "hi.logs.agamemnon.info");
 }
 
 }  // namespace projectagamemnon::test
