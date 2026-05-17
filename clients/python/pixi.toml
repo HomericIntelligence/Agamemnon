@@ -16,7 +16,7 @@ nats-py = ">=2.6,<3"
 
 [feature.dev.pypi-dependencies]
 pytest = ">=8.0,<9"
-pytest-asyncio = ">=0.23,<0.26"
+pytest-asyncio = ">=0.26,<1"
 pytest-cov = ">=5.0,<6"
 pytest-timeout = ">=2.3,<3"
 respx = ">=0.21,<1"
