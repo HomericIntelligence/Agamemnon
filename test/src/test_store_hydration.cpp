@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -393,6 +395,28 @@ TEST(IsolationTest, HydratedEntitiesVisibleToSubsequentReads) {
   auto result = store.get_agent("id-visible");
   ASSERT_FALSE(result.is_null());
   EXPECT_EQ(result["name"], "seeded-agent");
+}
+
+// #161 — concurrent list_agents from 2 threads must trigger exactly ONE GitHub fetch.
+TEST(HydrationTest, ConcurrentListAgentsOnlyFetchesOnce) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  mock->seed_issues["agamemnon-agent"] = {make_agent_issue(1, sample_agent("id-concurrent"))};
+
+  Store store(mock);
+
+  constexpr int kThreads = 2;
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    threads.emplace_back([&]() { store.list_agents(); });
+  }
+  for (auto& t : threads) t.join();
+
+  long list_calls = std::count_if(mock->calls.begin(), mock->calls.end(), [](const auto& c) {
+    return c.method == "list_issues" && c.arg1 == "agamemnon-agent";
+  });
+  // call_once guarantees exactly one fetch regardless of concurrent callers.
+  EXPECT_EQ(list_calls, 1);
 }
 
 // ── Write + Read Tests (#162) ─────────────────────────────────────────────────

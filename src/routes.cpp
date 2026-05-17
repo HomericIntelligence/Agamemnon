@@ -807,8 +807,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   server.Get(R"(/v1/tasks/([^/]+)/state)",
              [sp](const httplib::Request& req, httplib::Response& res) {
                const std::string task_id = req.matches[1];
-               HmasTask* const task = sp->get_hmas_task(task_id);
-               if (task == nullptr) {
+               auto task = sp->get_hmas_task(task_id);  // std::optional<HmasTask> — value copy
+               if (!task.has_value()) {
                  reply_not_found(res, "task");
                  return;
                }

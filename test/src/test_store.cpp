@@ -2,6 +2,8 @@
 
 #include <regex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -257,9 +259,10 @@ TEST_F(StoreTaskTest, GetTaskWrongTeam) {
 TEST_F(StoreTaskTest, GetTaskEmptyTeamId) {
   json result = store.create_task(team_id, {{"subject", "x"}});
   std::string task_id = result["task"]["id"];
-  // Empty team_id skips the team check
+  // #222: empty team_id is not a valid wildcard — must return null to prevent
+  // cross-team access. Callers must provide the owning team_id.
   json task = store.get_task("", task_id);
-  EXPECT_FALSE(task.is_null());
+  EXPECT_TRUE(task.is_null());
 }
 
 TEST_F(StoreTaskTest, GetTaskNotFound) {
@@ -356,5 +359,98 @@ TEST_F(StoreFaultTest, RemoveFault) {
 }
 
 TEST_F(StoreFaultTest, RemoveFaultNotFound) { EXPECT_FALSE(store.remove_fault("bad-id")); }
+
+// ── HMAS tasks ────────────────────────────────────────────────────────────────
+
+class StoreHmasTest : public ::testing::Test {
+ protected:
+  Store store;
+};
+
+TEST_F(StoreHmasTest, GetHmasTaskReturnsOptional) {
+  HmasTask task;
+  task.id = "hmas-1";
+  task.brief_id = "brief-1";
+  task.layer = HmasLayer::L1_ComponentLead;
+  task.state = TaskState::Pending;
+  store.create_hmas_task(task);
+
+  auto result = store.get_hmas_task("hmas-1");
+  ASSERT_TRUE(result.has_value());
+  EXPECT_EQ(result->id, "hmas-1");
+  EXPECT_EQ(result->state, TaskState::Pending);
+}
+
+TEST_F(StoreHmasTest, GetHmasTaskNotFound) {
+  auto result = store.get_hmas_task("nonexistent");
+  EXPECT_FALSE(result.has_value());
+}
+
+TEST_F(StoreHmasTest, UpdateHmasTaskStateAndRecordEscalation) {
+  HmasTask task;
+  task.id = "hmas-2";
+  task.brief_id = "brief-2";
+  task.layer = HmasLayer::L2_ModuleLead;
+  task.state = TaskState::Pending;
+  store.create_hmas_task(task);
+
+  EscalationRecord rec;
+  rec.task_id = "hmas-2";
+  rec.reason = "timeout";
+  rec.escalated_at = now_iso8601();
+  rec.from_layer = HmasLayer::L2_ModuleLead;
+
+  bool ok = store.update_hmas_task_state_and_record_escalation("hmas-2", TaskState::Escalated, rec);
+  EXPECT_TRUE(ok);
+
+  auto updated = store.get_hmas_task("hmas-2");
+  ASSERT_TRUE(updated.has_value());
+  EXPECT_EQ(updated->state, TaskState::Escalated);
+  ASSERT_EQ(updated->escalations.size(), 1u);
+  EXPECT_EQ(updated->escalations[0].reason, "timeout");
+}
+
+// #155 — concurrent stress test: 4 threads simultaneously get and update the same HmasTask.
+TEST_F(StoreHmasTest, HmasTaskConcurrentGetAndUpdate) {
+  HmasTask task;
+  task.id = "stress-1";
+  task.brief_id = "brief-stress";
+  task.layer = HmasLayer::L3_TaskAgent;
+  task.state = TaskState::Pending;
+  store.create_hmas_task(task);
+
+  constexpr int kThreads = 4;
+  constexpr int kIterations = 100;
+  std::vector<std::thread> threads;
+  threads.reserve(kThreads * 2);
+
+  // 4 reader threads
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&]() {
+      for (int i = 0; i < kIterations; ++i) {
+        auto got = store.get_hmas_task("stress-1");
+        // The task always exists; we just verify no data race or crash.
+        (void)got;
+      }
+    });
+  }
+
+  // 4 writer threads cycling through states
+  const TaskState states[] = {TaskState::InProgress, TaskState::Delegated, TaskState::Pending,
+                              TaskState::Completed};
+  for (int t = 0; t < kThreads; ++t) {
+    threads.emplace_back([&, t]() {
+      for (int i = 0; i < kIterations; ++i) {
+        store.update_hmas_task_state("stress-1", states[t % 4]);
+      }
+    });
+  }
+
+  for (auto& th : threads) th.join();
+
+  // After all updates, the task must still be accessible with no crash.
+  auto final_task = store.get_hmas_task("stress-1");
+  EXPECT_TRUE(final_task.has_value());
+}
 
 }  // namespace projectagamemnon::test

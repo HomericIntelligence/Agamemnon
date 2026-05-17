@@ -22,19 +22,20 @@ std::string Orchestrator::submit(TaskBrief brief) {
 
   // Transition L0 root to Decomposing then immediately Delegated, then enqueue.
   if (!tasks.empty()) {
-    HmasTask* root = store_.get_hmas_task(tasks[0].id);
-    if (root) {
-      state_machine_.try_transition(*root, TaskEvent::Submit);    // Pending -> Decomposing
-      state_machine_.try_transition(*root, TaskEvent::Delegate);  // Decomposing -> Delegated
-      store_.update_hmas_task(*root);
+    auto root_opt = store_.get_hmas_task(tasks[0].id);
+    if (root_opt) {
+      auto root = std::move(*root_opt);
+      state_machine_.try_transition(root, TaskEvent::Submit);    // Pending -> Decomposing
+      state_machine_.try_transition(root, TaskEvent::Delegate);  // Decomposing -> Delegated
+      store_.update_hmas_task(root);
 
-      std::string subj = myrmidon_subject(HmasLayer::L0_ChiefArchitect, root->id);
-      json payload = hmas_task_to_json(*root);
+      std::string subj = myrmidon_subject(HmasLayer::L0_ChiefArchitect, root.id);
+      json payload = hmas_task_to_json(root);
       payload["brief_id"] = brief.id;
       nats_.publish(subj, payload.dump());
       nats_.publish_log(
           "hi.logs.agamemnon.brief_submitted", "info", "Brief submitted: " + brief.id,
-          {{"brief_id", brief.id}, {"root_task_id", root->id}, {"task_count", tasks.size()}});
+          {{"brief_id", brief.id}, {"root_task_id", root.id}, {"task_count", tasks.size()}});
     }
   }
 
@@ -42,49 +43,50 @@ std::string Orchestrator::submit(TaskBrief brief) {
 }
 
 bool Orchestrator::delegate(const std::string& task_id) {
-  HmasTask* task = store_.get_hmas_task(task_id);
-  if (!task) return false;
+  auto task_opt = store_.get_hmas_task(task_id);
+  if (!task_opt) return false;
 
-  bool ok = state_machine_.try_transition(*task, TaskEvent::Delegate);
+  auto task = std::move(*task_opt);
+  bool ok = state_machine_.try_transition(task, TaskEvent::Delegate);
   if (!ok) {
     // L3 leaf tasks transition Pending → Delegated; try again in case state is still Pending.
-    ok = state_machine_.try_transition(*task, TaskEvent::Delegate);
+    ok = state_machine_.try_transition(task, TaskEvent::Delegate);
   }
   if (!ok) return false;
 
-  store_.update_hmas_task(*task);
-  std::string subj = myrmidon_subject(task->layer, task->id);
-  nats_.publish(subj, hmas_task_to_json(*task).dump());
+  store_.update_hmas_task(task);
+  std::string subj = myrmidon_subject(task.layer, task.id);
+  nats_.publish(subj, hmas_task_to_json(task).dump());
   return true;
 }
 
 bool Orchestrator::escalate(const std::string& task_id, const std::string& reason) {
-  HmasTask* task = store_.get_hmas_task(task_id);
-  if (!task) return false;
+  auto task_opt = store_.get_hmas_task(task_id);
+  if (!task_opt) return false;
 
+  auto task = std::move(*task_opt);
   // Only InProgress tasks can be escalated.
-  if (!state_machine_.try_transition(*task, TaskEvent::Escalate)) return false;
+  if (!state_machine_.try_transition(task, TaskEvent::Escalate)) return false;
 
   EscalationRecord rec;
   rec.task_id = task_id;
   rec.reason = reason;
   rec.escalated_at = now_iso8601();
-  rec.from_layer = task->layer;
-  task->escalations.push_back(rec);
-  store_.update_hmas_task(*task);
+  rec.from_layer = task.layer;
+  task.escalations.push_back(rec);
+  store_.update_hmas_task(task);
 
   // Re-enqueue to parent layer's subject.
-  HmasLayer parent_layer = (task->layer == HmasLayer::L0_ChiefArchitect)
+  HmasLayer parent_layer = (task.layer == HmasLayer::L0_ChiefArchitect)
                                ? HmasLayer::L0_ChiefArchitect
-                               : static_cast<HmasLayer>(static_cast<int>(task->layer) - 1);
+                               : static_cast<HmasLayer>(static_cast<int>(task.layer) - 1);
 
-  json payload = hmas_task_to_json(*task);
+  json payload = hmas_task_to_json(task);
   payload["escalation_reason"] = reason;
-  nats_.publish(myrmidon_subject(parent_layer, task->id), payload.dump());
-  nats_.publish_log("hi.logs.agamemnon.task_escalated", "warn", "Task escalated: " + task_id,
-                    {{"task_id", task_id},
-                     {"reason", reason},
-                     {"from_layer", hmas_layer_to_string(task->layer)}});
+  nats_.publish(myrmidon_subject(parent_layer, task.id), payload.dump());
+  nats_.publish_log(
+      "hi.logs.agamemnon.task_escalated", "warn", "Task escalated: " + task_id,
+      {{"task_id", task_id}, {"reason", reason}, {"from_layer", hmas_layer_to_string(task.layer)}});
   return true;
 }
 
@@ -99,13 +101,14 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
 
     if (task_id.empty()) return;
 
-    HmasTask* task = store_.get_hmas_task(task_id);
-    if (!task) {
+    auto task_opt = store_.get_hmas_task(task_id);
+    if (!task_opt) {
       // Fall back to plain task completion for non-HMAS tasks.
       store_.mark_task_completed(task_id);
       return;
     }
 
+    auto task = std::move(*task_opt);
     // Drive the task through every transition required to reach InProgress before
     // attempting Complete.  A myrmidon may report completion faster than the
     // orchestrator's intermediate transitions (Submit/Delegate/Start) were applied,
@@ -121,23 +124,23 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
     // Each try_transition is a no-op when the event is not valid for the current
     // state, so the chained calls below safely advance the task toward InProgress
     // without ever moving past it, and Complete is only applied from InProgress.
-    if (task->state == TaskState::Escalated) {
-      state_machine_.try_transition(*task, TaskEvent::Retry);
+    if (task.state == TaskState::Escalated) {
+      state_machine_.try_transition(task, TaskEvent::Retry);
     }
-    if (task->state == TaskState::Pending) {
+    if (task.state == TaskState::Pending) {
       // L3 leaves go straight Pending -> Delegated; others must Submit first.
-      if (!state_machine_.try_transition(*task, TaskEvent::Delegate)) {
-        state_machine_.try_transition(*task, TaskEvent::Submit);
+      if (!state_machine_.try_transition(task, TaskEvent::Delegate)) {
+        state_machine_.try_transition(task, TaskEvent::Submit);
       }
     }
-    if (task->state == TaskState::Decomposing) {
-      state_machine_.try_transition(*task, TaskEvent::Delegate);
+    if (task.state == TaskState::Decomposing) {
+      state_machine_.try_transition(task, TaskEvent::Delegate);
     }
-    if (task->state == TaskState::Delegated) {
-      state_machine_.try_transition(*task, TaskEvent::Start);
+    if (task.state == TaskState::Delegated) {
+      state_machine_.try_transition(task, TaskEvent::Start);
     }
-    state_machine_.try_transition(*task, TaskEvent::Complete);
-    store_.update_hmas_task(*task);
+    state_machine_.try_transition(task, TaskEvent::Complete);
+    store_.update_hmas_task(task);
 
     std::cout << "[orchestrator] task completed via " << subject << ": " << task_id << "\n";
 
@@ -145,10 +148,10 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
     delegate_unblocked_children(task_id);
 
     // If this was the L0 root, log pipeline completion.
-    if (task->layer == HmasLayer::L0_ChiefArchitect) {
+    if (task.layer == HmasLayer::L0_ChiefArchitect) {
       nats_.publish_log("hi.logs.agamemnon.brief_completed", "info",
-                        "Brief completed: " + task->brief_id,
-                        {{"brief_id", task->brief_id}, {"root_task_id", task_id}});
+                        "Brief completed: " + task.brief_id,
+                        {{"brief_id", task.brief_id}, {"root_task_id", task_id}});
     }
   } catch (...) {
     // Ignore malformed payloads.
@@ -192,11 +195,11 @@ std::string Orchestrator::myrmidon_subject(HmasLayer layer, const std::string& t
 
 void Orchestrator::delegate_unblocked_children(const std::string& completed_task_id) {
   // Find the completed task to know its brief.
-  HmasTask* completed = store_.get_hmas_task(completed_task_id);
-  if (!completed) return;
+  auto completed_opt = store_.get_hmas_task(completed_task_id);
+  if (!completed_opt) return;
 
   // Get all tasks in this brief.
-  auto siblings = store_.list_hmas_tasks_by_brief(completed->brief_id);
+  auto siblings = store_.list_hmas_tasks_by_brief(completed_opt->brief_id);
 
   for (const auto& candidate : siblings) {
     if (candidate.state != TaskState::Pending) continue;
@@ -204,8 +207,8 @@ void Orchestrator::delegate_unblocked_children(const std::string& completed_task
     // Check if all blockers are now Completed.
     bool all_clear = true;
     for (const auto& blocker_id : candidate.blocked_by) {
-      HmasTask* blocker = store_.get_hmas_task(blocker_id);
-      if (!blocker || blocker->state != TaskState::Completed) {
+      auto blocker_opt = store_.get_hmas_task(blocker_id);
+      if (!blocker_opt || blocker_opt->state != TaskState::Completed) {
         all_clear = false;
         break;
       }

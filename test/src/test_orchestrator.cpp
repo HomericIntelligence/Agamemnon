@@ -82,23 +82,24 @@ TEST_F(OrchestratorTest, EscalateTransitionsToEscalated) {
   auto tasks = store_.list_hmas_tasks_by_brief(brief_id);
 
   // Find L0 root — it is Delegated after submit.
-  HmasTask* root = nullptr;
+  std::optional<HmasTask> root_opt;
   for (auto& t : tasks) {
     if (t.layer == HmasLayer::L0_ChiefArchitect) {
-      root = store_.get_hmas_task(t.id);
+      root_opt = store_.get_hmas_task(t.id);
       break;
     }
   }
-  ASSERT_NE(root, nullptr);
+  ASSERT_TRUE(root_opt.has_value());
+  HmasTask root = *root_opt;
 
   // Manually move to InProgress so we can escalate.
   TaskStateMachine sm;
-  sm.try_transition(*root, TaskEvent::Start);
-  store_.update_hmas_task(*root);
+  sm.try_transition(root, TaskEvent::Start);
+  store_.update_hmas_task(root);
 
-  EXPECT_TRUE(orch_->escalate(root->id, "blocked"));
-  HmasTask* updated = store_.get_hmas_task(root->id);
-  ASSERT_NE(updated, nullptr);
+  EXPECT_TRUE(orch_->escalate(root.id, "blocked"));
+  auto updated = store_.get_hmas_task(root.id);
+  ASSERT_TRUE(updated.has_value());
   EXPECT_EQ(updated->state, TaskState::Escalated);
   ASSERT_EQ(updated->escalations.size(), 1u);
   EXPECT_EQ(updated->escalations[0].reason, "blocked");
@@ -113,26 +114,27 @@ TEST_F(OrchestratorTest, OnMyrmidonCompletionMarksTaskCompleted) {
   auto tasks = store_.list_hmas_tasks_by_brief(brief_id);
 
   // Find an L3 leaf task.
-  HmasTask* leaf = nullptr;
+  std::optional<HmasTask> leaf_opt;
   for (auto& t : tasks) {
     if (t.layer == HmasLayer::L3_TaskAgent) {
-      leaf = store_.get_hmas_task(t.id);
+      leaf_opt = store_.get_hmas_task(t.id);
       break;
     }
   }
-  ASSERT_NE(leaf, nullptr);
+  ASSERT_TRUE(leaf_opt.has_value());
+  HmasTask leaf = *leaf_opt;
 
   // Move leaf to InProgress.
   TaskStateMachine sm;
-  if (leaf->state == TaskState::Pending) sm.try_transition(*leaf, TaskEvent::Delegate);
-  sm.try_transition(*leaf, TaskEvent::Start);
-  store_.update_hmas_task(*leaf);
+  if (leaf.state == TaskState::Pending) sm.try_transition(leaf, TaskEvent::Delegate);
+  sm.try_transition(leaf, TaskEvent::Start);
+  store_.update_hmas_task(leaf);
 
-  json payload = {{"task_id", leaf->id}};
+  json payload = {{"task_id", leaf.id}};
   orch_->on_myrmidon_completion("hi.tasks.t.t.completed", payload.dump());
 
-  HmasTask* after = store_.get_hmas_task(leaf->id);
-  ASSERT_NE(after, nullptr);
+  auto after = store_.get_hmas_task(leaf.id);
+  ASSERT_TRUE(after.has_value());
   EXPECT_EQ(after->state, TaskState::Completed);
   EXPECT_FALSE(after->completed_at.empty());
 }
