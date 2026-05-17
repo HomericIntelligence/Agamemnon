@@ -58,13 +58,13 @@ bool tcp_connect_with_timeout(const std::string& ip, int port, int timeout_ms) {
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) return false;
 
-  struct timeval tv {};
+  struct timeval tv{};
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-  struct sockaddr_in addr {};
+  struct sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(static_cast<uint16_t>(port));
   if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {
@@ -100,13 +100,13 @@ bool check_nats_monitoring(const std::string& ip, int monitor_port, int timeout_
   int sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) return false;
 
-  struct timeval tv {};
+  struct timeval tv{};
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
   setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-  struct sockaddr_in addr {};
+  struct sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(static_cast<uint16_t>(monitor_port));
   if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {

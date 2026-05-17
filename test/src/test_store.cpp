@@ -437,7 +437,7 @@ TEST_F(StoreHmasTest, HmasTaskConcurrentGetAndUpdate) {
 
   // 4 writer threads cycling through states
   const TaskState states[] = {TaskState::InProgress, TaskState::Delegated, TaskState::Pending,
-                               TaskState::Completed};
+                              TaskState::Completed};
   for (int t = 0; t < kThreads; ++t) {
     threads.emplace_back([&, t]() {
       for (int i = 0; i < kIterations; ++i) {

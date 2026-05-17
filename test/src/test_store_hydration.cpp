@@ -419,4 +419,67 @@ TEST(HydrationTest, ConcurrentListAgentsOnlyFetchesOnce) {
   EXPECT_EQ(list_calls, 1);
 }
 
+// ── Write + Read Tests (#162) ─────────────────────────────────────────────────
+
+TEST(GitHub162Test, WriteToGitHubSucceedsAndReadsReturnSameData) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  Store store(mock);
+
+  // Create agent
+  auto created = store.create_agent({{"name", "write-test"}, {"role", "worker"}});
+  std::string id = created["id"];
+
+  // Verify the data written to GitHub can be read back
+  auto retrieved = store.get_agent(id);
+  ASSERT_FALSE(retrieved.is_null());
+  EXPECT_EQ(retrieved["id"], id);
+  EXPECT_EQ(retrieved["name"], "write-test");
+  EXPECT_EQ(retrieved["role"], "worker");
+}
+
+TEST(GitHub162Test, GitHubNotFoundTriggsInMemoryFallback) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  mock->fail_list_on_label = "agamemnon-agent";  // Simulate GitHub 404
+  Store store(mock);
+
+  // Create an agent — should succeed with in-memory storage
+  auto created = store.create_agent({{"name", "fallback-test"}, {"role", "worker"}});
+  std::string id = created["id"];
+
+  // Should still be readable from in-memory store despite GitHub failure
+  auto retrieved = store.get_agent(id);
+  ASSERT_FALSE(retrieved.is_null());
+  EXPECT_EQ(retrieved["id"], id);
+  EXPECT_EQ(retrieved["name"], "fallback-test");
+}
+
+TEST(GitHub162Test, RehydrateOnStartupPopulatesFromPaginatedList) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  // Seed agents across multiple paginated results
+  json agent1 = sample_agent("id-page-1", "agent-one");
+  json agent2 = sample_agent("id-page-2", "agent-two");
+  json agent3 = sample_agent("id-page-3", "agent-three");
+  mock->seed_issues["agamemnon-agent"] = {
+      make_agent_issue(100, agent1),
+      make_agent_issue(101, agent2),
+      make_agent_issue(102, agent3),
+  };
+
+  Store store(mock);
+
+  // List should return all agents (simulating pagination handling)
+  auto result = store.list_agents();
+  ASSERT_TRUE(result.contains("agents"));
+  EXPECT_EQ(result["agents"].size(), 3u);
+
+  // Verify all agents are present
+  auto names = json::array();
+  for (const auto& agent : result["agents"]) {
+    names.push_back(agent["name"]);
+  }
+  EXPECT_NE(std::find(names.begin(), names.end(), json("agent-one")), names.end());
+  EXPECT_NE(std::find(names.begin(), names.end(), json("agent-two")), names.end());
+  EXPECT_NE(std::find(names.begin(), names.end(), json("agent-three")), names.end());
+}
+
 }  // namespace projectagamemnon::test

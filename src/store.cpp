@@ -605,9 +605,8 @@ std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
   return it->second;  // value copy — safe to use outside the lock
 }
 
-bool Store::update_hmas_task_state_and_record_escalation(const std::string& id,
-                                                          TaskState new_state,
-                                                          const EscalationRecord& escalation) {
+bool Store::update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
+                                                         const EscalationRecord& escalation) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
