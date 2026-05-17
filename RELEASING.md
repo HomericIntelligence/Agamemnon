@@ -8,11 +8,18 @@
 > legacy names — operators who skipped the rename will see silent default
 > regressions unless they read the migration guide.
 
-## Python Client (`HomericIntelligence-Agamemnon`)
+## Python Releases
 
 Releases are triggered by pushing a `v*` tag (e.g. `v0.1.0`). The
-`python-client-release.yml` workflow builds the wheel/sdist and publishes to
-PyPI using **OIDC Trusted Publishing** — no API token is stored in the repo.
+`python-client-release.yml` workflow builds and publishes both the client and
+orchestration packages to PyPI using **OIDC Trusted Publishing** — no API token
+is stored in the repo.
+
+The two packages (`HomericIntelligence-Agamemnon` and
+`HomericIntelligence-Agamemnon-Orchestration`) are released together from the
+same `v*` tag, using a single shared PyPI OIDC publisher entry.
+
+### Python Client (`HomericIntelligence-Agamemnon`)
 
 ### Prerequisites (one-time setup)
 
@@ -30,10 +37,12 @@ The `pypi` Actions environment must exist and be scoped to `v*` tags:
 > Already configured: environment ID `14476785067`, tag policy `v*` (tag ID
 > `47723547`).
 
-#### 2. PyPI pending publisher
+#### 2. PyPI pending publishers
 
-Register the OIDC publisher at <https://pypi.org/manage/account/publishing/>
-**before** pushing the first `v*` tag (the package does not need to exist yet):
+Register OIDC publishers at <https://pypi.org/manage/account/publishing/>
+**before** pushing the first `v*` tag (the packages do not need to exist yet):
+
+**For `HomericIntelligence-Agamemnon` (client):**
 
 | Field | Value |
 | --- | --- |
@@ -43,8 +52,18 @@ Register the OIDC publisher at <https://pypi.org/manage/account/publishing/>
 | Workflow name | `python-client-release.yml` |
 | Environment name | `pypi` |
 
-These five values must match the workflow file exactly or the OIDC exchange
-will be rejected.
+**For `HomericIntelligence-Agamemnon-Orchestration` (orchestration):**
+
+| Field | Value |
+| --- | --- |
+| PyPI Project Name | `HomericIntelligence-Agamemnon-Orchestration` |
+| Owner | `HomericIntelligence` |
+| Repository name | `ProjectAgamemnon` |
+| Workflow name | `python-client-release.yml` |
+| Environment name | `pypi` |
+
+Each entry's five values must match the workflow file exactly or the OIDC
+exchange will be rejected. Both packages use the same workflow and environment.
 
 #### 3. GPG signing key
 
@@ -76,12 +95,18 @@ just release 0.1.0
 `just release` runs the readiness check automatically before mutating anything.
 To preview readiness without releasing, run `./scripts/check-release-readiness.sh VERSION` directly.
 
-The workflow runs automatically and publishes the package. Verify with:
+The workflow runs automatically and publishes both packages. Verify with:
 
 ```bash
+# Verify client package
 pip index versions HomericIntelligence-Agamemnon
 pip install HomericIntelligence-Agamemnon==0.1.0 --dry-run
 python -c "import agamemnon_client; print(agamemnon_client.__version__)"
+
+# Verify orchestration package
+pip index versions HomericIntelligence-Agamemnon-Orchestration
+pip install HomericIntelligence-Agamemnon-Orchestration==0.1.0 --dry-run
+python -c "import agamemnon.orchestration; print(agamemnon.orchestration.__version__)"
 ```
 
 ## Operator runbook: data deletion
