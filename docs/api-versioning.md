@@ -47,8 +47,21 @@ The `version` field is always identical to `X-API-Version`.
 
 1. A deprecation notice is added to `CHANGELOG.md` when an endpoint or field is marked for removal.
 2. Deprecated endpoints remain functional for a minimum of **2 releases** after the notice.
-3. Responses from deprecated endpoints include `"deprecated": true` in the JSON body.
-4. The removal is announced again in `CHANGELOG.md` at the release it takes effect.
+3. Responses from deprecated endpoints include the following RFC 8594 headers:
+   - `Deprecation: true` — indicates the endpoint is deprecated
+   - `Sunset: <HTTP-date>` — indicates when the endpoint will be removed
+4. Responses from deprecated endpoints include `"deprecated": true` in the JSON body.
+5. The removal is announced again in `CHANGELOG.md` at the release it takes effect.
+
+### Setting Deprecation Headers in Code
+
+Use the `set_deprecation_headers()` helper function to apply deprecation headers to a response:
+
+```cpp
+set_deprecation_headers(res, "Fri, 01 Jan 2027 00:00:00 GMT");
+```
+
+This will set both the `Deprecation` and `Sunset` headers on the response.
 
 ## Future Major Versions
 

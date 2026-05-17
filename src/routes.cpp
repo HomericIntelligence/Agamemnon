@@ -51,6 +51,13 @@ static void reply_bad_request(httplib::Response& res, const std::string& msg) {
   reply_json(res, 400, {{"error", msg}});
 }
 
+/// Set deprecation headers on a response.
+/// Sets Deprecation: true and Sunset: <sunset_date> headers.
+static void set_deprecation_headers(httplib::Response& res, const std::string& sunset_date) {
+  res.set_header("Deprecation", "true");
+  res.set_header("Sunset", sunset_date);
+}
+
 /// Returns false and sets 400 if value exceeds max_len.
 static bool check_field_length(httplib::Response& res, const std::string& field_name,
                                const std::string& value, std::size_t max_len) {
