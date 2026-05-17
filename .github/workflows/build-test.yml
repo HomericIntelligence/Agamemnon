@@ -149,7 +149,6 @@ jobs:
       - name: Test agamemnon/
         run: cd agamemnon && pixi run test
 
-
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
