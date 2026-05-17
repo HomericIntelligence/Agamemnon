@@ -671,8 +671,8 @@ class RateLimitedRouteTest : public ::testing::Test {
 
   Store store_;
   NatsClient nats_{"nats://127.0.0.1:14222"};
-  RateLimiter rate_limiter_{2, 1e9};  // 2 requests max; large window
-  AuthMiddleware auth_{""};           // allow all requests
+  RateLimiter rate_limiter_{2, 2};  // 2 tokens/sec, burst=2 → 3rd request triggers 429
+  AuthMiddleware auth_{""};         // allow all requests
   MetricsRegistry metrics_;
   Orchestrator orchestrator_{store_, nats_};
   httplib::Server server_;
