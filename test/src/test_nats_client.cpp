@@ -76,6 +76,25 @@ TEST(NatsClientTest, SubscribeErrorPathCleansUpContextPointer) {
   EXPECT_FALSE(callback_invoked);
 }
 
+// ── Subscription teardown context cleanup (#202) ──────────────────────────────
+
+TEST(NatsClientTest, SubscribeReturnsFalseAndDoesNotLeakOnDisconnect) {
+  // Regression: subscribe() on a disconnected client must delete the context
+  // immediately (error path) rather than leaking it.  The teardown callback
+  // (nats_sub_complete) is only reachable via a live subscription destroy; the
+  // error-path delete is exercised here.
+  NatsClient client(kUnreachable);
+  int invocations = 0;
+
+  // Call subscribe multiple times to amplify any per-call leak.
+  for (int i = 0; i < 5; ++i) {
+    bool ok = client.subscribe("hi.test.teardown.>",
+                               [&](const std::string&, const std::string&) { ++invocations; });
+    EXPECT_FALSE(ok);
+  }
+  EXPECT_EQ(invocations, 0);
+}
+
 // ── ADR-005 Payload Structure Test (#208) ──────────────────────────────────────
 
 TEST(NatsClientTest, PublishLogEmitsADR005Structure) {

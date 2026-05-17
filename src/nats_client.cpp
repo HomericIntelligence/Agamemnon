@@ -344,13 +344,20 @@ extern "C" void nats_msg_handler(natsConnection* /*nc*/, natsSubscription* /*sub
   natsMsg_Destroy(msg);
 }
 
+// Called once by nats.c when the subscription is destroyed (after the last
+// message callback has returned).  Releases the CallbackContext so that
+// subscribe() can be called more than once without leaking.
+extern "C" void nats_sub_complete(void* closure) {
+  delete static_cast<CallbackContext*>(closure);  // NOLINT(cppcoreguidelines-owning-memory)
+}
+
 }  // anonymous namespace
 
 bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
   if (!connected_ || !conn_) return false;
 
-  // Heap-allocate the context; it lives for the lifetime of the subscription.
-  // For this server the subscription lives for the lifetime of the process.
+  // Heap-allocate the context; ownership is transferred to the subscription.
+  // nats_sub_complete() deletes it when the subscription is destroyed.
   auto* ctx =
       new CallbackContext{std::move(cb), metrics_};  // NOLINT(cppcoreguidelines-owning-memory)
 
@@ -362,6 +369,10 @@ bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
     delete ctx;  // NOLINT(cppcoreguidelines-owning-memory) — reclaiming from failed C API transfer
     return false;
   }
+
+  // Register teardown callback so ctx is deleted when the subscription is destroyed,
+  // not leaked if subscribe() is ever called more than once (#202).
+  natsSubscription_SetOnCompleteCB(sub, nats_sub_complete, ctx);
   return true;
 }
 
