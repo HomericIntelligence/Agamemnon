@@ -35,7 +35,7 @@ jobs:
       - name: Restore FetchContent cache
         uses: actions/cache@v4
         with:
-          path: build/_deps
+          path: build/**/_deps
           key: fetchcontent-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
             fetchcontent-${{ runner.os }}-clang-debug-
