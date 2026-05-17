@@ -1051,6 +1051,20 @@ components:
     Agent:
       type: object
       required: [id, name, status, createdAt]
+      example:
+        id: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        name: my-agent
+        label: ""
+        program: ""
+        workingDirectory: ""
+        programArgs: []
+        taskDescription: ""
+        tags: []
+        owner: ""
+        role: worker
+        host: local
+        status: offline
+        createdAt: "2026-01-01T00:00:00Z"
       properties:
         id:
           type: string
@@ -1206,6 +1220,12 @@ components:
     Team:
       type: object
       required: [id, name, agentIds, createdAt]
+      example:
+        id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        name: alpha-team
+        agentIds:
+          - "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        createdAt: "2026-01-01T00:00:00Z"
       properties:
         id:
           type: string
@@ -1275,6 +1295,17 @@ components:
     Task:
       type: object
       required: [id, teamId, subject, status, createdAt]
+      example:
+        id: "c1d2e3f4-a5b6-7890-cdef-012345678901"
+        teamId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        subject: Implement login endpoint
+        description: Add POST /auth/login with JWT response
+        assigneeAgentId: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        blockedBy: []
+        type: implementation
+        status: pending
+        createdAt: "2026-01-01T00:00:00Z"
+        completedAt: null
       properties:
         id:
           type: string
@@ -1381,6 +1412,11 @@ components:
     Fault:
       type: object
       required: [id, type, active, createdAt]
+      example:
+        id: "f0a1b2c3-d4e5-6789-fa0b-1c2d3e4f5a6b"
+        type: latency
+        active: true
+        createdAt: "2026-01-01T00:00:00Z"
       properties:
         id:
           type: string
