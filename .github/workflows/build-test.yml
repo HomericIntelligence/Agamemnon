@@ -162,7 +162,7 @@ jobs:
         run: docker image inspect agamemnon:ci-test
 
       - name: Scan image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@0.30.0
+        uses: aquasecurity/trivy-action@v0.30.0
         with:
           image-ref: agamemnon:ci-test
           format: table
@@ -187,7 +187,7 @@ jobs:
       - name: Validate CMakePresets.json
         run: |
           check-jsonschema \
-            --builtin-schema vendor.cmake-presets \
+            --schemafile https://raw.githubusercontent.com/Kitware/CMake/master/Help/manual/presets/schema.json \
             CMakePresets.json
 
       - name: Validate .markdownlint.yaml
@@ -208,7 +208,7 @@ jobs:
       - name: Validate cpp-fetchcontent-deps.cdx.json
         run: |
           check-jsonschema \
-            --builtin-schema vendor.cyclonedx \
+            --schemafile https://raw.githubusercontent.com/CycloneDX/specification/refs/heads/master/schema/bom-1.4.schema.json \
             .github/cpp-fetchcontent-deps.cdx.json
 
   port-smoke-test:
@@ -278,6 +278,11 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install just
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
+        with:
+          just-version: "1.36.0"
 
       - name: Validate OpenAPI spec
         run: just docs-validate
