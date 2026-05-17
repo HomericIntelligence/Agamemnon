@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.20)
 find_package(GTest REQUIRED)
 find_package(Threads REQUIRED)
 find_package(httplib REQUIRED)
-find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(prometheus-cpp REQUIRED)
 
@@ -30,10 +29,6 @@ add_executable(${PROJECT_NAME}_tests
   src/test_orchestrator.cpp
   src/test_planning_breakdown.cpp
   src/test_state_machine.cpp
-  ${PROJECT_SOURCE_DIR}/src/routes.cpp
-  ${PROJECT_SOURCE_DIR}/src/store.cpp
-  ${PROJECT_SOURCE_DIR}/src/nats_client.cpp
-  ${PROJECT_SOURCE_DIR}/src/version_info.cpp
 )
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
@@ -59,12 +54,11 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    agamemnon_lib
+    ProjectAgamemnon_core
     agamemnon_peer_discovery
     GTest::gtest_main
     GTest::gmock
     httplib::httplib
-    nlohmann_json::nlohmann_json
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -98,10 +92,9 @@ target_include_directories(${PROJECT_NAME}_routes_tests
 
 target_link_libraries(${PROJECT_NAME}_routes_tests
   PRIVATE
-    agamemnon_lib
+    ProjectAgamemnon_core
     GTest::gtest_main
     httplib::httplib
-    nlohmann_json::nlohmann_json
     nats_static
     OpenSSL::SSL
     OpenSSL::Crypto
@@ -137,10 +130,9 @@ target_compile_options(${PROJECT_NAME}_integration_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_integration_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    agamemnon_lib
+    ProjectAgamemnon_core
     GTest::gtest_main
-    httplib::httplib
-    nlohmann_json::nlohmann_json)
+    httplib::httplib)
 
 gtest_discover_tests(${PROJECT_NAME}_integration_tests
   PROPERTIES LABELS "integration")

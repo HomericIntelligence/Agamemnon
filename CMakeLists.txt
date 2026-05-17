@@ -56,8 +56,9 @@ target_include_directories(
 
 target_link_libraries(
   ${PROJECT_NAME}
-  PRIVATE
+  PUBLIC
     nlohmann_json::nlohmann_json
+  PRIVATE
     prometheus-cpp::core)
 
 set_project_warnings(${PROJECT_NAME})
@@ -75,9 +76,9 @@ target_compile_options(agamemnon_peer_discovery PRIVATE
   -Wno-sign-conversion
 )
 
-# ── agamemnon_lib — shared by server executable and tests ────────────────────
+# ── ProjectAgamemnon_core — shared by server executable and tests ─────────────
 # Excludes server_main.cpp so gtest_main does not conflict with main().
-add_library(agamemnon_lib STATIC
+add_library(ProjectAgamemnon_core STATIC
   src/routes.cpp
   src/store.cpp
   src/nats_client.cpp
@@ -93,15 +94,15 @@ add_library(agamemnon_lib STATIC
   src/state_machine.cpp
 )
 
-target_compile_features(agamemnon_lib PUBLIC cxx_std_20)
-set_target_properties(agamemnon_lib PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_features(ProjectAgamemnon_core PUBLIC cxx_std_20)
+set_target_properties(ProjectAgamemnon_core PROPERTIES CXX_EXTENSIONS OFF)
 
-target_include_directories(agamemnon_lib
+target_include_directories(ProjectAgamemnon_core
   PUBLIC  ${PROJECT_SOURCE_DIR}/include
   PRIVATE ${PROJECT_SOURCE_DIR}/src
 )
 
-target_link_libraries(agamemnon_lib
+target_link_libraries(ProjectAgamemnon_core
   PUBLIC
     httplib::httplib
     nlohmann_json::nlohmann_json
@@ -112,7 +113,7 @@ target_link_libraries(agamemnon_lib
     prometheus-cpp::core
 )
 
-target_compile_options(agamemnon_lib PRIVATE
+target_compile_options(ProjectAgamemnon_core PRIVATE
   -Wno-old-style-cast
   -Wno-useless-cast
   -Wno-conversion
@@ -136,7 +137,7 @@ target_include_directories(
     ${PROJECT_SOURCE_DIR}/src
 )
 
-target_link_libraries(${PROJECT_NAME}_server PRIVATE agamemnon_lib agamemnon_peer_discovery)
+target_link_libraries(${PROJECT_NAME}_server PRIVATE ProjectAgamemnon_core agamemnon_peer_discovery)
 
 # Suppress warnings from external headers on the server target
 target_compile_options(${PROJECT_NAME}_server PRIVATE
