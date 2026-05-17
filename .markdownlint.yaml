@@ -11,6 +11,9 @@ MD013:
   headings: true
   code_blocks: true
 
+MD024:
+  siblings_only: true
+
 MD033:
   allowed_elements: [T, img, br, details, summary]
 

@@ -22,7 +22,7 @@ The following are genuinely implemented and tested:
 ## Project Board
 
 Work is tracked on the HomericIntelligence organization GitHub Projects board:
-https://github.com/orgs/HomericIntelligence/projects/<TBD>
+<https://github.com/orgs/HomericIntelligence/projects/TBD>
 
 This board is shared across all HomericIntelligence repositories and provides
 visibility into cross-project planning, dependency tracking, and sprint cycles.
