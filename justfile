@@ -33,6 +33,15 @@ format-check:
 actionlint:
   actionlint
 
+agamemnon-test:
+  cd agamemnon && pixi run test
+
+agamemnon-lint:
+  cd agamemnon && pixi run lint
+
+agamemnon-typecheck:
+  cd agamemnon && pixi run typecheck
+
 coverage: deps-coverage
   cmake --preset coverage && cmake --build --preset coverage && ./scripts/coverage.sh
 
