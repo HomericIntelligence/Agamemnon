@@ -89,6 +89,16 @@ class MockGitHubClient : public IGitHubClient {
 
 /// Real GitHub client using libcurl to call the GitHub REST API v3.
 /// Requires GITHUB_TOKEN env var and a repo in "owner/repo" format.
+///
+/// Retry contract: do_get / do_post / do_patch automatically retry up to
+/// kMaxRetries times with exponential backoff (1 s -> 2 s -> 4 s) on:
+///   - transport errors (CURLcode != CURLE_OK)
+///   - HTTP 5xx responses
+///   - HTTP 429 responses (honors the Retry-After header when present)
+///
+/// 4xx responses other than 429 are NOT retried; they indicate client bugs.
+/// Callers may observe up to ~7 seconds of total elapsed time per call in the
+/// worst case (3 retries x (1 + 2 + 4) s backoff ceiling).
 class CurlGitHubClient : public IGitHubClient {
  public:
   CurlGitHubClient(std::string repo, std::string token);
@@ -100,14 +110,27 @@ class CurlGitHubClient : public IGitHubClient {
   void update_issue_body(std::string_view issue_number, std::string_view body) override;
   void close_issue(std::string_view issue_number) override;
 
- private:
-  std::string repo_;
-  std::string token_;
+  // Retry / backoff constants (exposed for testing).
+  static constexpr int kMaxRetries = 3;
+  static constexpr int kBaseRetryMs = 1000;  // 1 s -> 2 s -> 4 s
 
+  /// Parsed result of a single HTTP attempt (also used as the retry unit).
   struct Response {
     long status{0};
     std::string body;
+    std::string retry_after;  // raw value of Retry-After response header, if any
   };
+
+  /// Execute op with retry / exponential-backoff on transient failures.
+  /// sleep_fn is called instead of std::this_thread::sleep_for (injectable for tests).
+  /// label is used only for log messages (e.g. "GET", "POST").
+  static Response with_retry(const std::string& label, const std::string& url,
+                             std::function<Response()> op,
+                             std::function<void(int /*ms*/)> sleep_fn = {});
+
+ private:
+  std::string repo_;
+  std::string token_;
 
   Response do_get(const std::string& url) const;
   Response do_post(const std::string& url, const std::string& payload) const;
