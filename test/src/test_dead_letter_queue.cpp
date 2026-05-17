@@ -75,4 +75,43 @@ TEST(DeadLetterQueueTest, TimestampIsSet) {
   EXPECT_GT(entries[0].timestamp_ms, 0);
 }
 
+// ── ADR-005 log level and service fields ───────────────────────────────────
+
+TEST(DeadLetterQueueTest, StoresLevelAndService) {
+  DeadLetterQueue dlq;
+  dlq.push("hi.logs.agamemnon.task_completed", R"({"timestamp":1.0,"level":"info"})", 2, "info",
+           "agamemnon");
+
+  auto entries = dlq.drain();
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].level, "info");
+  EXPECT_EQ(entries[0].service, "agamemnon");
+}
+
+TEST(DeadLetterQueueTest, LevelAndServiceDefaultEmpty) {
+  DeadLetterQueue dlq;
+  dlq.push("hi.logs.test", R"({"payload":"test"})", 1);
+
+  auto entries = dlq.drain();
+  ASSERT_EQ(entries.size(), 1u);
+  EXPECT_EQ(entries[0].level, "");
+  EXPECT_EQ(entries[0].service, "");
+}
+
+TEST(DeadLetterQueueTest, LevelAndServicePreservedAcrossMultipleEntries) {
+  DeadLetterQueue dlq;
+  dlq.push("log1", "p1", 1, "error", "agamemnon");
+  dlq.push("log2", "p2", 2, "warn", "orchestrator");
+  dlq.push("log3", "p3", 3, "info", "agamemnon");
+
+  auto entries = dlq.drain();
+  ASSERT_EQ(entries.size(), 3u);
+  EXPECT_EQ(entries[0].level, "error");
+  EXPECT_EQ(entries[0].service, "agamemnon");
+  EXPECT_EQ(entries[1].level, "warn");
+  EXPECT_EQ(entries[1].service, "orchestrator");
+  EXPECT_EQ(entries[2].level, "info");
+  EXPECT_EQ(entries[2].service, "agamemnon");
+}
+
 }  // namespace projectagamemnon::test

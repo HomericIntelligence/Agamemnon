@@ -1,0 +1,47 @@
+name: Update Vendored JSON Schema
+
+on:
+  schedule:
+    - cron: '0 2 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-schema:
+    name: Check and update vendored schema
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for GitHub Actions workflow schema updates
+        id: check
+        run: |
+          SCHEMA_URL="https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/github-workflow.json"
+          CURRENT_SCHEMA=".github/schemas/github-workflow.json"
+
+          curl -sSfL "$SCHEMA_URL" -o /tmp/github-workflow-latest.json
+
+          if ! diff -q "$CURRENT_SCHEMA" /tmp/github-workflow-latest.json > /dev/null 2>&1; then
+            echo "Schema has been updated upstream"
+            echo "updated=true" >> "$GITHUB_OUTPUT"
+            cp /tmp/github-workflow-latest.json "$CURRENT_SCHEMA"
+          else
+            echo "Schema is up to date"
+            echo "updated=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create pull request
+        if: steps.check.outputs.updated == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(schema): update vendored GitHub Actions workflow schema"
+          title: "chore(schema): update vendored GitHub Actions workflow schema"
+          body: |
+            Updates `.github/schemas/github-workflow.json` to the latest upstream version from [SchemaStore](https://github.com/SchemaStore/schemastore).
+
+            This ensures our workflow validation stays in sync with the official schema definition.
+          branch: update-schema
+          delete-branch: true

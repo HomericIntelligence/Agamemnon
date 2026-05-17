@@ -51,6 +51,13 @@ static void reply_bad_request(httplib::Response& res, const std::string& msg) {
   reply_json(res, 400, {{"error", msg}});
 }
 
+/// Set deprecation headers on a response.
+/// Sets Deprecation: true and Sunset: <sunset_date> headers.
+static void set_deprecation_headers(httplib::Response& res, const std::string& sunset_date) {
+  res.set_header("Deprecation", "true");
+  res.set_header("Sunset", sunset_date);
+}
+
 /// Returns false and sets 400 if value exceeds max_len.
 static bool check_field_length(httplib::Response& res, const std::string& field_name,
                                const std::string& value, std::size_t max_len) {
@@ -391,12 +398,24 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
         if (body.contains("name") &&
             !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
           return;
+        if (body.contains("label") && !body["label"].is_string()) {
+          reply_bad_request(res, "'label' must be a string");
+          return;
+        }
         if (body.contains("label") &&
             !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
           return;
+        if (body.contains("program") && !body["program"].is_string()) {
+          reply_bad_request(res, "'program' must be a string");
+          return;
+        }
         if (body.contains("program") &&
             !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
           return;
+        if (body.contains("taskDescription") && !body["taskDescription"].is_string()) {
+          reply_bad_request(res, "'taskDescription' must be a string");
+          return;
+        }
         if (body.contains("taskDescription") &&
             !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
                                 kMaxDescriptionLen))
@@ -538,6 +557,10 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     if (body.contains("subject") &&
         !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
       return;
+    if (body.contains("description") && !body["description"].is_string()) {
+      reply_bad_request(res, "'description' must be a string");
+      return;
+    }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
@@ -590,9 +613,17 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     std::string task_id = req.matches[2];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (body.contains("subject") && !body["subject"].is_string()) {
+      reply_bad_request(res, "'subject' must be a string");
+      return;
+    }
     if (body.contains("subject") &&
         !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
       return;
+    if (body.contains("description") && !body["description"].is_string()) {
+      reply_bad_request(res, "'description' must be a string");
+      return;
+    }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
@@ -610,19 +641,19 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       reply_not_found(res, "task");
       return;
     }
-    const auto& task = result["task"].is_null() ? result : result["task"];
-    std::string status = task.value("status", "");
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", result.dump());
+    std::string status = result.value("status", "");
+    json wrapped = {{"task", result}};
+    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", wrapped.dump());
     if (status == "completed") {
-      std::string task_type = task.value("type", "unknown");
-      std::string assignee = task.value("assigneeAgentId", "");
+      std::string task_type = result.value("type", "unknown");
+      std::string assignee = result.value("assigneeAgentId", "");
       np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
                       {{"task_id", task_id},
                        {"team_id", team_id},
                        {"type", task_type},
                        {"assignee", assignee}});
     }
-    reply_json(res, 200, {{"task", result}});
+    reply_json(res, 200, wrapped);
   };
 
   // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
@@ -635,9 +666,17 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     std::string task_id = req.matches[2];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (body.contains("subject") && !body["subject"].is_string()) {
+      reply_bad_request(res, "'subject' must be a string");
+      return;
+    }
     if (body.contains("subject") &&
         !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
       return;
+    if (body.contains("description") && !body["description"].is_string()) {
+      reply_bad_request(res, "'description' must be a string");
+      return;
+    }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
                             kMaxDescriptionLen))
@@ -647,19 +686,19 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       reply_not_found(res, "task");
       return;
     }
-    const auto& task = result["task"].is_null() ? result : result["task"];
-    std::string status = task.value("status", "");
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", result.dump());
+    std::string status = result.value("status", "");
+    json wrapped = {{"task", result}};
+    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", wrapped.dump());
     if (status == "completed") {
-      std::string task_type = task.value("type", "unknown");
-      std::string assignee = task.value("assigneeAgentId", "");
+      std::string task_type = result.value("type", "unknown");
+      std::string assignee = result.value("assigneeAgentId", "");
       np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
                       {{"task_id", task_id},
                        {"team_id", team_id},
                        {"type", task_type},
                        {"assignee", assignee}});
     }
-    reply_json(res, 200, {{"task", result}});
+    reply_json(res, 200, wrapped);
   });
 
   // ── Chaos ────────────────────────────────────────────────────────────────

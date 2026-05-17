@@ -10,14 +10,16 @@ static int64_t now_ms() noexcept {
       .count();
 }
 
-void DeadLetterQueue::push(std::string subject, std::string payload, int attempts) {
+void DeadLetterQueue::push(std::string subject, std::string payload, int attempts,
+                           std::string level, std::string service) {
   std::lock_guard<std::mutex> lock(mu_);
   if (queue_.size() >= capacity_) {
     std::cerr << "[dlq] WARNING: dead-letter queue full (capacity=" << capacity_
               << "), evicting oldest entry\n";
     queue_.pop_front();
   }
-  queue_.push_back({std::move(subject), std::move(payload), attempts, now_ms()});
+  queue_.push_back({std::move(subject), std::move(payload), attempts, now_ms(), std::move(level),
+                    std::move(service)});
 }
 
 std::vector<DeadLetterQueue::Entry> DeadLetterQueue::drain() {

@@ -379,6 +379,46 @@ TEST_F(RoutesTaskTest, PutTaskStatusCompletedSetsCompletedAt) {
   EXPECT_FALSE(body["task"]["completedAt"].is_null());
 }
 
+// ── PUT/PATCH task endpoint error cases (#197) ────────────────────────────────
+
+TEST_F(RoutesTaskTest, PatchTaskWithMalformedJSON) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res =
+      client_->Patch("/v1/teams/" + team_id + "/tasks/" + task_id, "{bad json", "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  auto body = json::parse(res->body);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(RoutesTaskTest, PutTaskWithMalformedJSON) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res =
+      client_->Put("/v1/teams/" + team_id + "/tasks/" + task_id, "{bad json", "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  auto body = json::parse(res->body);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(RoutesTaskTest, PutTaskWithInvalidStatus) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "invalid_status"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+}
+
+TEST_F(RoutesTaskTest, PatchTaskWithInvalidStatus) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "test"}})->body)["task"]["id"];
+  auto res = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "invalid_status"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+}
+
 // ── Chaos ─────────────────────────────────────────────────────────────────────
 
 TEST_F(RoutesHappyPathTest, ListChaosEmpty) {
@@ -604,6 +644,71 @@ TEST_F(RoutesHappyPathTest, CompleteTaskFromPendingReachesCompleted) {
   EXPECT_EQ(json::parse(after->body)["state"], "Completed")
       << "POST /v1/tasks/:id/complete must drive Pending tasks through the "
          "TaskStateMachine to Completed (#158)";
+}
+
+// ── Rate limiting ─────────────────────────────────────────────────────────
+
+class RateLimitedRouteTest : public ::testing::Test {
+ protected:
+  void SetUp() override {
+    // Use a strict rate limit: 2 requests max per window, to easily trigger 429s.
+    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
+    int port = server_.bind_to_any_port("127.0.0.1");
+    ASSERT_GT(port, 0) << "bind_to_any_port failed";
+    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
+    client_ = std::make_unique<httplib::Client>("127.0.0.1", port);
+    client_->set_connection_timeout(5);
+    client_->set_read_timeout(5);
+    server_.wait_until_ready();
+  }
+
+  void TearDown() override {
+    server_.stop();
+    if (server_thread_.joinable()) server_thread_.join();
+  }
+
+  httplib::Result Get(const std::string& path) { return client_->Get(path); }
+
+  Store store_;
+  NatsClient nats_{"nats://127.0.0.1:14222"};
+  RateLimiter rate_limiter_{2, 1e9};  // 2 requests max; large window
+  AuthMiddleware auth_{""};           // allow all requests
+  MetricsRegistry metrics_;
+  Orchestrator orchestrator_{store_, nats_};
+  httplib::Server server_;
+  std::thread server_thread_;
+  std::unique_ptr<httplib::Client> client_;
+};
+
+TEST_F(RateLimitedRouteTest, RateLimitExceededReturns429WithRetryAfterHeader) {
+  // First request should succeed.
+  auto res1 = Get("/health");
+  ASSERT_TRUE(res1);
+  EXPECT_EQ(res1->status, 200);
+
+  // Second request should succeed.
+  auto res2 = Get("/health");
+  ASSERT_TRUE(res2);
+  EXPECT_EQ(res2->status, 200);
+
+  // Third request exceeds the limit (2 per window).
+  auto res3 = Get("/health");
+  ASSERT_TRUE(res3);
+  EXPECT_EQ(res3->status, 429);
+
+  // Assert Retry-After header is present.
+  EXPECT_TRUE(res3->has_header("Retry-After"));
+
+  // Assert Retry-After header value is a positive integer.
+  std::string retry_after = res3->get_header_value("Retry-After");
+  ASSERT_FALSE(retry_after.empty()) << "Retry-After header should not be empty";
+  // Convert to int and verify it's positive.
+  try {
+    int retry_seconds = std::stoi(retry_after);
+    EXPECT_GT(retry_seconds, 0) << "Retry-After should be a positive integer";
+  } catch (const std::exception& e) {
+    FAIL() << "Retry-After header should be parseable as integer, got: " << retry_after;
+  }
 }
 
 }  // namespace projectagamemnon::test

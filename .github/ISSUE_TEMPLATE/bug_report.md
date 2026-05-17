@@ -1,7 +1,7 @@
 ---
 name: Bug report
 about: Report a defect or unexpected behavior
-labels: bug
+labels: [bug]
 ---
 
 ## Summary

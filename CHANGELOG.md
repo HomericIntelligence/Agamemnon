@@ -49,6 +49,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Infrastructure
 
 - `release`: add RELEASING.md and pre-release readiness check script (#19)
+
+## [0.1.0] - TBD
+
+### Added
+
+- Core HMAS 4-layer orchestration (L0-L3) for task delegation and escalation
+- REST API surface with pull-based work queue integration
+- NATS JetStream integration for task state machine and coordination
+- GitHub Issues/Projects as backing store for task state
+
+### Changed
+
+- Consolidated task orchestration logic from ProjectKeystone into Agamemnon
+
+### Fixed
+
+- Initial release
 - `docs`: add RELEASING.md with PyPI OIDC trusted publishing setup
 - `docs`: add SECURITY.md, CONTRIBUTING.md, CODE\_OF\_CONDUCT.md
 - `chore(ci)`: add unified required-checks workflow

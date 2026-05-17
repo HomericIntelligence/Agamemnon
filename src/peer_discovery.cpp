@@ -3,9 +3,11 @@
 #include <arpa/inet.h>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <netinet/in.h>
 #include <nlohmann/json.hpp>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
@@ -35,13 +37,20 @@ bool is_tailscale_ip(const std::string& ip) {
 
 std::string run_tailscale_status() {
   std::FILE* pipe = popen("tailscale status --json 2>/dev/null", "r");
-  if (!pipe) return "";
+  if (!pipe) {
+    // popen failed - daemon likely not running or command not found
+    return "";
+  }
   std::string result;
   std::array<char, 4096> buf{};
   while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe) != nullptr) {
     result += buf.data();
   }
-  pclose(pipe);
+  int exit_code = pclose(pipe);
+  if (exit_code != 0) {
+    // tailscale command failed - daemon not running or error
+    return "";
+  }
   return result;
 }
 
@@ -66,6 +75,25 @@ bool tcp_connect_with_timeout(const std::string& ip, int port, int timeout_ms) {
   bool ok = (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0);
   close(sock);
   return ok;
+}
+
+bool matches_hostname_pattern(const std::string& hostname, const std::string& pattern) {
+  if (pattern.empty()) return true;    // no pattern = match all
+  if (hostname.empty()) return false;  // empty hostname cannot match
+
+  // If pattern starts with ^ or contains .*, treat as regex
+  if (pattern.find('^') != std::string::npos || pattern.find(".*") != std::string::npos) {
+    try {
+      std::regex re(pattern);
+      return std::regex_match(hostname, re);
+    } catch (const std::regex_error&) {
+      // Invalid regex — fall back to substring match
+      return hostname.find(pattern) != std::string::npos;
+    }
+  }
+
+  // Otherwise, simple substring match
+  return hostname.find(pattern) != std::string::npos;
 }
 
 bool check_nats_monitoring(const std::string& ip, int monitor_port, int timeout_ms) {
@@ -160,11 +188,41 @@ bool probe_nats_peer(const std::string& ip, int nats_port, int monitor_port, int
   return tcp_connect_with_timeout(ip, nats_port, timeout_ms);
 }
 
-std::string discover_nats_url() {
+std::string discover_nats_url(const std::string& hostname_pattern) {
+  std::string pattern = hostname_pattern;
+  if (pattern.empty()) {
+    const char* env = std::getenv("NATS_PEER_HOSTNAME_PATTERN");
+    if (env) pattern = env;
+  }
+
+  // Read configurable ports and timeout from environment
+  int nats_port = 4222;     // default
+  int monitor_port = 8222;  // default
+  int timeout_ms = 500;     // default
+
+  const char* env_nats_port = std::getenv("NATS_PORT");
+  if (env_nats_port) {
+    nats_port = std::atoi(env_nats_port);
+    if (nats_port <= 0 || nats_port > 65535) nats_port = 4222;
+  }
+
+  const char* env_monitor_port = std::getenv("NATS_MONITOR_PORT");
+  if (env_monitor_port) {
+    monitor_port = std::atoi(env_monitor_port);
+    if (monitor_port <= 0 || monitor_port > 65535) monitor_port = 8222;
+  }
+
+  const char* env_timeout = std::getenv("NATS_DISCOVERY_TIMEOUT_MS");
+  if (env_timeout) {
+    timeout_ms = std::atoi(env_timeout);
+    if (timeout_ms <= 0) timeout_ms = 500;
+  }
+
   auto peers = enumerate_tailscale_peers();
   for (const auto& peer : peers) {
-    if (probe_nats_peer(peer.tailscale_ip)) {
-      return "nats://" + peer.tailscale_ip + ":4222";
+    if (!matches_hostname_pattern(peer.hostname, pattern)) continue;
+    if (probe_nats_peer(peer.tailscale_ip, nats_port, monitor_port, timeout_ms)) {
+      return "nats://" + peer.tailscale_ip + ":" + std::to_string(nats_port);
     }
   }
   return "";

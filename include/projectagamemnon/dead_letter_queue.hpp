@@ -20,12 +20,16 @@ class DeadLetterQueue {
     std::string payload;
     int attempts{0};
     int64_t timestamp_ms{0};  // milliseconds since epoch (steady_clock)
+    std::string level;        // from ADR-005 payload (e.g. "info", "error")
+    std::string service;      // from ADR-005 payload (e.g. "agamemnon")
   };
 
   explicit DeadLetterQueue(std::size_t capacity = 256) : capacity_(capacity) {}
 
   /// Enqueue a failed message. Evicts the oldest entry if at capacity.
-  void push(std::string subject, std::string payload, int attempts);
+  /// level and service are extracted from ADR-005 structured log payloads, if present.
+  void push(std::string subject, std::string payload, int attempts, std::string level = "",
+            std::string service = "");
 
   /// Remove and return all entries (drains the queue).
   std::vector<Entry> drain();

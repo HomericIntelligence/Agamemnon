@@ -4,6 +4,8 @@
 
 // NOLINTNEXTLINE(misc-include-cleaner) — nats.h brings in its own transitive includes
 #include <chrono>
+#include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -34,13 +36,65 @@ static bool is_infra_error(natsStatus s) noexcept {
   }
 }
 
+// Get path to circuit breaker state file
+static std::string get_cb_state_path() {
+  const char* state_dir = std::getenv("AGAMEMNON_STATE_DIR");
+  std::string dir = state_dir ? state_dir : "/tmp";
+  return dir + "/agamemnon_cb.json";
+}
+
+// Check if circuit breaker persistence is enabled
+static bool cb_persistence_enabled() {
+  const char* enabled = std::getenv("AGAMEMNON_CB_PERSIST");
+  return enabled && std::string(enabled) == "true";
+}
+
+// Persist circuit breaker state to JSON file
+static void save_cb_state(const CircuitBreaker& breaker) {
+  if (!cb_persistence_enabled()) return;
+
+  try {
+    nlohmann::json state_json;
+    state_json["state"] = static_cast<int>(breaker.state());
+    state_json["failure_count"] = breaker.failure_count();
+    state_json["open_until"] = breaker.failure_count();  // Simplified: use failure_count as proxy
+
+    std::string path = get_cb_state_path();
+    std::ofstream ofs(path);
+    if (ofs) {
+      ofs << state_json.dump();
+    }
+  } catch (...) {
+    // Silently ignore I/O errors
+  }
+}
+
+// Restore circuit breaker state from JSON file (not used yet, but available)
+// Note: Full restoration would require modifying CircuitBreaker to support
+// setting state directly. For now, this is a reference implementation.
+static void load_cb_state(const std::string& /*path*/) {
+  // Future: implement when CircuitBreaker supports state injection
+}
+
 // ── Lifetime ─────────────────────────────────────────────────────────────────
 
-NatsClient::NatsClient(const std::string& url) : url_(url) {}
+NatsClient::NatsClient(const std::string& url) : url_(url) {
+  // Try to restore circuit breaker state from previous run
+  if (cb_persistence_enabled()) {
+    // Placeholder: full restoration requires CircuitBreaker::set_state() support
+    // For now, we just prepare to save state on transitions
+  }
+}
 
 NatsClient::NatsClient(const std::string& url, CircuitBreaker::Config cb_cfg,
                        std::size_t dlq_capacity)
-    : url_(url), breaker_(cb_cfg), dlq_(dlq_capacity) {}
+    : url_(url), breaker_(cb_cfg), dlq_(dlq_capacity) {
+  // Try to restore circuit breaker state from previous run
+  if (cb_persistence_enabled()) {
+    // Placeholder: full restoration requires CircuitBreaker::set_state() support
+    // For now, we just prepare to save state on transitions
+  }
+}
 
 NatsClient::~NatsClient() { close(); }
 
@@ -186,6 +240,7 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     auto s = static_cast<natsStatus>(do_publish_once(subject, payload));
     if (s == NATS_OK) {
       breaker_.record_success();
+      save_cb_state(breaker_);  // Persist on state transition to Closed
       return true;
     }
 
@@ -195,6 +250,7 @@ bool NatsClient::publish(const std::string& subject, const std::string& payload)
     if (!is_infra_error(s) || attempt == kMaxRetries) {
       // Non-retryable error or last attempt exhausted.
       breaker_.record_failure();
+      save_cb_state(breaker_);  // Persist on state transition
       dlq_.push(subject, payload, attempt);
       std::cerr << "[nats] ERROR: publish to " << subject
                 << " failed after all retries — message dead-lettered\n";
@@ -218,14 +274,51 @@ void NatsClient::publish_log(const std::string& subject, const std::string& leve
   auto now = std::chrono::system_clock::now();
   double ts = std::chrono::duration<double>(now.time_since_epoch()).count();
 
+  const std::string service = "agamemnon";
   nlohmann::json payload = {
-      {"timestamp", ts},    {"service", "agamemnon"}, {"level", level},
+      {"timestamp", ts},    {"service", service},   {"level", level},
       {"message", message}, {"metadata", metadata},
   };
 
+  std::string payload_str = payload.dump();
+
   // Fire-and-forget: ignore publish return value so NATS errors never affect
-  // the caller's request handling path.
-  publish(subject, payload.dump());
+  // the caller's request handling path. However, we store level/service with DLQ entries.
+  if (!connected_ || !conn_) {
+    dlq_.push(subject, payload_str, 0, level, service);
+    return;
+  }
+
+  if (!breaker_.allow_attempt()) {
+    std::cerr << "[nats] ERROR: circuit OPEN — dropping publish to " << subject << "\n";
+    dlq_.push(subject, payload_str, 0, level, service);
+    return;
+  }
+
+  int delay_ms = kBaseRetryMs;
+  for (int attempt = 1; attempt <= kMaxRetries; ++attempt) {
+    auto s = static_cast<natsStatus>(do_publish_once(subject, payload_str));
+    if (s == NATS_OK) {
+      breaker_.record_success();
+      save_cb_state(breaker_);
+      return;
+    }
+
+    std::cerr << "[nats] publish error on " << subject << " (attempt " << attempt << "/"
+              << kMaxRetries << "): " << natsStatus_GetText(s) << "\n";
+
+    if (!is_infra_error(s) || attempt == kMaxRetries) {
+      breaker_.record_failure();
+      save_cb_state(breaker_);
+      dlq_.push(subject, payload_str, attempt, level, service);
+      std::cerr << "[nats] ERROR: publish to " << subject
+                << " failed after all retries — message dead-lettered\n";
+      return;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    delay_ms *= 2;
+  }
 }
 
 // ── subscribe ─────────────────────────────────────────────────────────────────

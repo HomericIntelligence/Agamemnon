@@ -22,6 +22,7 @@ bool probe_nats_peer(const std::string& ip, int nats_port = 4222, int monitor_po
 
 // Returns the first live "nats://<ip>:4222" URL discovered via Tailscale,
 // or an empty string if no live peer is found.
-std::string discover_nats_url();
+// If hostname_pattern is provided, filters peers by matching hostname.
+std::string discover_nats_url(const std::string& hostname_pattern = "");
 
 }  // namespace projectagamemnon

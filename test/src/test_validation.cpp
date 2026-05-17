@@ -314,6 +314,86 @@ TEST_F(ValidationTest, TaskPatchRejectsNonStringBlockedByElement) {
   EXPECT_EQ(status, 400);
 }
 
+// ── Non-string type validation ────────────────────────────────────────────────
+
+TEST_F(ValidationTest, AgentRejectsNonStringLabel) {
+  auto [status, body] = Post("/v1/agents", {{"name", "test"}, {"label", 123}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, AgentRejectsNonStringProgram) {
+  auto [status, body] = Post("/v1/agents", {{"name", "test"}, {"program", json::object()}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, AgentRejectsNonStringTaskDescription) {
+  auto [status, body] = Post("/v1/agents", {{"name", "test"}, {"taskDescription", json::array()}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, TaskRejectsNonStringSubject) {
+  std::string team_id = CreateTeam();
+  auto [status, body] = Post("/v1/teams/" + team_id + "/tasks", {{"subject", 42}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, TaskRejectsNonStringDescription) {
+  std::string team_id = CreateTeam();
+  auto [status, body] = Post("/v1/teams/" + team_id + "/tasks",
+                             {{"subject", "s"}, {"description", json::array({1, 2})}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, TaskPutRejectsNonStringSubject) {
+  std::string team_id = CreateTeam();
+  auto [s1, b1] = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "s"}});
+  ASSERT_EQ(s1, 201);
+  std::string task_id = b1["task"].value("id", "");
+
+  auto [status, body] = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"subject", true}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, TaskPutRejectsNonStringDescription) {
+  std::string team_id = CreateTeam();
+  auto [s1, b1] = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "s"}});
+  ASSERT_EQ(s1, 201);
+  std::string task_id = b1["task"].value("id", "");
+
+  auto [status, body] = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"description", 42}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, TaskPatchRejectsNonStringSubject) {
+  std::string team_id = CreateTeam();
+  auto [s1, b1] = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "s"}});
+  ASSERT_EQ(s1, 201);
+  std::string task_id = b1["task"].value("id", "");
+
+  auto [status, body] =
+      Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"subject", json::object()}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
+TEST_F(ValidationTest, TaskPatchRejectsNonStringDescription) {
+  std::string team_id = CreateTeam();
+  auto [s1, b1] = Post("/v1/teams/" + team_id + "/tasks", {{"subject", "s"}});
+  ASSERT_EQ(s1, 201);
+  std::string task_id = b1["task"].value("id", "");
+
+  auto [status, body] = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"description", 99}});
+  EXPECT_EQ(status, 400);
+  EXPECT_TRUE(body.contains("error"));
+}
+
 // ── Chaos validation ──────────────────────────────────────────────────────────
 
 TEST_F(ValidationTest, ChaosRejectsUnknownType) {
