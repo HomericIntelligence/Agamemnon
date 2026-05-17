@@ -43,6 +43,9 @@ class MockGitHubClient : public IGitHubClient {
 
   std::vector<json> list_issues(std::string_view label) override {
     calls.push_back({"list_issues", std::string(label), {}, {}});
+    if (!fail_list_on_label.empty() && fail_list_on_label == std::string(label)) {
+      throw std::runtime_error("simulated GitHub list failure for label: " + std::string(label));
+    }
     auto it = seed_issues.find(std::string(label));
     if (it == seed_issues.end()) return {};
     return it->second;
@@ -71,6 +74,9 @@ class MockGitHubClient : public IGitHubClient {
 
   /// Seed data: map label -> list of full issue JSON objects (with "body" field).
   std::unordered_map<std::string, std::vector<json>> seed_issues;
+
+  /// When non-empty, list_issues() throws std::runtime_error for this label (simulates GitHub 404).
+  std::string fail_list_on_label;
 
   std::vector<Call> calls;
   std::unordered_map<std::string, json> created_issues;
