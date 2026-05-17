@@ -24,4 +24,5 @@ test = "ctest --preset debug --output-on-failure && python -m pytest clients/pyt
 lint = "./scripts/lint.sh"
 format = "./scripts/format.sh"
 actionlint = "actionlint"
+ci-smoke = "python -m pytest clients/python/tests/test_ci_workflows.py -v"
 coverage = "conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing && cmake --preset coverage && cmake --build --preset coverage && ./scripts/coverage.sh"
