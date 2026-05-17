@@ -28,9 +28,7 @@ TaskBrief make_brief(std::string title = "test", std::vector<std::string> repos 
 
 class OrchestratorTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    orch_ = std::make_unique<Orchestrator>(store_, fake_nats_);
-  }
+  void SetUp() override { orch_ = std::make_unique<Orchestrator>(store_, fake_nats_); }
 
   Store store_;
   FakeNatsPublisher fake_nats_;
