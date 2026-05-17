@@ -191,6 +191,13 @@ just coverage      # Build + run coverage report
 just clean         # Remove build/ and install/
 ```
 
+Use the `tsan` preset (`cmake --preset tsan && cmake --build --preset tsan && ctest --preset tsan`) for
+concurrency regression testing targeting Store/NatsClient races (see #155, #161, #202). TSan is mutually
+exclusive with ASan/UBSan; the `tsan` preset explicitly disables the default sanitizers.
+
+```bash
+```
+
 Pre-commit hooks enforce formatting and [conventional commits](https://www.conventionalcommits.org/).
 Run `pixi run pre-commit install` once after cloning to activate them. Never bypass hooks with
 `--no-verify`.

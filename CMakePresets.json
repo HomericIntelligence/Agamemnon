@@ -63,6 +63,19 @@
         "ProjectAgamemnon_BUILD_TESTING": "ON",
         "ProjectAgamemnon_ENABLE_ASAN": "ON"
       }
+    },
+    {
+      "name": "tsan",
+      "displayName": "Debug build with ThreadSanitizer",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ProjectAgamemnon_BUILD_TESTING": "ON",
+        "ProjectAgamemnon_ENABLE_SANITIZERS": "OFF",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer -g",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=thread"
+      }
     }
   ],
   "buildPresets": [
@@ -85,6 +98,10 @@
     {
       "name": "asan",
       "configurePreset": "asan"
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan"
     }
   ],
   "testPresets": [
@@ -121,6 +138,16 @@
       "configurePreset": "asan",
       "output": {
         "outputOnFailure": true
+      }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "output": {
+        "outputOnFailure": true
+      },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1"
       }
     }
   ]
