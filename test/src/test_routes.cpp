@@ -348,6 +348,37 @@ TEST_F(RoutesTaskTest, PutTaskNotFound) {
   EXPECT_EQ(Put("/v1/teams/" + team_id + "/tasks/nope", {})->status, 404);
 }
 
+// Covers the status=completed path through PATCH/PUT (#207):
+// completedAt should become non-null and persist on subsequent GET.
+TEST_F(RoutesTaskTest, PatchTaskStatusCompletedSetsCompletedAt) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "finish"}})->body)["task"]["id"];
+  auto res = Patch("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "completed"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  auto body = json::parse(res->body);
+  EXPECT_EQ(body["task"]["status"], "completed");
+  EXPECT_FALSE(body["task"]["completedAt"].is_null());
+
+  auto get_res = Get("/v1/teams/" + team_id + "/tasks/" + task_id);
+  ASSERT_TRUE(get_res);
+  EXPECT_EQ(get_res->status, 200);
+  auto get_body = json::parse(get_res->body);
+  EXPECT_EQ(get_body["task"]["status"], "completed");
+  EXPECT_FALSE(get_body["task"]["completedAt"].is_null());
+}
+
+TEST_F(RoutesTaskTest, PutTaskStatusCompletedSetsCompletedAt) {
+  std::string task_id = json::parse(
+      Post("/v1/teams/" + team_id + "/tasks", {{"subject", "wrap"}})->body)["task"]["id"];
+  auto res = Put("/v1/teams/" + team_id + "/tasks/" + task_id, {{"status", "completed"}});
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 200);
+  auto body = json::parse(res->body);
+  EXPECT_EQ(body["task"]["status"], "completed");
+  EXPECT_FALSE(body["task"]["completedAt"].is_null());
+}
+
 // ── Chaos ─────────────────────────────────────────────────────────────────────
 
 TEST_F(RoutesHappyPathTest, ListChaosEmpty) {

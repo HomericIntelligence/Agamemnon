@@ -180,6 +180,8 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
 // All are owned by main() and outlive the server.
 
+// cppcheck-suppress unusedFunction
+// register_routes is the public entry point invoked from server_main.cpp.
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
                      Orchestrator& orchestrator) {
@@ -209,8 +211,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       res.set_content(R"({"error":"unauthorized"})", "application/json");
       return httplib::Server::HandlerResponse::Handled;
     }
-    // Health endpoints are exempt from rate limiting.
-    if (req.path == "/health" || req.path == "/v1/health") {
+    // Health and version endpoints are exempt from rate limiting
+    // (operational liveness/readiness/version probes by orchestrators).
+    if (req.path == "/health" || req.path == "/v1/health" || req.path == "/v1/version") {
       return httplib::Server::HandlerResponse::Unhandled;
     }
     if (!rl->allow(req.remote_addr)) {

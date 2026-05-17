@@ -254,6 +254,9 @@ json Store::list_agents(std::size_t limit, std::size_t offset) {
 }
 
 json Store::update_agent(const std::string& id, const json& fields) {
+  // Guard against null/non-object payloads from direct (non-route) callers;
+  // body.items() throws type_error.306 on a null json. See #209.
+  if (!fields.is_object()) return nullptr;
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_agents_loaded_();
   auto it = agents_.find(id);
@@ -424,6 +427,9 @@ json Store::get_task(const std::string& team_id, const std::string& task_id) {
 }
 
 json Store::update_task(const std::string& team_id, const std::string& task_id, const json& body) {
+  // Guard against null/non-object payloads from direct (non-route) callers;
+  // body.items() throws type_error.306 on a null json. See #209.
+  if (!body.is_object()) return nullptr;
   std::unique_lock<std::shared_mutex> lk(mutex_);
   ensure_tasks_loaded_();
   auto it = tasks_.find(task_id);
