@@ -29,6 +29,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_orchestrator.cpp
   src/test_planning_breakdown.cpp
   src/test_state_machine.cpp
+  src/test_github_client.cpp
 )
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
