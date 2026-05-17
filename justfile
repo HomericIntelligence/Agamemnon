@@ -21,7 +21,10 @@ build: deps
 test:
   pixi run -- ctest --preset debug --output-on-failure
 
-lint:
+check-version:
+  ./scripts/check-version-consistency.sh
+
+lint: check-version
   ./scripts/lint.sh
 
 format:
