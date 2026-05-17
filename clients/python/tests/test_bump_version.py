@@ -333,60 +333,78 @@ def test_direct_main_bumps_both_pyproject_files(
     assert 'version = "9.8.7"' in orch_toml.read_text(encoding="utf-8")
 
 
-# ── sync_security_md direct-call tests (lines 57-69) ──────────────────────────
+# ---------------------------------------------------------------------------
+# sync_security_md
+# ---------------------------------------------------------------------------
 
-
-SECURITY_MD_WITH_VERSION = """\
+SECURITY_MD = """\
 # Security Policy
 
 ## Supported Versions
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 1.2.3   | :white_check_mark: |
-| 1.0.0   | :x:                |
-"""
-
-SECURITY_MD_NO_VERSION_ROW = """\
-# Security Policy
-
-## Supported Versions
-
-No versions listed yet.
+| Version | Status  |
+| ------- | ------- |
+| 0.1.0   | Current |
+| 0.0.9   | EOL     |
 """
 
 
-def test_sync_security_md_updates_version(
+def test_sync_security_md_replaces_first_row(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Lines 57-69: file exists with a version row — updates it and prints confirmation."""
-    security_md = tmp_path / "SECURITY.md"
-    security_md.write_text(SECURITY_MD_WITH_VERSION, encoding="utf-8")
+    sec = tmp_path / "SECURITY.md"
+    sec.write_text(SECURITY_MD, encoding="utf-8")
 
-    bump_version_module.sync_security_md(security_md, "2.0.0")
+    bump_version_module.sync_security_md(sec, "1.2.3")
 
-    content = security_md.read_text(encoding="utf-8")
-    assert "2.0.0" in content
-    assert "1.2.3" not in content
-    assert "synced SECURITY.md version to 2.0.0" in capsys.readouterr().out
+    contents = sec.read_text(encoding="utf-8")
+    assert "| 1.2.3   |" in contents
+    # Older row must remain untouched (count=1 only replaces first match).
+    assert "| 0.0.9   | EOL     |" in contents
+    assert "synced SECURITY.md version to 1.2.3" in capsys.readouterr().out
 
 
-def test_sync_security_md_no_match_does_not_write(tmp_path: Path) -> None:
-    """Line 67: updated == text branch — file is not rewritten when no version row matches."""
-    security_md = tmp_path / "SECURITY.md"
-    security_md.write_text(SECURITY_MD_NO_VERSION_ROW, encoding="utf-8")
-    mtime_before = security_md.stat().st_mtime_ns
+def test_sync_security_md_noop_when_already_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sec = tmp_path / "SECURITY.md"
+    sec.write_text(SECURITY_MD, encoding="utf-8")
+    mtime_before = sec.stat().st_mtime_ns
 
-    bump_version_module.sync_security_md(security_md, "3.0.0")
+    bump_version_module.sync_security_md(sec, "0.1.0")
 
-    # File must be untouched (no write occurred).
-    assert security_md.stat().st_mtime_ns == mtime_before
+    # No textual change -> no write -> no confirmation print.
+    assert sec.stat().st_mtime_ns == mtime_before
+    assert "synced SECURITY.md" not in capsys.readouterr().out
 
 
 def test_sync_security_md_missing_file_is_noop(tmp_path: Path) -> None:
-    """Lines 54-55: file does not exist — function returns without error."""
-    missing = tmp_path / "SECURITY.md"
+    missing = tmp_path / "does-not-exist.md"
+
+    # Must not raise; must not create the file.
+    bump_version_module.sync_security_md(missing, "9.9.9")
+
     assert not missing.exists()
 
-    # Must not raise.
-    bump_version_module.sync_security_md(missing, "4.0.0")
+
+def test_direct_main_happy_path_also_syncs_security_md(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake_script = tmp_path / "scripts" / "bump-version.py"
+    fake_script.parent.mkdir(parents=True)
+    fake_script.write_text("# placeholder\n", encoding="utf-8")
+
+    toml = tmp_path / "clients" / "python" / "pyproject.toml"
+    toml.parent.mkdir(parents=True)
+    toml.write_text(MINIMAL_TOML, encoding="utf-8")
+
+    sec = tmp_path / "SECURITY.md"
+    sec.write_text(SECURITY_MD, encoding="utf-8")
+
+    monkeypatch.setattr(bump_version_module, "__file__", str(fake_script))
+    monkeypatch.setattr(sys, "argv", ["bump-version.py", "7.8.9"])
+
+    bump_version_module.main()
+
+    assert 'version = "7.8.9"' in toml.read_text(encoding="utf-8")
+    assert "| 7.8.9   |" in sec.read_text(encoding="utf-8")
