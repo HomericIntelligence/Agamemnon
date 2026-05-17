@@ -269,3 +269,62 @@ def test_direct_main_happy_path(
 
     assert 'version = "5.6.7"' in toml.read_text(encoding="utf-8")
     assert "bumped version to 5.6.7" in capsys.readouterr().out
+
+
+# ── sync_security_md direct-call tests (lines 57-69) ──────────────────────────
+
+
+SECURITY_MD_WITH_VERSION = """\
+# Security Policy
+
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 1.2.3   | :white_check_mark: |
+| 1.0.0   | :x:                |
+"""
+
+SECURITY_MD_NO_VERSION_ROW = """\
+# Security Policy
+
+## Supported Versions
+
+No versions listed yet.
+"""
+
+
+def test_sync_security_md_updates_version(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Lines 57-69: file exists with a version row — updates it and prints confirmation."""
+    security_md = tmp_path / "SECURITY.md"
+    security_md.write_text(SECURITY_MD_WITH_VERSION, encoding="utf-8")
+
+    bump_version_module.sync_security_md(security_md, "2.0.0")
+
+    content = security_md.read_text(encoding="utf-8")
+    assert "2.0.0" in content
+    assert "1.2.3" not in content
+    assert "synced SECURITY.md version to 2.0.0" in capsys.readouterr().out
+
+
+def test_sync_security_md_no_match_does_not_write(tmp_path: Path) -> None:
+    """Line 67: updated == text branch — file is not rewritten when no version row matches."""
+    security_md = tmp_path / "SECURITY.md"
+    security_md.write_text(SECURITY_MD_NO_VERSION_ROW, encoding="utf-8")
+    mtime_before = security_md.stat().st_mtime_ns
+
+    bump_version_module.sync_security_md(security_md, "3.0.0")
+
+    # File must be untouched (no write occurred).
+    assert security_md.stat().st_mtime_ns == mtime_before
+
+
+def test_sync_security_md_missing_file_is_noop(tmp_path: Path) -> None:
+    """Lines 54-55: file does not exist — function returns without error."""
+    missing = tmp_path / "SECURITY.md"
+    assert not missing.exists()
+
+    # Must not raise.
+    bump_version_module.sync_security_md(missing, "4.0.0")
