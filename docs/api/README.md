@@ -138,11 +138,18 @@ auto-marks the task completed.
 
 ### Chaos
 
+> **Registry only — fault injection forthcoming.** These endpoints record
+> fault declarations and broadcast them over NATS so external chaos drivers
+> (e.g. ProjectCharybdis) can observe the registry. The Agamemnon server
+> itself does NOT yet apply latency, partition, crash, or error behaviour
+> based on the registered faults. In-process injection is tracked as a
+> future enhancement.
+
 | Method | Path | Summary | Request Body | Response |
 |--------|------|---------|-------------|----------|
-| GET | `/v1/chaos` | List active faults | — | `{"faults":[...]}` |
-| POST | `/v1/chaos/{type}` | Inject fault | — | 201 `{"fault":{...}}` |
-| DELETE | `/v1/chaos/{id}` | Remove fault | — | `{"deleted":"<id>"}` |
+| GET | `/v1/chaos` | List registered faults | — | `{"faults":[...]}` |
+| POST | `/v1/chaos/{type}` | Register fault (not enforced) | — | 201 `{"fault":{...}}` |
+| DELETE | `/v1/chaos/{id}` | Remove fault from registry | — | `{"deleted":"<id>"}` |
 
 **Fault object fields:**
 

@@ -56,7 +56,13 @@ tags:
   - name: workflows
     description: Workflow management (placeholder — not yet implemented)
   - name: chaos
-    description: Chaos fault injection (for ProjectCharybdis integration)
+    description: |
+      **Fault registry only — actual fault injection is not yet wired.**
+      These endpoints record fault declarations and broadcast them over NATS
+      so external chaos drivers (e.g. ProjectCharybdis) can observe the
+      registry, but the Agamemnon server does NOT itself apply latency,
+      partition, crash, or error behaviour based on the registered faults.
+      In-process fault injection is tracked in issue #408.
   - name: HMAS
     description: |
       Hierarchical Multi-Agent System (HMAS) orchestration — submit researched
@@ -787,13 +793,18 @@ paths:
     get:
       operationId: listFaults
       tags: [chaos]
-      summary: List active chaos faults
+      summary: List registered chaos faults
+      description: |
+        Returns the fault registry. **Registry only — fault injection is not
+        yet wired into the request pipeline.** Registered faults are visible
+        here and broadcast over NATS, but the server does not apply latency,
+        partition, crash, or error behaviour based on them.
       parameters:
         - $ref: "#/components/parameters/LimitParam"
         - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
-          description: Array of active faults
+          description: Array of registered faults
           content:
             application/json:
               schema:
@@ -803,9 +814,14 @@ paths:
     post:
       operationId: injectFault
       tags: [chaos]
-      summary: Inject a chaos fault
+      summary: Register a chaos fault (registry only)
       description: |
-        Creates a new fault of the given type. The fault is immediately active.
+        **Registry only — fault injection forthcoming.** This endpoint
+        records the fault declaration in the in-memory fault store and
+        publishes a NATS event, but the Agamemnon server does NOT itself
+        apply the declared behaviour to subsequent requests. External
+        chaos drivers (e.g. ProjectCharybdis) consume the broadcast to
+        drive their own injection logic.
 
         The fault type is taken **entirely from the URL path parameter**. Any
         request body sent with this call is silently ignored — the underlying
@@ -821,7 +837,7 @@ paths:
         - $ref: "#/components/parameters/FaultType"
       responses:
         "201":
-          description: Fault injected
+          description: Fault registered (not yet enforced — see endpoint description)
           content:
             application/json:
               schema:
@@ -831,9 +847,11 @@ paths:
     delete:
       operationId: removeFault
       tags: [chaos]
-      summary: Remove a chaos fault
+      summary: Remove a chaos fault from the registry
       description: |
-        Removes the fault by ID, deactivating it.
+        Removes the fault by ID from the registry. **Registry only — see
+        the POST endpoint description for details on the not-yet-wired
+        injection behaviour.**
 
         Publishes to NATS: `hi.agents.chaos.removed`
       x-nats-events:
