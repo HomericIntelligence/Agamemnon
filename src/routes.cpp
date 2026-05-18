@@ -659,55 +659,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
   server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
-  // PATCH /v1/teams/:team_id/tasks/:task_id
-  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np](const httplib::Request& req,
-                                                              httplib::Response& res) {
-    std::string team_id = req.matches[1];
-    std::string task_id = req.matches[2];
-    json body;
-    if (!parse_body(req, res, body)) return;
-    if (body.contains("subject") && !body["subject"].is_string()) {
-      reply_bad_request(res, "'subject' must be a string");
-      return;
-    }
-    if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
-      return;
-    if (body.contains("description") && !body["description"].is_string()) {
-      reply_bad_request(res, "'description' must be a string");
-      return;
-    }
-    if (body.contains("description") &&
-        !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
-    if (body.contains("status") && body["status"].is_string() &&
-        !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
-      return;
-    if (body.contains("type") && body["type"].is_string() &&
-        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
-      return;
-    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
-      return;
-    json result = sp->update_task(team_id, task_id, body);
-    if (result.is_null()) {
-      reply_not_found(res, "task");
-      return;
-    }
-    std::string status = result.value("status", "");
-    json wrapped = {{"task", result}};
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", wrapped.dump());
-    if (status == "completed") {
-      std::string task_type = result.value("type", "unknown");
-      std::string assignee = result.value("assigneeAgentId", "");
-      np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
-                      {{"task_id", task_id},
-                       {"team_id", team_id},
-                       {"type", task_type},
-                       {"assignee", assignee}});
-    }
-    reply_json(res, 200, wrapped);
-  });
+  // PATCH /v1/teams/:team_id/tasks/:task_id — same semantics as PUT, share the handler.
+  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
   // ── Chaos ────────────────────────────────────────────────────────────────
 
