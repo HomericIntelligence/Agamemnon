@@ -4,8 +4,6 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-
-
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "error", "cancelled"})
 
 
