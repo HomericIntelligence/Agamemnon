@@ -74,11 +74,10 @@ class NatsClient : public NatsPublisher {
                    const nlohmann::json& metadata) override;
 
   /// Access the dead-letter queue (for drain/clear endpoints).
-  DeadLetterQueue& dead_letter_queue() { return dlq_; }
-  const DeadLetterQueue& dead_letter_queue() const { return dlq_; }
+  DeadLetterQueue* dead_letter_queue() override { return &dlq_; }
 
   /// Access the circuit breaker (for health endpoints).
-  const CircuitBreaker& circuit_breaker() const { return breaker_; }
+  CircuitBreaker* circuit_breaker() override { return &breaker_; }
 
  private:
   MetricsRegistry* metrics_ = nullptr;

@@ -1,9 +1,10 @@
 #include "projectagamemnon/routes.hpp"
 
 #include "projectagamemnon/auth.hpp"
+#include "projectagamemnon/circuit_breaker.hpp"
+#include "projectagamemnon/dead_letter_queue.hpp"
 #include "projectagamemnon/hmas_types.hpp"
 #include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"  // NatsClient derives NatsPublisher; needed for dynamic_cast
 #include "projectagamemnon/nats_publisher.hpp"
 #include "projectagamemnon/orchestrator.hpp"
 #include "projectagamemnon/rate_limiter.hpp"
@@ -194,10 +195,11 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      Orchestrator& orchestrator) {
   Store* sp = &store;
   NatsPublisher* np = &nats;
-  // nc is non-null only when a real NatsClient is passed (production).
-  // In tests, a FakeNatsPublisher is passed and nc will be nullptr —
-  // guarded accesses below skip NatsClient-only features (circuit breaker, DLQ).
-  NatsClient* nc = dynamic_cast<NatsClient*>(np);
+  // Production NatsClient overrides dead_letter_queue()/circuit_breaker() to
+  // return non-null pointers; FakeNatsPublisher in tests returns nullptr.
+  // Guarded accesses below skip these features when not available.
+  CircuitBreaker* breaker = np->circuit_breaker();
+  DeadLetterQueue* dlq = np->dead_letter_queue();
   RateLimiter* rl = &rate_limiter;
   AuthMiddleware* ap = &auth;
   MetricsRegistry* mp = &metrics;
@@ -245,21 +247,23 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
   });
 
-  server.Get("/v1/health", [nc](const httplib::Request&, httplib::Response& res) {
+  server.Get("/v1/health", [breaker, dlq](const httplib::Request&, httplib::Response& res) {
     json body = {{"status", "ok"}};
-    if (nc != nullptr) {
-      body["nats_circuit"] = nc->circuit_breaker().state_label();
-      body["dlq_depth"] = nc->dead_letter_queue().size();
+    if (breaker != nullptr) {
+      body["nats_circuit"] = breaker->state_label();
+    }
+    if (dlq != nullptr) {
+      body["dlq_depth"] = dlq->size();
     }
     reply_json(res, 200, body);
   });
 
   // GET /v1/dead-letter — drain and return all dead-lettered messages
-  // nc is owned by main() and outlives the server; reference capture is safe.
-  server.Get("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
+  // dlq is owned by main() (via NatsClient) and outlives the server.
+  server.Get("/v1/dead-letter", [dlq](const httplib::Request&, httplib::Response& res) {
     json arr = json::array();
-    if (nc != nullptr) {
-      auto entries = nc->dead_letter_queue().drain();
+    if (dlq != nullptr) {
+      auto entries = dlq->drain();
       for (const auto& e : entries) {
         arr.push_back({{"subject", e.subject},
                        {"payload", e.payload},
@@ -271,9 +275,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   });
 
   // DELETE /v1/dead-letter — discard all dead-lettered messages
-  server.Delete("/v1/dead-letter", [nc](const httplib::Request&, httplib::Response& res) {
-    if (nc != nullptr) {
-      nc->dead_letter_queue().clear();
+  server.Delete("/v1/dead-letter", [dlq](const httplib::Request&, httplib::Response& res) {
+    if (dlq != nullptr) {
+      dlq->clear();
     }
     reply_json(res, 200, {{"cleared", true}});
   });
@@ -659,55 +663,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // PUT /v1/teams/:team_id/tasks/:task_id — Telemachy uses PUT for task updates
   server.Put(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
-  // PATCH /v1/teams/:team_id/tasks/:task_id
-  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", [sp, np](const httplib::Request& req,
-                                                              httplib::Response& res) {
-    std::string team_id = req.matches[1];
-    std::string task_id = req.matches[2];
-    json body;
-    if (!parse_body(req, res, body)) return;
-    if (body.contains("subject") && !body["subject"].is_string()) {
-      reply_bad_request(res, "'subject' must be a string");
-      return;
-    }
-    if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
-      return;
-    if (body.contains("description") && !body["description"].is_string()) {
-      reply_bad_request(res, "'description' must be a string");
-      return;
-    }
-    if (body.contains("description") &&
-        !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
-      return;
-    if (body.contains("status") && body["status"].is_string() &&
-        !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
-      return;
-    if (body.contains("type") && body["type"].is_string() &&
-        !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
-      return;
-    if (body.contains("blockedBy") && !require_string_array(res, body["blockedBy"], "blockedBy"))
-      return;
-    json result = sp->update_task(team_id, task_id, body);
-    if (result.is_null()) {
-      reply_not_found(res, "task");
-      return;
-    }
-    std::string status = result.value("status", "");
-    json wrapped = {{"task", result}};
-    np->publish("hi.tasks." + team_id + "." + task_id + ".updated", wrapped.dump());
-    if (status == "completed") {
-      std::string task_type = result.value("type", "unknown");
-      std::string assignee = result.value("assigneeAgentId", "");
-      np->publish_log("hi.logs.agamemnon.task_completed", "info", "Task completed: " + task_id,
-                      {{"task_id", task_id},
-                       {"team_id", team_id},
-                       {"type", task_type},
-                       {"assignee", assignee}});
-    }
-    reply_json(res, 200, wrapped);
-  });
+  // PATCH /v1/teams/:team_id/tasks/:task_id — same semantics as PUT, share the handler.
+  server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
 
   // ── Chaos ────────────────────────────────────────────────────────────────
 

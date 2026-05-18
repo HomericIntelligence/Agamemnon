@@ -260,7 +260,7 @@ json Store::create_agent(const json& body) {
 
 json Store::get_agent(const std::string& id) {
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   return it->second;
@@ -277,7 +277,7 @@ json Store::get_agent_by_name(const std::string& name) {
 
 json Store::list_agents(std::size_t limit, std::size_t offset) {
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   // #340: deterministic pagination — collect into sorted vector, then slice.
   std::vector<std::pair<std::string, json>> sorted(agents_.begin(), agents_.end());
   std::sort(sorted.begin(), sorted.end(),
@@ -372,7 +372,7 @@ json Store::create_team(const json& body) {
 
 json Store::get_team(const std::string& id) {
   ensure_teams_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   return it->second;
@@ -380,7 +380,7 @@ json Store::get_team(const std::string& id) {
 
 json Store::list_teams(std::size_t limit, std::size_t offset) {
   ensure_teams_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   // #340: deterministic pagination — sort by key then slice.
   std::vector<std::pair<std::string, json>> sorted(teams_.begin(), teams_.end());
   std::sort(sorted.begin(), sorted.end(),
@@ -459,7 +459,7 @@ json Store::get_task(const std::string& team_id, const std::string& task_id) {
   // wildcard — callers must provide the owning team for cross-team safety.
   if (team_id.empty()) return nullptr;
   ensure_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (it->second.value("teamId", "") != team_id) return nullptr;
@@ -497,7 +497,7 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
 
 json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset) {
   ensure_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   // #340: deterministic pagination — collect team tasks, sort by key, then slice.
   std::vector<std::pair<std::string, json>> team_tasks;
   for (auto& [id, task] : tasks_) {
@@ -515,7 +515,7 @@ json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, s
 
 json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
   ensure_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(mutex_);
   // #340: deterministic pagination — sort by key then slice.
   std::vector<std::pair<std::string, json>> sorted(tasks_.begin(), tasks_.end());
   std::sort(sorted.begin(), sorted.end(),
