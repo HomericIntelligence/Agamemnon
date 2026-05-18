@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class TaskClaimer(Protocol):
     """Protocol for objects that can handle advance_dag_tracked calls."""
 
-    def advance_dag_tracked(self, team_id: str) -> None: ...
+    def advance_dag_tracked(self, team_id: str) -> asyncio.Task[Any]: ...
 
 
 class NATSListener:
