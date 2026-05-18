@@ -279,8 +279,6 @@ jobs:
       - name: Validate OpenAPI spec
         run: just docs-validate
 
-
->>>>>>> 5c14d3c (ci(docs): add docs-validate job for openapi spec changes (#143))
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
