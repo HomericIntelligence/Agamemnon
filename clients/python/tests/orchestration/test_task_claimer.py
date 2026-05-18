@@ -6,7 +6,6 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-
 from agamemnon.orchestration.task_claimer import TaskClaimer
 
 

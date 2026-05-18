@@ -11,8 +11,8 @@ from io import StringIO
 from unittest.mock import patch
 
 from agamemnon.orchestration.logging import (
-    JsonFormatter,
     AgamemnonLogger,
+    JsonFormatter,
     configure_logging,
     get_logger,
 )

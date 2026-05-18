@@ -5,8 +5,8 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-
 from agamemnon.orchestration.dag_walker import DAGWalker
+
 from tests.orchestration.helpers import make_agent, make_task
 
 
