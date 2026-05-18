@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from agamemnon.orchestration.logging import (
     JsonFormatter,
-    KeystoneLogger,
+    AgamemnonLogger,
     configure_logging,
     get_logger,
 )
@@ -50,15 +50,15 @@ class TestJsonFormatter:
         assert json.loads(raw) is not None
 
     def test_required_fields_present(self) -> None:
-        data = _format(_make_record(name="keystone.test"))
+        data = _format(_make_record(name="agamemnon.test"))
         assert "timestamp" in data
         assert "level" in data
         assert "logger" in data
         assert "message" in data
 
     def test_logger_name_matches_record(self) -> None:
-        data = _format(_make_record(name="keystone.daemon"))
-        assert data["logger"] == "keystone.daemon"
+        data = _format(_make_record(name="agamemnon.daemon"))
+        assert data["logger"] == "agamemnon.daemon"
 
     def test_level_matches_record(self) -> None:
         data = _format(_make_record(level=logging.WARNING))
@@ -144,17 +144,17 @@ class TestJsonFormatter:
 
 
 class TestGetLogger:
-    def test_returns_keystone_logger(self) -> None:
+    def test_returns_agamemnon_logger(self) -> None:
         lg = get_logger(component="test")
-        assert isinstance(lg, KeystoneLogger)
+        assert isinstance(lg, AgamemnonLogger)
 
     def test_component_sets_logger_name(self) -> None:
         lg = get_logger(component="daemon")
-        assert lg._logger.name == "keystone.daemon"
+        assert lg._logger.name == "agamemnon.daemon"
 
-    def test_no_component_uses_keystone_name(self) -> None:
+    def test_no_component_uses_agamemnon_name(self) -> None:
         lg = get_logger()
-        assert lg._logger.name == "keystone"
+        assert lg._logger.name == "agamemnon"
 
     def test_context_bound_at_construction(self) -> None:
         records: list[logging.LogRecord] = []
@@ -179,12 +179,12 @@ class TestGetLogger:
 
 
 # ---------------------------------------------------------------------------
-# TestKeystoneLoggerAdapter
+# TestAgamemnonLoggerAdapter
 # ---------------------------------------------------------------------------
 
 
-class TestKeystoneLoggerAdapter:
-    def _capturing_logger(self, component: str) -> tuple[KeystoneLogger, list[logging.LogRecord]]:
+class TestAgamemnonLoggerAdapter:
+    def _capturing_logger(self, component: str) -> tuple[AgamemnonLogger, list[logging.LogRecord]]:
         records: list[logging.LogRecord] = []
 
         class Cap(logging.Handler):
@@ -260,7 +260,7 @@ class TestKeystoneLoggerAdapter:
         lg._logger.handlers.clear()
 
     def test_debug_method_logs_at_debug_level(self) -> None:
-        """KeystoneLogger.debug() must log at DEBUG level (line 72)."""
+        """AgamemnonLogger.debug() must log at DEBUG level (line 72)."""
         lg, records = self._capturing_logger("debug_test")
         lg.debug("debug_msg", key="value")
         assert len(records) == 1
@@ -269,7 +269,7 @@ class TestKeystoneLoggerAdapter:
         lg._logger.handlers.clear()
 
     def test_warning_method_logs_at_warning_level(self) -> None:
-        """KeystoneLogger.warning() must log at WARNING level (line 80)."""
+        """AgamemnonLogger.warning() must log at WARNING level (line 80)."""
         lg, records = self._capturing_logger("warning_test")
         lg.warning("warn_msg", key="value")
         assert len(records) == 1
@@ -278,7 +278,7 @@ class TestKeystoneLoggerAdapter:
         lg._logger.handlers.clear()
 
     def test_error_method_logs_at_error_level(self) -> None:
-        """KeystoneLogger.error() must log at ERROR level (line 84)."""
+        """AgamemnonLogger.error() must log at ERROR level (line 84)."""
         lg, records = self._capturing_logger("error_test")
         lg.error("error_msg", key="value")
         assert len(records) == 1
@@ -287,7 +287,7 @@ class TestKeystoneLoggerAdapter:
         lg._logger.handlers.clear()
 
     def test_bind_creates_new_logger_with_merged_context(self) -> None:
-        """KeystoneLogger.bind() returns a new logger with merged context (line 99-101)."""
+        """AgamemnonLogger.bind() returns a new logger with merged context (line 99-101)."""
         lg1 = get_logger(component="bind_test", team_id="t1")
         lg2 = lg1.bind(task_id="task-1", agent_id="a1")
 
@@ -297,7 +297,7 @@ class TestKeystoneLoggerAdapter:
         assert lg2._context == {"team_id": "t1", "task_id": "task-1", "agent_id": "a1"}
 
     def test_bind_overrides_existing_fields(self) -> None:
-        """KeystoneLogger.bind() overrides existing fields in context."""
+        """AgamemnonLogger.bind() overrides existing fields in context."""
         lg1 = get_logger(component="bind_override", team_id="t1", task_id="old-task")
         lg2 = lg1.bind(task_id="new-task")
 
@@ -306,7 +306,7 @@ class TestKeystoneLoggerAdapter:
         assert lg2._context["team_id"] == "t1"
 
     def test_bind_does_not_mutate_original(self) -> None:
-        """KeystoneLogger.bind() must not mutate the original logger's context."""
+        """AgamemnonLogger.bind() must not mutate the original logger's context."""
         lg1 = get_logger(component="bind_immutable", team_id="t1")
         original_context = dict(lg1._context)
 
@@ -348,14 +348,14 @@ class TestConfigureLogging:
         buf = StringIO()
         with patch("sys.stderr", buf):
             configure_logging(level=logging.DEBUG)
-            logging.getLogger("keystone.level_test").debug("dbg_msg")
+            logging.getLogger("agamemnon.level_test").debug("dbg_msg")
         assert "dbg_msg" in buf.getvalue()
 
     def test_log_level_respected_warning_filters_debug(self) -> None:
         buf = StringIO()
         with patch("sys.stderr", buf):
             configure_logging(level=logging.WARNING)
-            logging.getLogger("keystone.level_test2").debug("should_not_appear")
+            logging.getLogger("agamemnon.level_test2").debug("should_not_appear")
         assert "should_not_appear" not in buf.getvalue()
 
     def test_output_goes_to_stderr(self) -> None:
