@@ -76,15 +76,24 @@ def _run(
     version: str, toml_content: str | None = None, *, tmp_path: Path
 ) -> subprocess.CompletedProcess[str]:
     toml = tmp_path / "pyproject.toml"
+    toml2 = tmp_path / "agamemnon_pyproject.toml"
     content = toml_content if toml_content is not None else MINIMAL_TOML
     toml.write_text(content, encoding="utf-8")
+    toml2.write_text(content, encoding="utf-8")
 
-    # Patch the script so it targets our tmp pyproject.toml
+    # Patch the script so it targets our tmp pyproject.toml(s)
     script_src = SCRIPT.read_text(encoding="utf-8")
     patched_src = script_src.replace(
-        'repo_root / "clients" / "python" / "pyproject.toml"',
-        f'Path(r"{toml}")',
+        'repo_root / "clients" / "python" / "pyproject.toml",\n'
+        '        repo_root / "agamemnon" / "pyproject.toml",',
+        f'Path(r"{toml}"),\n        Path(r"{toml2}"),',
     )
+    if patched_src == script_src:
+        # Fallback for older single-file layout (kept for diff robustness).
+        patched_src = script_src.replace(
+            'repo_root / "clients" / "python" / "pyproject.toml"',
+            f'Path(r"{toml}")',
+        )
     patched_script = tmp_path / "bump_version_patched.py"
     patched_script.write_text(patched_src, encoding="utf-8")
 
@@ -251,8 +260,9 @@ def test_direct_main_missing_toml(
 def test_direct_main_happy_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    # Build a fake repo layout: <tmp_path>/scripts/bump-version.py and
-    # <tmp_path>/clients/python/pyproject.toml. Redirect the module's
+    # Build a fake repo layout: <tmp_path>/scripts/bump-version.py,
+    # <tmp_path>/clients/python/pyproject.toml, and
+    # <tmp_path>/agamemnon/pyproject.toml. Redirect the module's
     # ``__file__`` so ``repo_root`` resolves into <tmp_path>.
     fake_script = tmp_path / "scripts" / "bump-version.py"
     fake_script.parent.mkdir(parents=True)
@@ -262,13 +272,65 @@ def test_direct_main_happy_path(
     toml.parent.mkdir(parents=True)
     toml.write_text(MINIMAL_TOML, encoding="utf-8")
 
+    toml_orch = tmp_path / "agamemnon" / "pyproject.toml"
+    toml_orch.parent.mkdir(parents=True)
+    toml_orch.write_text(MINIMAL_TOML, encoding="utf-8")
+
     monkeypatch.setattr(bump_version_module, "__file__", str(fake_script))
     monkeypatch.setattr(sys, "argv", ["bump-version.py", "5.6.7"])
 
     bump_version_module.main()
 
     assert 'version = "5.6.7"' in toml.read_text(encoding="utf-8")
-    assert "bumped version to 5.6.7" in capsys.readouterr().out
+    assert 'version = "5.6.7"' in toml_orch.read_text(encoding="utf-8")
+    captured = capsys.readouterr().out
+    assert captured.count("bumped version to 5.6.7") == 2
+
+
+def test_direct_main_errors_when_orchestration_toml_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """main() must fail if agamemnon/pyproject.toml is missing (dual-file lockstep)."""
+    fake_script = tmp_path / "scripts" / "bump-version.py"
+    fake_script.parent.mkdir(parents=True)
+    fake_script.write_text("# placeholder\n", encoding="utf-8")
+
+    toml = tmp_path / "clients" / "python" / "pyproject.toml"
+    toml.parent.mkdir(parents=True)
+    toml.write_text(MINIMAL_TOML, encoding="utf-8")
+    # Intentionally omit agamemnon/pyproject.toml.
+
+    monkeypatch.setattr(bump_version_module, "__file__", str(fake_script))
+    monkeypatch.setattr(sys, "argv", ["bump-version.py", "5.6.7"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        bump_version_module.main()
+    assert exc_info.value.code == 1
+
+
+def test_direct_main_bumps_both_pyproject_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: main() must update BOTH client and orchestration files."""
+    fake_script = tmp_path / "scripts" / "bump-version.py"
+    fake_script.parent.mkdir(parents=True)
+    fake_script.write_text("# placeholder\n", encoding="utf-8")
+
+    client_toml = tmp_path / "clients" / "python" / "pyproject.toml"
+    client_toml.parent.mkdir(parents=True)
+    client_toml.write_text(MINIMAL_TOML, encoding="utf-8")
+
+    orch_toml = tmp_path / "agamemnon" / "pyproject.toml"
+    orch_toml.parent.mkdir(parents=True)
+    orch_toml.write_text(MINIMAL_TOML, encoding="utf-8")
+
+    monkeypatch.setattr(bump_version_module, "__file__", str(fake_script))
+    monkeypatch.setattr(sys, "argv", ["bump-version.py", "9.8.7"])
+
+    bump_version_module.main()
+
+    assert 'version = "9.8.7"' in client_toml.read_text(encoding="utf-8")
+    assert 'version = "9.8.7"' in orch_toml.read_text(encoding="utf-8")
 
 
 # ── sync_security_md direct-call tests (lines 57-69) ──────────────────────────
