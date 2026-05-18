@@ -1,0 +1,74 @@
+name: Docker Image Publish
+
+# Builds the production Dockerfile and publishes the resulting image to
+# GitHub Container Registry (ghcr.io). Triggered by v* tags only — the
+# v0.1.0, v0.1.1, ... release flow same as the Python client release.
+#
+# Tags pushed:
+#   ghcr.io/<owner>/projectagamemnon:<version>       (e.g. v0.1.0)
+#   ghcr.io/<owner>/projectagamemnon:latest
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish-image:
+    name: Build and publish Docker image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Verify OIDC token endpoint is available
+        run: |
+          if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL}" ]; then
+            echo "::error::OIDC token endpoint is not available."
+            echo "::error::Ensure 'id-token: write' is present in workflow permissions."
+            exit 1
+          fi
+          echo "Preflight passed: OIDC is available."
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81  # v5.5.1
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/projectagamemnon
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@988b5a0280414f521da01fcc63a27aeeb4b104db  # v3.6.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@5cd11c3a4ced054e52742c5fd54dca954e0edd85  # v6.7.0
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
