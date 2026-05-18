@@ -28,6 +28,24 @@ If the scan blocks your PR:
 Never disable the scan or set `continue-on-error: true` — both are forbidden
 by repo CI and the org-wide pre-commit guard.
 
+## Transport Security
+
+### NATS TLS (tracked, in flight)
+
+The embedded `nats.c` client currently communicates in cleartext, relying
+on the Tailscale WireGuard tunnel for inter-host protection. Tracking
+work to enable `natsOptions_SetSecure` with a CA + (optional) mTLS is
+filed as [#412](https://github.com/HomericIntelligence/ProjectAgamemnon/issues/412)
+with a 2-week deadline. Until that lands, do not run Agamemnon on hosts
+that share their Tailscale network with untrusted workloads.
+
+### Audit trail (planned)
+
+Structured audit events on `hi.audit.agamemnon.*` are tracked under
+[#413](https://github.com/HomericIntelligence/ProjectAgamemnon/issues/413).
+Until shipped, reconstructing actor history requires correlating the
+GitHub Issues timeline with operational `hi.tasks.>` events.
+
 ## Reporting Security Vulnerabilities
 
 **Do not open public issues for security vulnerabilities.**

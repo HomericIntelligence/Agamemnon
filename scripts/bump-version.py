@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Rewrite the version field in clients/python/pyproject.toml."""
+"""Rewrite the version field in the project's pyproject.toml files.
+
+Updates both ``clients/python/pyproject.toml`` (the published client wheel)
+and ``agamemnon/pyproject.toml`` (the orchestration sub-package). Both files
+are kept in lockstep so a single ``v*`` git tag publishes consistent
+versions to PyPI.
+"""
 
 from __future__ import annotations
 
@@ -83,14 +89,19 @@ def main() -> None:
         sys.exit(1)
 
     repo_root = Path(__file__).resolve().parent.parent
-    toml_path = repo_root / "clients" / "python" / "pyproject.toml"
+    toml_paths = [
+        repo_root / "clients" / "python" / "pyproject.toml",
+        repo_root / "agamemnon" / "pyproject.toml",
+    ]
     security_md_path = repo_root / "SECURITY.md"
 
-    if not toml_path.exists():
-        print(f"error: {toml_path} does not exist", file=sys.stderr)
-        sys.exit(1)
+    for toml_path in toml_paths:
+        if not toml_path.exists():
+            print(f"error: {toml_path} does not exist", file=sys.stderr)
+            sys.exit(1)
 
-    bump_version(toml_path, new_version)
+    for toml_path in toml_paths:
+        bump_version(toml_path, new_version)
     sync_security_md(security_md_path, new_version)
 
 
