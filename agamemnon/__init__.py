@@ -1,1 +1,0 @@
-# ProjectAgamemnon Python package
