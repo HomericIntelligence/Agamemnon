@@ -99,6 +99,9 @@ jobs:
       - name: Check GitHub Actions workflow schemas
         run: actionlint
 
+      - name: Check GitHub Actions workflow schemas
+        run: actionlint
+
   markdownlint:
     name: markdownlint
     runs-on: ubuntu-24.04
