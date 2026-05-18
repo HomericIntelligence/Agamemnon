@@ -70,10 +70,19 @@ class AgamemnonClient:
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         """Send an HTTP request and return the parsed JSON response.
 
+        If ``self._config.api_key`` is set, an
+        ``Authorization: Bearer <key>`` header is added to every request.
+        Caller-supplied ``Authorization`` headers (passed via ``headers=...``)
+        are preserved and take precedence.
+
         Raises:
             AgamemnonConnectionError: If the server cannot be reached.
             AgamemnonAPIError: If the server returns a non-2xx status.
         """
+        if self._config.api_key:
+            headers = dict(kwargs.pop("headers", {}) or {})
+            headers.setdefault("Authorization", f"Bearer {self._config.api_key}")
+            kwargs["headers"] = headers
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.ConnectError as exc:

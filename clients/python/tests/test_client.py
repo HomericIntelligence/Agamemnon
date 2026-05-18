@@ -483,3 +483,48 @@ async def test_request_returns_none_on_204(client: AgamemnonClient) -> None:
 async def test_aclose() -> None:
     c = AgamemnonClient()
     await c.aclose()  # Should not raise
+
+
+# ── Authentication ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_request_sends_bearer_when_api_key_configured() -> None:
+    """When AgamemnonConfig.api_key is set, every request carries Authorization: Bearer."""
+    config = AgamemnonConfig(host="localhost", port=8080, api_key="s3cret-key")
+    authed = AgamemnonClient(config)
+    route = respx.get(f"{BASE_URL}/v1/version").mock(
+        return_value=httpx.Response(
+            200, json={"version": "0.1.0", "name": "ProjectAgamemnon"}
+        )
+    )
+    try:
+        await authed.version()
+    finally:
+        await authed.aclose()
+
+    assert route.called
+    sent = route.calls.last.request
+    assert sent.headers.get("Authorization") == "Bearer s3cret-key"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_request_omits_authorization_when_api_key_unset() -> None:
+    """With no api_key, no Authorization header is added (dev escape hatch)."""
+    config = AgamemnonConfig(host="localhost", port=8080, api_key=None)
+    unauthed = AgamemnonClient(config)
+    route = respx.get(f"{BASE_URL}/v1/version").mock(
+        return_value=httpx.Response(
+            200, json={"version": "0.1.0", "name": "ProjectAgamemnon"}
+        )
+    )
+    try:
+        await unauthed.version()
+    finally:
+        await unauthed.aclose()
+
+    assert route.called
+    sent = route.calls.last.request
+    assert "Authorization" not in sent.headers
