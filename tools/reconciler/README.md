@@ -58,16 +58,16 @@ them and refile here as needed if they describe live bugs.
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
 | `AGAMEMNON_URL` | `http://localhost:8080` | ProjectAgamemnon base URL |
-| `AGAMEMNON_API_KEY` | _(unset)_ | Bearer token / API key |
+| `AGAMEMNON_API_KEY` | *(unset)* | Bearer token / API key |
 | `AGAMEMNON_TIMEOUT` | `10` | HTTP timeout (s) |
-| `AGAMEMNON_CA_CERT` | _(unset)_ | PEM CA cert path |
-| `AGAMEMNON_CLIENT_CERT` | _(unset)_ | PEM client cert (mTLS) |
-| `AGAMEMNON_CLIENT_KEY` | _(unset)_ | PEM client key (mTLS) |
-| `AGAMEMNON_TLS_VERIFY` | _(true)_ | Set `false` to skip TLS verify |
+| `AGAMEMNON_CA_CERT` | *(unset)* | PEM CA cert path |
+| `AGAMEMNON_CLIENT_CERT` | *(unset)* | PEM client cert (mTLS) |
+| `AGAMEMNON_CLIENT_KEY` | *(unset)* | PEM client key (mTLS) |
+| `AGAMEMNON_TLS_VERIFY` | *(true)* | Set `false` to skip TLS verify |
 | `AIM_LOCK_FILE` | `.myrmidons.lock` | Apply lock file path |
 | `HIBERNATE_SETTLE_SECONDS` | `2` | Wait after hibernate |
 | `MYRMIDONS_DEFAULT_OWNER` | `$(whoami)` | Fallback owner during export |
-| `MYRMIDONS_YES` | _(unset)_ | Skip interactive prompts |
+| `MYRMIDONS_YES` | *(unset)* | Skip interactive prompts |
 | `SNAPSHOT_DIR` | `${REPO_ROOT}/.myrmidons/snapshots` | Pre-apply snapshot dir |
 
 ## Security notes

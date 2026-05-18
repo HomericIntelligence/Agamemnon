@@ -47,16 +47,19 @@ Treat Nomad integration as a **deferred future phase**, not a current capability
 ## Consequences
 
 ### Positive
+
 - Documentation accurately reflects what `apply.sh` and the YAML schema actually do.
 - The CI drift-detection test prevents future docs from silently re-introducing
   the overclaim without a corresponding code change.
 - No phantom capability is advertised to users who read the architecture docs.
 
 ### Negative / Trade-offs
+
 - Gap #3 (multi-host scheduling) remains open. Anyone expecting Nomad integration
   today will need to rely on the roadmap/future ADR instead of existing code.
 
 ### Neutral
+
 - When Nomad integration work actually begins, a new ADR (ADR-008 or similar)
   should document the design: how Myrmidons generates Nomad job files, which
   Nomad API endpoints it calls, and how `spec.deployment.type: nomad` would work.
@@ -66,6 +69,7 @@ Treat Nomad integration as a **deferred future phase**, not a current capability
 ## Alternatives Considered
 
 ### A. Implement Nomad integration now
+
 **Rejected.** No design spec exists. The `spec.deployment.type` validation in
 `validate-schemas.sh` explicitly rejects any value other than `local` or
 `docker`. Implementing Nomad scheduling is a substantial, multi-week effort
@@ -73,11 +77,13 @@ requiring Nomad cluster provisioning, HCL job template design, Nomad API client
 code, and changes to the agent YAML schema — none of which have been designed.
 
 ### B. Remove Nomad from the roadmap entirely
+
 **Rejected.** The multi-host scheduling gap is a real architectural limitation.
 Removing it from the roadmap would discard useful context for future planning
 and make it harder to revive the work later.
 
 ### C. Do nothing
+
 **Rejected.** Overclaiming documentation erodes trust. When a reader encounters
 the Architecture.md diagram and then finds no Nomad code, they cannot tell
 whether the integration exists somewhere they haven't looked, was removed, or
@@ -89,7 +95,7 @@ unambiguous.
 ## Implementation Scope (this ADR)
 
 | File | Change |
-|------|--------|
+| --- | --- |
 | `docs/adr/ADR-007-nomad-integration-strategy.md` | This file — documents the gap and deferral decision |
 | `README.md` | Adds a "Deployment scope" section clarifying supported types and linking to this ADR |
 | `tests/detect-doc-drift.sh` | Drift-detection test: fails if docs imply active Nomad integration |
@@ -105,6 +111,7 @@ Nomad integration work should be covered in a subsequent ADR after the necessary
 design is completed.
 
 When multi-host scheduling work begins:
+
 1. Write a new ADR covering the Nomad integration design.
 2. Add `spec.deployment.type: nomad` to the agent schema.
 3. Update `apply.sh` to generate Nomad job files and call the Nomad API.

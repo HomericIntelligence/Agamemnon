@@ -145,14 +145,17 @@ shell positional parameters bind by position, not name.
    changes and is absent from the result when the field is unchanged.
 
 6. **Run the caller consistency check** — must exit 0 before committing:
+
    ```bash
    ./scripts/check-compute-drift-callers.sh
    ```
+
    This script is also wired as a pre-commit hook and fires automatically
    whenever `reconcile.sh` or any of the three callers is staged.
 
 7. **Run the full unit test suite** — all drift tests (including the arity
    guard tests) must pass:
+
    ```bash
    pixi run test-unit
    ```
@@ -166,7 +169,7 @@ find yourself adding a fourth or fifth extension.
 ## Implementation Scope (this ADR)
 
 | File | Role |
-|------|------|
+| --- | --- |
 | `scripts/lib/reconcile.sh:335-431` | `compute_drift` definition, parameter comment block, and arity guard |
 | `scripts/apply.sh` | Primary caller — passes all 13 parameters |
 | `scripts/plan.sh` | Caller — dry-run drift check |
