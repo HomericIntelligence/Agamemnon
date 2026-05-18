@@ -1,6 +1,0 @@
-{
-  "manifest_path": "/tmp/agamemnon-400-test-fix/clients/python/pixi.toml",
-  "environment_name": "default",
-  "pixi_version": "0.39.5",
-  "environment_lock_file_hash": "b1967b4f44b32e32"
-}

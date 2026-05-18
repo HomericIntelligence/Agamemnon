@@ -16,6 +16,7 @@ conan.lock
 pixi.lock
 !clients/python/pixi.lock
 !agamemnon/pixi.lock
+.pixi/
 __pycache__/
 *.py[cod]
 *.egg-info/
