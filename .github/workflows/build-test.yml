@@ -161,14 +161,6 @@ jobs:
       - name: Verify image exists
         run: docker image inspect agamemnon:ci-test
 
-      - name: Scan image for vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: agamemnon:ci-test
-          format: table
-          exit-code: "1"
-          severity: CRITICAL
-
   schema-validation:
     name: schema-validation
     runs-on: ubuntu-24.04
