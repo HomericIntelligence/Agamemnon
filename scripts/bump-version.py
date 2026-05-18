@@ -95,13 +95,16 @@ def main() -> None:
     ]
     security_md_path = repo_root / "SECURITY.md"
 
-    for toml_path in toml_paths:
-        if not toml_path.exists():
-            print(f"error: {toml_path} does not exist", file=sys.stderr)
-            sys.exit(1)
+    # Check that clients/python/pyproject.toml exists (required).
+    # agamemnon/pyproject.toml is optional and will be skipped if missing.
+    required_toml = toml_paths[0]
+    if not required_toml.exists():
+        print(f"error: {required_toml} does not exist", file=sys.stderr)
+        sys.exit(1)
 
     for toml_path in toml_paths:
-        bump_version(toml_path, new_version)
+        if toml_path.exists():
+            bump_version(toml_path, new_version)
     sync_security_md(security_md_path, new_version)
 
 
