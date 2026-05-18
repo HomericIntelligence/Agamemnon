@@ -153,8 +153,12 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
                         "Brief completed: " + task.brief_id,
                         {{"brief_id", task.brief_id}, {"root_task_id", task_id}});
     }
+  } catch (const std::exception& e) {
+    std::cerr << "[orchestrator] on_myrmidon_completion failed for subject \"" << subject
+              << "\": " << e.what() << "\n";
   } catch (...) {
-    // Ignore malformed payloads.
+    std::cerr << "[orchestrator] on_myrmidon_completion failed for subject \"" << subject
+              << "\": unknown non-std::exception thrown\n";
   }
 }
 
