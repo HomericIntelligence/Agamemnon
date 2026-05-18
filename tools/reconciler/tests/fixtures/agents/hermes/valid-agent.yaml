@@ -1,0 +1,18 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: test-valid-agent
+  host: hermes
+spec:
+  label: Valid-Agent
+  program: claude-code
+  model: null
+  workingDirectory: /tmp
+  programArgs: ""
+  taskDescription: "A valid agent for testing"
+  tags: [test]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: local
+  desiredState: active

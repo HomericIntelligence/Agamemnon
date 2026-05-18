@@ -1,0 +1,111 @@
+name: Apply Agent Definitions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'agents/**'
+      - 'fleets/**'
+      - 'pixi.toml'
+      - 'pixi.lock'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  apply:
+    name: Reconcile Desired State
+    # Self-hosted runner required: Agamemnon is on the local network and is not
+    # reachable from GitHub-hosted runners. Register a runner on the same host
+    # (or LAN segment) as Agamemnon. See docs/self-hosted-runner.md for setup.
+    runs-on: [self-hosted, linux]
+    # Gate on vars.AGAMEMNON_URL (repository variable, not secret) — the URL
+    # is not sensitive and secrets context is unavailable in job-level if:.
+    # Set AGAMEMNON_URL as a repository *variable* (Settings > Variables) and
+    # AGAMEMNON_API_KEY as a repository *secret* to enable reconciliation.
+    if: ${{ vars.AGAMEMNON_URL != '' }}
+    timeout-minutes: 15
+    env:
+      AGAMEMNON_URL: ${{ vars.AGAMEMNON_URL }}
+      AGAMEMNON_API_KEY: ${{ secrets.AGAMEMNON_API_KEY }}
+      AGAMEMNON_CA_CERT_B64: ${{ secrets.AGAMEMNON_CA_CERT_B64 }}
+      AGAMEMNON_CLIENT_CERT_B64: ${{ secrets.AGAMEMNON_CLIENT_CERT_B64 }}
+      AGAMEMNON_CLIENT_KEY_B64: ${{ secrets.AGAMEMNON_CLIENT_KEY_B64 }}
+    steps:
+      - name: Mask secrets
+        run: |
+          if [[ -n "$AGAMEMNON_API_KEY" ]]; then
+            echo "::add-mask::$AGAMEMNON_API_KEY"
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Configure TLS
+        if: ${{ env.AGAMEMNON_CA_CERT_B64 != '' }}
+        run: |
+          echo "$AGAMEMNON_CA_CERT_B64" | base64 -d > /tmp/agamemnon-ca.pem
+          echo "AGAMEMNON_CA_CERT=/tmp/agamemnon-ca.pem" >> "$GITHUB_ENV"
+          if [[ -n "$AGAMEMNON_CLIENT_CERT_B64" ]]; then
+            echo "$AGAMEMNON_CLIENT_CERT_B64" | base64 -d > /tmp/agamemnon-client.pem
+            echo "$AGAMEMNON_CLIENT_KEY_B64" | base64 -d > /tmp/agamemnon-client.key
+            echo "AGAMEMNON_CLIENT_CERT=/tmp/agamemnon-client.pem" >> "$GITHUB_ENV"
+            echo "AGAMEMNON_CLIENT_KEY=/tmp/agamemnon-client.key" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up pixi
+        # jq and yq (go-yq) versions are pinned in pixi.lock:
+        #   jq    = 1.8.1  (conda-forge, issue #74)
+        #   go-yq = 4.53.2 (conda-forge, mikefarah/yq v4, issue #133)
+        # Run `pixi update` to bump these pins.
+        uses: ./.github/actions/setup-pixi
+
+      - name: Plan — show what will change
+        run: |
+          set -euo pipefail
+          chmod +x scripts/plan.sh scripts/lib/api.sh scripts/lib/reconcile.sh
+          # plan.sh is advisory in this informational step — its rc carries
+          # "drift / no drift" semantics depending on the script version. Log
+          # the rc to stdout so a regression in plan.sh is visible without
+          # blocking the subsequent apply step. Per Bucket F (see
+          # docs/runbooks/no-silent-failures.md), we use a plain stdout
+          # "WARN:" line rather than the advisory workflow annotation
+          # so the forbid-advisory-warnings lint rule is not tripped.
+          plan_rc=0
+          ./scripts/plan.sh || plan_rc=$?
+          if [ "$plan_rc" -ne 0 ]; then
+            echo "WARN: plan.sh exited $plan_rc (informational — apply step follows)"
+          fi
+
+      - name: Apply — reconcile desired state
+        run: |
+          chmod +x scripts/apply.sh
+          ./scripts/apply.sh --yes
+
+      - name: Convergence — verify all agents reached desired state
+        run: |
+          # Re-run in dry-run mode: if converged, plan.sh should report zero
+          # changes (no CREATE / UPDATE / WAKE / HIBERNATE actions).
+          chmod +x scripts/plan.sh
+          plan_output="$(./scripts/plan.sh 2>&1)"
+          echo "$plan_output"
+          if echo "$plan_output" | grep -qE '^\[(\+|~|!|z)\]'; then
+            echo "ERROR: Convergence check failed — drift after apply." >&2
+            echo "$plan_output" | grep -E '^\[(\+|~|!|z)\]' >&2
+            exit 1
+          fi
+          echo "Convergence verified: no drift detected."
+
+      - name: Status — verify no drift remains
+        run: |
+          chmod +x scripts/status.sh
+          ./scripts/status.sh
+
+      - name: Upload snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: myrmidons-snapshots-${{ github.run_id }}
+          path: .myrmidons/snapshots/
+          if-no-files-found: ignore
+          retention-days: 30

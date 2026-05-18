@@ -1,0 +1,10 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: minimal-agent
+  host: hermes
+spec:
+  program: claude-code
+  workingDirectory: /tmp/minimal
+  deployment:
+    type: local

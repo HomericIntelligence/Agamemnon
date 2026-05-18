@@ -1,0 +1,18 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: test-docker-no-image
+  host: hermes
+spec:
+  label: Invalid-Docker-No-Image
+  program: claude-code
+  model: null
+  workingDirectory: /tmp
+  programArgs: ""
+  taskDescription: "Docker agent missing image field"
+  tags: [test]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: docker
+  desiredState: active

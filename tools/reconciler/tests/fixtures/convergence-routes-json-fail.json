@@ -1,0 +1,40 @@
+{
+  "routes": [
+    {
+      "method": "POST",
+      "path": "/api/v1/agents",
+      "status": 201,
+      "body": {
+        "id": "cid1",
+        "name": "convergence-agent",
+        "status": "offline"
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agents/*",
+      "status": 200,
+      "body": {
+        "id": "cid1",
+        "name": "convergence-agent",
+        "status": "offline"
+      }
+    }
+  ],
+  "default_status": 200,
+  "default_body": [
+    {
+      "id": "cid1",
+      "name": "convergence-agent",
+      "status": "offline",
+      "label": "Convergence Agent",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/conv",
+      "programArgs": "",
+      "taskDescription": "convergence integration test",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    }
+  ]
+}

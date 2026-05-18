@@ -1,0 +1,45 @@
+{
+  "routes": [
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agents/*",
+      "status": 200,
+      "body": { "id": "uid1", "name": "unmanaged-prune-agent", "status": "offline" }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agents/*",
+      "status": 200,
+      "body": {}
+    }
+  ],
+  "default_status": 200,
+  "default_body": [
+    {
+      "id": "cid1",
+      "name": "convergence-agent",
+      "status": "active",
+      "label": "Convergence Agent",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/conv",
+      "programArgs": "",
+      "taskDescription": "convergence integration test",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    },
+    {
+      "id": "uid1",
+      "name": "unmanaged-prune-agent",
+      "status": "active",
+      "label": "Unmanaged Prune Agent",
+      "program": "claude-code",
+      "workingDirectory": "/tmp/unmanaged",
+      "programArgs": "",
+      "taskDescription": "unmanaged agent that should be pruned",
+      "tags": [],
+      "owner": "ci",
+      "role": "member"
+    }
+  ]
+}

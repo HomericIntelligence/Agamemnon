@@ -1,0 +1,37 @@
+name: Runner and Agamemnon Health Check
+
+on:
+  schedule:
+    # Run every 6 hours so failures surface well before a real apply is needed.
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  health:
+    name: Health Check
+    runs-on: [self-hosted, linux]
+    # Skip if AGAMEMNON_URL is not configured — same gate as apply.yml.
+    if: ${{ vars.AGAMEMNON_URL != '' }}
+    timeout-minutes: 5
+    env:
+      AGAMEMNON_URL: ${{ vars.AGAMEMNON_URL }}
+      AGAMEMNON_API_KEY: ${{ secrets.AGAMEMNON_API_KEY }}
+    steps:
+      - name: Mask secrets
+        run: |
+          if [[ -n "$AGAMEMNON_API_KEY" ]]; then
+            echo "::add-mask::$AGAMEMNON_API_KEY"
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Set up pixi
+        uses: ./.github/actions/setup-pixi
+
+      - name: Doctor — verify runner can reach Agamemnon
+        run: |
+          chmod +x scripts/doctor.sh
+          pixi run bash scripts/doctor.sh --skip-hooks

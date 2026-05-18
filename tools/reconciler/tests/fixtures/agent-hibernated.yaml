@@ -1,0 +1,18 @@
+apiVersion: myrmidons/v1
+kind: Agent
+metadata:
+  name: sleeping-agent
+  host: hermes
+spec:
+  label: Sleeping Agent
+  program: aider
+  model: gpt-4o
+  workingDirectory: /home/mvillmow/SleepProject
+  programArgs: ""
+  taskDescription: "A hibernated agent"
+  tags: [hibernated]
+  owner: mvillmow
+  role: member
+  deployment:
+    type: local
+  desiredState: hibernated
