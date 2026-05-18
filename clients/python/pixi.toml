@@ -15,6 +15,11 @@ pydantic = ">=2.0,<3"
 nats-py = ">=2.6,<3"
 
 [feature.dev.pypi-dependencies]
+# Canonical orchestration package, pulled in as a dev dependency so the
+# client tests under tests/orchestration/ can exercise the real
+# implementation rather than a vendored copy. See PR
+# refactor/orchestration-single-source-2026-05-17 (audit finding S1).
+"HomericIntelligence-Agamemnon-Orchestration" = { path = "../../agamemnon", editable = true }
 pytest = ">=8.0,<9"
 pytest-asyncio = ">=0.26,<1"
 pytest-cov = ">=5.0,<6"

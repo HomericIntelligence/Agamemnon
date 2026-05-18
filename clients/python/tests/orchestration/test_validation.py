@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from agamemnon.orchestration.validation import validate_id
 
 

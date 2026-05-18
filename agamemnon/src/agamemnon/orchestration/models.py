@@ -4,23 +4,22 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-
-
 TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "error", "cancelled"})
 
 
 def resolve_event_status(
     status: str | None,
-    data: dict | None,
+    data: dict[str, object] | None,
     new_status: str | None,
 ) -> str | None:
     """Resolve effective status from three possible sources in priority order.
 
     Priority: status > data["status"] > new_status
     """
-    resolved = status
+    resolved: str | None = status
     if not resolved and data:
-        resolved = data.get("status")
+        candidate = data.get("status")
+        resolved = candidate if isinstance(candidate, str) else None
     if not resolved:
         resolved = new_status
     return resolved
@@ -63,7 +62,7 @@ class TaskEvent(BaseModel):
 
     status: str | None = None
     newStatus: str | None = None  # noqa: N815 — matches camelCase JSON payload
-    data: dict | None = None
+    data: dict[str, object] | None = None
     taskId: str | None = None  # noqa: N815
     teamId: str | None = None  # noqa: N815
     effective_status: str | None = None

@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from agamemnon.orchestration.models import TaskEvent, resolve_event_status
+from pydantic import ValidationError
 
 
 class TestTaskEventFlatStatus:

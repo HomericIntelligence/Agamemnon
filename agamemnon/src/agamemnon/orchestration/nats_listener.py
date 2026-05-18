@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class TaskClaimer(Protocol):
     """Protocol for objects that can handle advance_dag_tracked calls."""
 
-    def advance_dag_tracked(self, team_id: str) -> None: ...
+    def advance_dag_tracked(self, team_id: str) -> asyncio.Task[Any]: ...
 
 
 class NATSListener:
@@ -161,9 +161,10 @@ class NATSListener:
         """Handle an incoming NATS task event, validating IDs and payload before dispatch.
 
         Validates both ``team_id`` and ``task_id`` extracted from the NATS subject.
-        If a raw payload is provided, it is parsed through :class:`~agamemnon.orchestration.models.TaskEvent`
-        for type-safe deserialization. Malformed IDs or invalid JSON produce a
-        warning log and the event is dropped without raising.
+        If a raw payload is provided, it is parsed through
+        :class:`~agamemnon.orchestration.models.TaskEvent` for type-safe
+        deserialization. Malformed IDs or invalid JSON produce a warning log
+        and the event is dropped without raising.
 
         Args:
             subject: The full NATS subject string (used for log context).

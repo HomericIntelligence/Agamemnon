@@ -15,6 +15,7 @@ CMakeUserPresets.json
 conan.lock
 pixi.lock
 !clients/python/pixi.lock
+!agamemnon/pixi.lock
 __pycache__/
 *.py[cod]
 *.egg-info/

@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 import nats.errors
 import nats.js.errors
 import pytest
-
 from agamemnon.orchestration.nats_listener import NATSListener
 
 
