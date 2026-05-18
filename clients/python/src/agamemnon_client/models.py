@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -9,12 +10,34 @@ from pydantic import BaseModel, Field
 # ── Configuration ─────────────────────────────────────────────────────────────
 
 
+def _default_api_key() -> str | None:
+    """Return the AGAMEMNON_API_KEY env var, or None if unset/empty.
+
+    An explicitly empty value is treated as unset so that the server-side
+    "development escape hatch" semantics line up: empty env var → no auth header
+    is sent.
+    """
+    value = os.environ.get("AGAMEMNON_API_KEY")
+    if value is None or value == "":
+        return None
+    return value
+
+
 class AgamemnonConfig(BaseModel):
-    """Configuration for the AgamemnonClient."""
+    """Configuration for the AgamemnonClient.
+
+    When ``api_key`` is set (either explicitly or via the ``AGAMEMNON_API_KEY``
+    environment variable), the client will send an
+    ``Authorization: Bearer <api_key>`` header on every request. If
+    ``api_key`` is ``None`` (the default when the env var is unset/empty),
+    no auth header is added — appropriate for talking to a server that was
+    itself launched without ``AGAMEMNON_API_KEY``.
+    """
 
     host: str = "localhost"
     port: int = 8080
     timeout: float = 30.0
+    api_key: str | None = Field(default_factory=_default_api_key)
 
 
 # ── Health / Version ──────────────────────────────────────────────────────────

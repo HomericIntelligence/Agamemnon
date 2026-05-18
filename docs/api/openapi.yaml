@@ -7,8 +7,15 @@ info:
     REST API for ProjectAgamemnon — the planning, coordination, and agentic orchestration
     service for the HomericIntelligence distributed agent mesh.
 
-    **Authentication:** Phase 1 has no authentication. All endpoints are unauthenticated.
-    Authentication will be added in a future phase.
+    **Authentication:** All endpoints (except `/health` and `/v1/health`) require an API key
+    when the server is launched with `AGAMEMNON_API_KEY` set. Two header forms are accepted:
+
+    * `Authorization: Bearer <key>`
+    * `X-API-Key: <key>`
+
+    If `AGAMEMNON_API_KEY` is unset or empty in the server environment, authentication is
+    disabled and requests are accepted unauthenticated (development escape hatch). In
+    production deployments the environment variable MUST be set.
 
     **Transport:** Internal mesh traffic only (no TLS). Intended to be reached over Tailscale
     (100.x.x.x) or localhost.
@@ -33,6 +40,10 @@ servers:
         default: "8080"
         description: Port Agamemnon is listening on (PORT env var; default 8080)
 
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
+
 tags:
   - name: health
     description: Health and version checks
@@ -46,6 +57,11 @@ tags:
     description: Workflow management (placeholder — not yet implemented)
   - name: chaos
     description: Chaos fault injection (for ProjectCharybdis integration)
+  - name: HMAS
+    description: |
+      Hierarchical Multi-Agent System (HMAS) orchestration — submit researched
+      briefs, retrieve generated task trees, and drive L0–L3 state transitions
+      (escalate / complete / state lookup).
 
 paths:
 
@@ -57,6 +73,7 @@ paths:
       tags: [health]
       summary: Root health check
       description: Unauthenticated liveness probe. Returns service name.
+      security: []
       responses:
         "200":
           description: Service is alive
@@ -74,6 +91,7 @@ paths:
       tags: [health]
       summary: Versioned health check
       description: Preferred liveness probe for v1 clients.
+      security: []
       responses:
         "200":
           description: Service is alive
@@ -107,6 +125,9 @@ paths:
       operationId: listAgents
       tags: [agents]
       summary: List all agents
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of all registered agents
@@ -307,6 +328,9 @@ paths:
       operationId: listTeams
       tags: [teams]
       summary: List all teams
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of all teams
@@ -423,6 +447,9 @@ paths:
       operationId: listAllTasks
       tags: [tasks]
       summary: List all tasks across all teams
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of all tasks
@@ -438,6 +465,8 @@ paths:
       summary: List tasks for a team
       parameters:
         - $ref: "#/components/parameters/TeamIdPath"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of tasks belonging to this team
@@ -605,6 +634,153 @@ paths:
               example:
                 workflows: []
 
+  # ── HMAS Orchestration ────────────────────────────────────────────────────────
+
+  /v1/briefs:
+    post:
+      operationId: submitBrief
+      tags: [HMAS]
+      summary: Submit a TaskBrief for HMAS orchestration
+      description: |
+        Accepts a researched `TaskBrief` (title, description, repos, modules,
+        per-module impl notes) and registers it with the orchestrator. The
+        orchestrator decomposes the brief into a tree of HMAS tasks and returns
+        the resulting plan.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskBrief"
+            example:
+              title: Wire X-API-Key header into SDK
+              description: Auth roundtrip implementation
+              repos: ["ProjectAgamemnon"]
+              modules:
+                ProjectAgamemnon: ["clients/python"]
+              impls:
+                ProjectAgamemnon:
+                  clients/python: ["Add api_key to AgamemnonConfig"]
+      responses:
+        "201":
+          description: Brief submitted; returns the generated plan
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasPlan"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /v1/briefs/{id}/plan:
+    get:
+      operationId: getBriefPlan
+      tags: [HMAS]
+      summary: Retrieve the HMAS task tree for a brief
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Brief ID returned by `POST /v1/briefs`
+      responses:
+        "200":
+          description: Plan found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasPlan"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/tasks/{id}/escalate:
+    post:
+      operationId: escalateHmasTask
+      tags: [HMAS]
+      summary: Escalate an in-progress HMAS task
+      description: |
+        Escalates the task to the parent layer in the HMAS hierarchy. The escalation
+        record (with `reason` and `from_layer`) is appended to the task's
+        `escalations` array and published to NATS.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAS task ID
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HmasEscalateRequest"
+            example:
+              reason: blocked on upstream decision
+      responses:
+        "200":
+          description: Task escalated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasEscalateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/tasks/{id}/complete:
+    post:
+      operationId: completeHmasTask
+      tags: [HMAS]
+      summary: Mark an HMAS task as completed
+      description: |
+        Reports completion of an HMAS task (used by myrmidons via the Telemachy
+        completion protocol). The orchestrator records the completion and may
+        unblock dependent tasks.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAS task ID
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Optional completion payload (free-form for now)
+              additionalProperties: true
+      responses:
+        "200":
+          description: Task marked completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasCompleteResponse"
+
+  /v1/tasks/{id}/state:
+    get:
+      operationId: getHmasTaskState
+      tags: [HMAS]
+      summary: Get current HMAS task state
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: HMAS task ID
+      responses:
+        "200":
+          description: HMAS task state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HmasTaskStateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
   # ── Chaos ─────────────────────────────────────────────────────────────────────
 
   /v1/chaos:
@@ -612,6 +788,9 @@ paths:
       operationId: listFaults
       tags: [chaos]
       summary: List active chaos faults
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/OffsetParam"
       responses:
         "200":
           description: Array of active faults
@@ -676,7 +855,53 @@ paths:
 
 components:
 
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API key supplied as `Authorization: Bearer <key>`. The expected key is the
+        value of the server's `AGAMEMNON_API_KEY` environment variable. When the
+        server is launched without `AGAMEMNON_API_KEY` (or with an empty value),
+        authentication is disabled (development escape hatch).
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        API key supplied as `X-API-Key: <key>`. The expected key is the value of
+        the server's `AGAMEMNON_API_KEY` environment variable. When the server is
+        launched without `AGAMEMNON_API_KEY` (or with an empty value),
+        authentication is disabled (development escape hatch).
+
   parameters:
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 1000
+        default: 100
+      description: |
+        Maximum number of items to return. Defaults to 100; capped at 1000.
+        Values outside the allowed range may be silently clamped by the server.
+
+    OffsetParam:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        default: 0
+      description: |
+        Number of items to skip before starting to return results. Pair with
+        `limit` to paginate through large collections.
+
     AgentId:
       name: id
       in: path
@@ -850,8 +1075,10 @@ components:
           default: local
         status:
           type: string
-          enum: [online, offline]
-          description: Set to `offline` at creation; changed by /start and /stop
+          enum: [online, offline, error]
+          description: |
+            Set to `offline` at creation; changed by `/start` (`online`) and `/stop`
+            (`offline`). May also be `error` if the agent reports a fatal failure.
         createdAt:
           type: string
           format: date-time
@@ -918,7 +1145,7 @@ components:
           type: string
         status:
           type: string
-          enum: [online, offline]
+          enum: [online, offline, error]
 
     AgentWrapper:
       type: object
@@ -943,7 +1170,7 @@ components:
       properties:
         status:
           type: string
-          enum: [online, offline]
+          enum: [online, offline, error]
         id:
           type: string
 
@@ -1057,7 +1284,7 @@ components:
           default: general
         status:
           type: string
-          enum: [pending, in_progress, completed, failed]
+          enum: [pending, running, completed, failed, blocked]
           default: pending
         createdAt:
           type: string
@@ -1102,7 +1329,7 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, in_progress, completed, failed]
+          enum: [pending, running, completed, failed, blocked]
 
     TaskWrapper:
       type: object
@@ -1164,3 +1391,169 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Fault"
+
+    # ── HMAS ────────────────────────────────────────────────────────────────
+
+    HmasLayer:
+      type: string
+      enum: [L0_ChiefArchitect, L1_ComponentLead, L2_ModuleLead, L3_TaskAgent]
+      description: HMAS hierarchy layer (L0 highest, L3 lowest)
+
+    HmasTaskState:
+      type: string
+      enum: [Pending, Decomposing, Delegated, InProgress, Escalated, Completed, Failed]
+      description: HMAS task state machine value
+
+    HmasEscalationRecord:
+      type: object
+      required: [task_id, reason, escalated_at, from_layer]
+      properties:
+        task_id:
+          type: string
+        reason:
+          type: string
+        escalated_at:
+          type: string
+          format: date-time
+        from_layer:
+          $ref: "#/components/schemas/HmasLayer"
+
+    HmasTask:
+      type: object
+      required:
+        - id
+        - brief_id
+        - layer
+        - state
+        - subject
+        - blocked_by
+        - child_task_ids
+        - escalations
+      properties:
+        id:
+          type: string
+        brief_id:
+          type: string
+        parent_task_id:
+          type: string
+          description: Empty string for the root task
+        layer:
+          $ref: "#/components/schemas/HmasLayer"
+        state:
+          $ref: "#/components/schemas/HmasTaskState"
+        subject:
+          type: string
+        description:
+          type: string
+        repo:
+          type: string
+        module:
+          type: string
+        assigned_lead_id:
+          type: string
+        blocked_by:
+          type: array
+          items:
+            type: string
+        child_task_ids:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: ["string", "null"]
+          format: date-time
+        escalations:
+          type: array
+          items:
+            $ref: "#/components/schemas/HmasEscalationRecord"
+
+    TaskBrief:
+      type: object
+      required: [title]
+      properties:
+        id:
+          type: string
+          description: Optional client-supplied ID; server generates one if omitted
+        title:
+          type: string
+        description:
+          type: string
+        repos:
+          type: array
+          items:
+            type: string
+          description: Repos in scope for this brief
+        modules:
+          type: object
+          description: Map of repo → list of module names
+          additionalProperties:
+            type: array
+            items:
+              type: string
+        impls:
+          type: object
+          description: Nested map repo → module → list of implementation tasks
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: array
+              items:
+                type: string
+
+    HmasPlan:
+      type: object
+      required: [brief_id, root, tasks]
+      properties:
+        brief_id:
+          type: string
+        root:
+          oneOf:
+            - $ref: "#/components/schemas/HmasTask"
+            - type: "null"
+          description: Root task of the plan tree, or null if no tasks were generated
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/HmasTask"
+
+    HmasEscalateRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Free-form escalation reason; defaults to "unspecified"
+          default: unspecified
+
+    HmasEscalateResponse:
+      type: object
+      required: [task_id, escalated]
+      properties:
+        task_id:
+          type: string
+        escalated:
+          type: boolean
+
+    HmasCompleteResponse:
+      type: object
+      required: [task_id, completed]
+      properties:
+        task_id:
+          type: string
+        completed:
+          type: boolean
+
+    HmasTaskStateResponse:
+      type: object
+      required: [task_id, state, layer, task]
+      properties:
+        task_id:
+          type: string
+        state:
+          $ref: "#/components/schemas/HmasTaskState"
+        layer:
+          $ref: "#/components/schemas/HmasLayer"
+        task:
+          $ref: "#/components/schemas/HmasTask"

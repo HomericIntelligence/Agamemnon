@@ -4,7 +4,17 @@ Full machine-readable spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
 
 **Base URL:** `http://localhost:8080` (override port with `PORT` env var)
 
-**Authentication:** None — Phase 1 is unauthenticated. All endpoints are open.
+**Authentication:** All endpoints other than `/health` and `/v1/health` require an API key
+when the server is launched with the `AGAMEMNON_API_KEY` environment variable set. Two
+header forms are accepted:
+
+- `Authorization: Bearer <key>`
+- `X-API-Key: <key>`
+
+The expected key is the value of the server's `AGAMEMNON_API_KEY` env var. If
+`AGAMEMNON_API_KEY` is **unset or empty** in the server environment, authentication is
+disabled and all requests are accepted (development escape hatch). Production deployments
+MUST set this variable.
 
 ---
 
@@ -102,7 +112,7 @@ in issue #144 — docker-hosted agents are created via `POST /v1/agents` with `h
 | `assigneeAgentId` | string | Assigned agent UUID; empty if unassigned |
 | `blockedBy` | string[] | Task IDs blocking this task |
 | `type` | string | Default `"general"`; used as myrmidon queue key |
-| `status` | string | `pending`\|`in_progress`\|`completed`\|`failed`; always `"pending"` at creation |
+| `status` | string | `pending`\|`running`\|`completed`\|`failed`\|`blocked`; always `"pending"` at creation |
 | `createdAt` | ISO 8601 UTC | Assigned at creation; immutable |
 | `completedAt` | ISO 8601 UTC \| null | Auto-set when `status` → `"completed"` |
 
