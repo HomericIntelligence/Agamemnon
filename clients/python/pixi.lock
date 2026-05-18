@@ -59,6 +59,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: .
+      - pypi: ../../agamemnon
       osx-64:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/bzip2-1.0.8-h500dc9f_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.4.22-hbd8a1cb_0.conda
@@ -106,6 +107,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: .
+      - pypi: ../../agamemnon
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/bzip2-1.0.8-hd037594_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.4.22-hbd8a1cb_0.conda
@@ -152,6 +154,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: .
+      - pypi: ../../agamemnon
       win-64:
       - conda: https://conda.anaconda.org/conda-forge/win-64/bzip2-1.0.8-h0ad9c76_9.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/ca-certificates-2026.4.22-h4c7d964_0.conda
@@ -201,6 +204,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/18/67/36e9267722cc04a6b9f15c7f3441c2363321a3ea07da7ae0c0707beb2a9c/typing_extensions-4.15.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/dc/9b/47798a6c91d8bdb567fe2698fe81e0c6b7cb7ef4d13da4114b41d239f65d/typing_inspection-0.4.2-py3-none-any.whl
       - pypi: .
+      - pypi: ../../agamemnon
   lint:
     channels:
     - url: https://conda.anaconda.org/conda-forge/
@@ -658,7 +662,7 @@ packages:
 - pypi: .
   name: homericintelligence-agamemnon
   version: 0.1.0
-  sha256: 9245d4f6d4f16ff53c3c1aed89a605a27c956695b75654f5598e41d3ff247e15
+  sha256: ef89f1643c9d678ba7615ad9882eb1850bbdcdcdefa00acf943e0dd35f3d5c01
   requires_dist:
   - httpx>=0.27,<1
   - pydantic>=2.0,<3
@@ -672,6 +676,21 @@ packages:
   - mypy>=1.10,<2 ; extra == 'dev'
   - ruff>=0.4,<1 ; extra == 'dev'
   - pyyaml>=6.0,<7 ; extra == 'dev'
+  requires_python: '>=3.9'
+  editable: true
+- pypi: ../../agamemnon
+  name: homericintelligence-agamemnon-orchestration
+  version: 0.1.0
+  sha256: c718686d8cae742ade9741c55ce46f12c1e28aa01ceaa9552372bea3da8d9ca4
+  requires_dist:
+  - pydantic>=2.0,<3
+  - nats-py>=2.0,<3
+  - mypy>=1.8.0,<2 ; extra == 'dev'
+  - pytest>=8.0,<10 ; extra == 'dev'
+  - pytest-asyncio>=0.23 ; extra == 'dev'
+  - pytest-cov>=5.0,<7 ; extra == 'dev'
+  - pytest-timeout>=2.3,<3 ; extra == 'dev'
+  - ruff>=0.4 ; extra == 'dev'
   requires_python: '>=3.9'
   editable: true
 - pypi: https://files.pythonhosted.org/packages/7e/f5/f66802a942d491edb555dd61e3a9961140fd64c90bce1eafd741609d334d/httpcore-1.0.9-py3-none-any.whl
