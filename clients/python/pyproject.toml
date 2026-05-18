@@ -46,6 +46,13 @@ strict = true
 python_version = "3.9"
 packages = ["agamemnon_client", "agamemnon"]
 
+[[tool.mypy.overrides]]
+module = [
+    "nats.*",
+    "respx.*",
+]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

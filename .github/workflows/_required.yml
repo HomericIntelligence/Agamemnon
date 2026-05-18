@@ -69,11 +69,35 @@ jobs:
       - name: Build (runs clang-tidy)
         run: cmake --build --preset debug
 
-      - name: Install mypy
-        run: pip install mypy
+      - name: Restore pixi cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            clients/python/.pixi
+            ~/.cache/rattler/cache
+          key: pixi-lint-${{ runner.os }}-${{ hashFiles('clients/python/pixi.lock') }}
+          restore-keys: pixi-lint-${{ runner.os }}-
+
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@v0.9.5
+        with:
+          pixi-version: v0.67.2
+          manifest-path: clients/python/pixi.toml
+          cache: false
 
       - name: Enforce Python client type check
-        run: mypy clients/python/ --ignore-missing-imports
+        run: pixi run --manifest-path clients/python/pixi.toml typecheck
+
+      - name: Install actionlint
+        run: |
+          ACTIONLINT_VERSION=1.7.7
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/actionlint.tar.gz
+          tar -xz -C /usr/local/bin -f /tmp/actionlint.tar.gz actionlint
+          actionlint --version
+
+      - name: Check GitHub Actions workflow schemas
+        run: actionlint
 
   markdownlint:
     name: markdownlint
