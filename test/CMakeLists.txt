@@ -150,7 +150,17 @@ add_executable(${PROJECT_NAME}_agents_tests
   src/agents/test_agent_concepts.cpp
   src/agents/test_basic_delegation.cpp
   src/agents/test_module_coordination.cpp
-  src/agents/test_component_coordination.cpp)
+  src/agents/test_component_coordination.cpp
+  # Coverage for ported executors that the behavioural suites did not reach:
+  # core metrics, chaos failure injector, work-stealing PullOrSteal awaitables,
+  # and the TaskAgent bash-execution strategy (ADR-015 port).
+  src/agents/test_metrics.cpp
+  src/agents/test_failure_injector.cpp
+  src/agents/test_pull_or_steal.cpp
+  src/agents/test_task_execution_strategy.cpp
+  src/agents/test_logger.cpp
+  src/agents/test_message_factory.cpp
+  src/agents/test_agent_core.cpp)
 
 target_compile_features(${PROJECT_NAME}_agents_tests PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_agents_tests PROPERTIES CXX_EXTENSIONS OFF)
