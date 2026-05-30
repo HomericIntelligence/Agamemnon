@@ -27,6 +27,9 @@ find_package(nlohmann_json REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(prometheus-cpp REQUIRED)
+# ADR-015: lock-free MPMC queue backing the ported HMAS agent runtime.
+find_package(concurrentqueue REQUIRED)
+find_package(Threads REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -124,6 +127,75 @@ target_compile_options(ProjectAgamemnon_core PRIVATE
   -Wno-cast-align
 )
 
+# ── agamemnon_agents — ported HMAS C++ agent executors + work-stealing ───────
+# ADR-015 (HomericIntelligence/Odysseus#143): the L0→L3 HMAS agent hierarchy,
+# coordination/strategy types, and the work-stealing scheduler were extracted
+# from ProjectKeystone into ProjectAgamemnon. These are the runtime *executors*
+# that complement Agamemnon's task-as-data Orchestrator/PlanningBreakdown.
+#
+# Standalone build: agent-to-agent transport depends only on the abstract
+# core::IMessageRouter (impl: core::InProcessRouter, vendored here) — NOT on
+# Keystone's MessageBus/NATS C++ library. The only new third-party dependency
+# is the header-only concurrentqueue (same lib Keystone used). Sources retain
+# the keystone:: namespace to mark provenance and minimise the port surface.
+add_library(agamemnon_agents STATIC
+  # core primitives
+  src/core/message.cpp
+  src/core/metrics.cpp
+  src/core/failure_injector.cpp
+  # concurrency / work-stealing scheduler
+  src/concurrency/logger.cpp
+  src/concurrency/scheduler_accessor.cpp
+  src/concurrency/work_stealing_queue.cpp
+  src/concurrency/pull_or_steal.cpp
+  src/concurrency/work_stealing_scheduler.cpp
+  # HMAS agent hierarchy (L0 → L3) + strategies
+  src/agents/agent_core.cpp
+  src/agents/async_agent.cpp
+  src/agents/chief_architect_agent.cpp
+  src/agents/component_lead_agent.cpp
+  src/agents/module_lead_agent.cpp
+  src/agents/task_agent.cpp
+  src/agents/task_execution_strategy.cpp
+)
+
+target_compile_features(agamemnon_agents PUBLIC cxx_std_20)
+set_target_properties(agamemnon_agents PROPERTIES CXX_EXTENSIONS OFF)
+
+# Vendored port: exempt from clang-tidy / cppcheck. These sources are a
+# byte-faithful ADR-015 port of Keystone (legacy cast/style idioms preserved
+# for parity); they are linted in their origin repo, not re-linted here.
+set_target_properties(agamemnon_agents PROPERTIES
+  CXX_CLANG_TIDY ""
+  CXX_CPPCHECK "")
+
+# The ported sources use Keystone-relative includes ("agents/...", "core/...",
+# "concurrency/...") rooted at the vendored include/agamemnon_agents tree.
+target_include_directories(agamemnon_agents
+  PUBLIC
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/agamemnon_agents>
+)
+
+target_link_libraries(agamemnon_agents
+  PUBLIC
+    concurrentqueue::concurrentqueue
+    Threads::Threads
+)
+
+# Suppress external-header / legacy-cast warnings (matches other Agamemnon
+# targets); the ported code is treated as vendored.
+target_compile_options(agamemnon_agents PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align
+  -Wno-unused-parameter
+)
+
 # ── Server executable ────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_server src/server_main.cpp)
 
@@ -137,7 +209,7 @@ target_include_directories(
     ${PROJECT_SOURCE_DIR}/src
 )
 
-target_link_libraries(${PROJECT_NAME}_server PRIVATE ProjectAgamemnon_core agamemnon_peer_discovery)
+target_link_libraries(${PROJECT_NAME}_server PRIVATE ProjectAgamemnon_core agamemnon_peer_discovery agamemnon_agents)
 
 # Suppress warnings from external headers on the server target
 target_compile_options(${PROJECT_NAME}_server PRIVATE
