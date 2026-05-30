@@ -187,7 +187,12 @@ void AgentCore::updateQueueDepthMetrics() {
 }
 
 // FIX ISP (Issue #46): Changed from MessageBus* to IMessageRouter*
-void AgentCore::setMessageBus(core::IMessageRouter* router) { message_bus_ = router; }
+void AgentCore::setMessageBus(core::IMessageRouter* router) {
+  if (router == nullptr) {
+    throw std::invalid_argument("setMessageBus received nullptr for agent: " + agent_id_);
+  }
+  message_bus_ = router;
+}
 
 // Phase 1.2 (Issue #52): Task cancellation support
 void AgentCore::requestCancellation(const std::string& task_id) {
