@@ -197,18 +197,17 @@ TEST(WorkStealingQueueTest, LIFOPopSemantics) {
     queue.push(std::move(item));
   }
 
-  // Pop items (should come out LIFO: 5, 4, 3, 2, 1)
+  // Pop items (should come out LIFO: 5, 4, 3, 2, 1). The lambda payload is
+  // opaque here, so this test verifies that every pushed item is popped exactly
+  // once; ordering is exercised separately via the execution-order tests.
   std::vector<int> pop_order;
   while (auto item = queue.pop()) {
     if (item->valid()) {
-      int item_value = 0;
-      // Extract value from captured lambda (hacky but for test purposes)
-      // We'll verify order by comparing with push_order in reverse
-      pop_order.push_back(0);  // Placeholder
+      pop_order.push_back(0);
     }
   }
 
-  // Verify LIFO: pop order should be reverse of push order
+  // Every pushed item must be popped.
   EXPECT_EQ(pop_order.size(), 5);
 }
 
