@@ -126,10 +126,16 @@ inline void formatAppend(std::string& out, const std::string& fmt, T&& value, Re
   formatAppend(out, fmt.substr(pos + placeholder.size()), std::forward<Rest>(rest)...);
 }
 
-template <typename... Args>
-inline std::string format(const std::string& fmt, Args&&... args) {
+// Zero-argument overload: a format string with no substitution arguments is
+// emitted verbatim. Providing this as a non-template overload (rather than
+// relying on an empty `Args...` pack instantiation) keeps the variadic
+// template below from ever instantiating with an empty pack.
+inline std::string format(const std::string& fmt) { return fmt; }
+
+template <typename T, typename... Args>
+inline std::string format(const std::string& fmt, T&& value, Args&&... args) {
   std::string out;
-  formatAppend(out, fmt, std::forward<Args>(args)...);
+  formatAppend(out, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   return out;
 }
 
@@ -148,34 +154,50 @@ class Logger {
   static void shutdown();
   static void setLevel(LogLevel level);
 
-  template <typename... Args>
-  static void trace(const std::string& fmt, Args&&... args) {
-    log(LogLevel::trace, fmt, std::forward<Args>(args)...);
+  // Each severity method has a non-template zero-argument overload (the format
+  // string is emitted verbatim) plus a variadic overload that requires at least
+  // one substitution argument. Splitting them this way means the variadic
+  // template is never instantiated with an empty parameter pack.
+  static void trace(const std::string& fmt) { log(LogLevel::trace, fmt); }
+
+  template <typename T, typename... Args>
+  static void trace(const std::string& fmt, T&& value, Args&&... args) {
+    log(LogLevel::trace, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  static void debug(const std::string& fmt, Args&&... args) {
-    log(LogLevel::debug, fmt, std::forward<Args>(args)...);
+  static void debug(const std::string& fmt) { log(LogLevel::debug, fmt); }
+
+  template <typename T, typename... Args>
+  static void debug(const std::string& fmt, T&& value, Args&&... args) {
+    log(LogLevel::debug, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  static void info(const std::string& fmt, Args&&... args) {
-    log(LogLevel::info, fmt, std::forward<Args>(args)...);
+  static void info(const std::string& fmt) { log(LogLevel::info, fmt); }
+
+  template <typename T, typename... Args>
+  static void info(const std::string& fmt, T&& value, Args&&... args) {
+    log(LogLevel::info, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  static void warn(const std::string& fmt, Args&&... args) {
-    log(LogLevel::warn, fmt, std::forward<Args>(args)...);
+  static void warn(const std::string& fmt) { log(LogLevel::warn, fmt); }
+
+  template <typename T, typename... Args>
+  static void warn(const std::string& fmt, T&& value, Args&&... args) {
+    log(LogLevel::warn, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  static void error(const std::string& fmt, Args&&... args) {
-    log(LogLevel::err, fmt, std::forward<Args>(args)...);
+  static void error(const std::string& fmt) { log(LogLevel::err, fmt); }
+
+  template <typename T, typename... Args>
+  static void error(const std::string& fmt, T&& value, Args&&... args) {
+    log(LogLevel::err, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   }
 
-  template <typename... Args>
-  static void critical(const std::string& fmt, Args&&... args) {
-    log(LogLevel::critical, fmt, std::forward<Args>(args)...);
+  static void critical(const std::string& fmt) { log(LogLevel::critical, fmt); }
+
+  template <typename T, typename... Args>
+  static void critical(const std::string& fmt, T&& value, Args&&... args) {
+    log(LogLevel::critical, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   }
 
  private:
@@ -184,13 +206,21 @@ class Logger {
 
   static void emit(LogLevel level, const std::string& message);
 
-  template <typename... Args>
-  static void log(LogLevel level, const std::string& fmt, Args&&... args) {
+  static void log(LogLevel level, const std::string& fmt) {
     if (static_cast<int>(level) < static_cast<int>(level_)) {
       return;
     }
     std::string context = LogContext::getContextString();
-    std::string body = detail::format(fmt, std::forward<Args>(args)...);
+    emit(level, context + " " + detail::format(fmt));
+  }
+
+  template <typename T, typename... Args>
+  static void log(LogLevel level, const std::string& fmt, T&& value, Args&&... args) {
+    if (static_cast<int>(level) < static_cast<int>(level_)) {
+      return;
+    }
+    std::string context = LogContext::getContextString();
+    std::string body = detail::format(fmt, std::forward<T>(value), std::forward<Args>(args)...);
     emit(level, context + " " + body);
   }
 };
