@@ -36,8 +36,7 @@ class LoggerTest : public ::testing::Test {
 };
 
 TEST_F(LoggerTest, FormatterReplacesPlaceholdersLeftToRight) {
-  const std::string out =
-      keystone::concurrency::detail::format("a={} b={} c={}", 1, "two", 3.5);
+  const std::string out = keystone::concurrency::detail::format("a={} b={} c={}", 1, "two", 3.5);
   EXPECT_EQ(out, "a=1 b=two c=3.5");
 }
 
