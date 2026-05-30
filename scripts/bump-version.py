@@ -95,16 +95,16 @@ def main() -> None:
     ]
     security_md_path = repo_root / "SECURITY.md"
 
-    # Check that clients/python/pyproject.toml exists (required).
-    # agamemnon/pyproject.toml is optional and will be skipped if missing.
-    required_toml = toml_paths[0]
-    if not required_toml.exists():
-        print(f"error: {required_toml} does not exist", file=sys.stderr)
-        sys.exit(1)
+    # Both pyproject.toml files are required and kept in lockstep so a single
+    # v* tag publishes consistent versions to PyPI. Fail fast if either is
+    # missing rather than silently bumping only one.
+    for required_toml in toml_paths:
+        if not required_toml.exists():
+            print(f"error: {required_toml} does not exist", file=sys.stderr)
+            sys.exit(1)
 
     for toml_path in toml_paths:
-        if toml_path.exists():
-            bump_version(toml_path, new_version)
+        bump_version(toml_path, new_version)
     sync_security_md(security_md_path, new_version)
 
 

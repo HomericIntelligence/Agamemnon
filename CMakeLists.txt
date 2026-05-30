@@ -92,6 +92,7 @@ add_library(ProjectAgamemnon_core STATIC
   src/orchestrator.cpp
   src/planning_breakdown.cpp
   src/state_machine.cpp
+  src/agents/agent_envelope.cpp
 )
 
 target_compile_features(ProjectAgamemnon_core PUBLIC cxx_std_20)
