@@ -46,8 +46,8 @@ enum class TransportPriority {
  * AgentEnvelope contract.
  */
 struct TransportMessage {
-  std::string sender_id;    ///< ID of the sending agent
-  std::string receiver_id;  ///< ID of the receiving agent
+  std::string sender_id;                                          ///< ID of the sending agent
+  std::string receiver_id;                                        ///< ID of the receiving agent
   TransportActionType action_type{TransportActionType::EXECUTE};  ///< Transport action
   std::optional<std::string> payload;                             ///< Optional payload data
   TransportPriority priority{TransportPriority::NORMAL};          ///< Message priority
