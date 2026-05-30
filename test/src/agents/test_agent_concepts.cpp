@@ -196,22 +196,27 @@ TEST(AgentConcepts, ConceptBasedRegisterMultipleTypes) {
  * @brief Test: Concept-based registration followed by message routing
  */
 TEST(AgentConcepts, ConceptBasedRegisterAndRoute) {
-  InProcessRouter bus;
+  // The router is heap-allocated and owned by this shared_ptr so that the
+  // non-owning pointer handed to setMessageBus refers to heap memory (not the
+  // address of a stack local). The agents below are destroyed at scope exit
+  // before this shared_ptr, so the router outlives every agent that references
+  // it.
+  auto bus = std::make_shared<InProcessRouter>();
 
   auto sender = std::make_shared<ChiefArchitectAgent>("sender");
   auto receiver = std::make_shared<TaskAgent>("receiver");
 
   // Register using concept-based method
-  bus.registerAgent(sender);
-  bus.registerAgent(receiver);
+  bus->registerAgent(sender);
+  bus->registerAgent(receiver);
 
   // Configure message bus
-  sender->setMessageBus(&bus);
-  receiver->setMessageBus(&bus);
+  sender->setMessageBus(bus.get());
+  receiver->setMessageBus(bus.get());
 
   // Send message
   auto msg = KeystoneMessage::create("sender", "receiver", "test command");
-  EXPECT_TRUE(bus.routeMessage(msg));
+  EXPECT_TRUE(bus->routeMessage(msg));
 
   // Verify receipt
   auto received = receiver->getMessage();
@@ -224,63 +229,11 @@ TEST(AgentConcepts, ConceptBasedRegisterAndRoute) {
 // =============================================================================
 // Negative Tests (Compile-Time Verification)
 // =============================================================================
-
-// These are intentionally commented out to show what WOULD fail at compile
-// time. Uncomment any of these to verify compile-time error messages.
-
-/*
-// Example 1: Type missing getAgentId()
-class MissingGetAgentId {
-public:
-  void sendMessage(const KeystoneMessage& msg) {}
-  void receiveMessage(const KeystoneMessage& msg) {}
-  concurrency::Task<Response> processMessage(const KeystoneMessage& msg) {
-    co_return Response{};
-  }
-};
-
-TEST(AgentConcepts, CompileErrorMissingGetAgentId) {
-  // This should fail at compile time with a clear error message
-  static_assert(Agent<MissingGetAgentId>,
-                "Should fail: missing getAgentId()");
-}
-*/
-
-/*
-// Example 2: Type with wrong processMessage return type
-class WrongProcessMessageReturnType {
-public:
-  std::string getAgentId() const { return "id"; }
-  void sendMessage(const KeystoneMessage& msg) {}
-  void receiveMessage(const KeystoneMessage& msg) {}
-  void processMessage(const KeystoneMessage& msg) {}  // Wrong: returns void,
-not Task<Response>
-};
-
-TEST(AgentConcepts, CompileErrorWrongReturnType) {
-  // This should fail at compile time
-  static_assert(Agent<WrongProcessMessageReturnType>,
-                "Should fail: wrong processMessage return type");
-}
-*/
-
-/*
-// Example 3: Type missing sendMessage()
-class MissingSendMessage {
-public:
-  std::string getAgentId() const { return "id"; }
-  void receiveMessage(const KeystoneMessage& msg) {}
-  concurrency::Task<Response> processMessage(const KeystoneMessage& msg) {
-    co_return Response{};
-  }
-};
-
-TEST(AgentConcepts, CompileErrorMissingSendMessage) {
-  // This should fail at compile time
-  static_assert(Agent<MissingSendMessage>,
-                "Should fail: missing sendMessage()");
-}
-*/
+//
+// Concept violations (a type missing getAgentId(), a wrong processMessage()
+// return type, or a missing sendMessage()) are caught at compile time by the
+// Agent concept. They cannot be exercised as runtime tests without breaking the
+// build, so no negative cases are encoded here.
 
 // =============================================================================
 // Documentation Test
