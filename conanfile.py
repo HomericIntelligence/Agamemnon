@@ -12,6 +12,9 @@ class ProjectAgamemnonConan(ConanFile):
         self.requires("nlohmann_json/3.11.3")
         self.requires("libcurl/8.6.0")
         self.requires("prometheus-cpp/1.2.4")
+        # ADR-015: lock-free MPMC queue backing the ported HMAS work-stealing
+        # scheduler / agent inboxes (matches Keystone's concurrentqueue pin).
+        self.requires("concurrentqueue/1.0.4")
 
     def configure(self):
         # Use core serializer only; HTTP serving is embedded in cpp-httplib (no pull server)

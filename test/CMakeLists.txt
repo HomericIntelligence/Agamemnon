@@ -138,3 +138,48 @@ target_link_libraries(${PROJECT_NAME}_integration_tests
 
 gtest_discover_tests(${PROJECT_NAME}_integration_tests
   PROPERTIES LABELS "integration")
+
+# ── Ported HMAS agent executor + work-stealing tests (ADR-015) ───────────────
+# Behavioural ports of Keystone's agent / work-stealing gtests, adapted to use
+# Agamemnon's dependency-free core::InProcessRouter instead of Keystone's
+# MessageBus. Exercises the full L0→L3 delegation/coordination paths and the
+# work-stealing queue + scheduler.
+add_executable(${PROJECT_NAME}_agents_tests
+  src/agents/test_work_stealing_queue.cpp
+  src/agents/test_work_stealing_scheduler.cpp
+  src/agents/test_agent_concepts.cpp
+  src/agents/test_basic_delegation.cpp
+  src/agents/test_module_coordination.cpp
+  src/agents/test_component_coordination.cpp)
+
+target_compile_features(${PROJECT_NAME}_agents_tests PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_agents_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+# Ported Keystone behavioural tests: exempt from clang-tidy / cppcheck (parity
+# port, linted upstream — see agamemnon_agents target rationale).
+set_target_properties(${PROJECT_NAME}_agents_tests PROPERTIES
+  CXX_CLANG_TIDY ""
+  CXX_CPPCHECK "")
+
+target_compile_options(${PROJECT_NAME}_agents_tests PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align
+  -Wno-unused-parameter
+  -Wno-unused-variable)
+
+target_link_libraries(${PROJECT_NAME}_agents_tests
+  PRIVATE
+    agamemnon_agents
+    GTest::gtest_main
+    GTest::gmock
+    Threads::Threads)
+
+gtest_discover_tests(${PROJECT_NAME}_agents_tests
+  DISCOVERY_TIMEOUT 120
+  PROPERTIES LABELS "agents")
