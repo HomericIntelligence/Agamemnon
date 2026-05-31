@@ -134,6 +134,7 @@ inline std::string format(const std::string& fmt) { return fmt; }
 
 template <typename T, typename... Args>
 inline std::string format(const std::string& fmt, T&& value, Args&&... args) {
+  (void)sizeof...(args);
   std::string out;
   formatAppend(out, fmt, std::forward<T>(value), std::forward<Args>(args)...);
   return out;
