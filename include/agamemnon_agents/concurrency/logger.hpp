@@ -11,11 +11,11 @@
 // ported agents and scheduler. It writes to stderr and is thread-safe.
 // ─────────────────────────────────────────────────────────────────────────────
 
+#include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <sstream>
 #include <string>
-#include <utility>
 
 namespace keystone {
 namespace concurrency {
@@ -103,40 +103,72 @@ class CorrelationScope {
 namespace detail {
 
 /**
+ * @brief Stringify a single value through an ostringstream.
+ *
+ * Factored out so the variadic formatter can turn its whole argument list into
+ * a sequence of already-stringified pieces in one non-recursive step. This
+ * keeps each argument's use a direct, unconditional read (no pack-forwarding
+ * recursion for the unused-variable analysis to misread).
+ */
+template <typename T>
+inline std::string stringify(const T& value) {
+  std::ostringstream oss;
+  oss << value;
+  return oss.str();
+}
+
+/**
+ * @brief Substitute the next `{}` placeholder in `fmt`, starting at `searchPos`.
+ *
+ * Appends the text up to (and the replacement for) the next placeholder onto
+ * `out` and returns the position just past it, so the caller can resume the
+ * scan for the following argument. If no placeholder remains the rest of `fmt`
+ * is flushed and `std::string::npos` is returned to signal "no more slots".
+ */
+inline std::string::size_type substituteNext(std::string& out, const std::string& fmt,
+                                             std::string::size_type searchPos,
+                                             const std::string& replacement) {
+  const std::string placeholder = "{}";
+  const auto pos = fmt.find(placeholder, searchPos);
+  if (pos == std::string::npos) {
+    out.append(fmt, searchPos, std::string::npos);
+    return std::string::npos;
+  }
+  out.append(fmt, searchPos, pos - searchPos);
+  out += replacement;
+  return pos + placeholder.size();
+}
+
+/**
  * @brief Minimal brace-style formatter supporting the `{}` placeholders used by
  * the ported runtime. Sequential `{}` are replaced left-to-right by the
  * stringified arguments. Surplus arguments are ignored; surplus placeholders
- * are left intact. This is intentionally a tiny subset of fmt — only what the
- * ported HMAS code relies on.
+ * are left intact (zero arguments emits the format string verbatim). This is
+ * intentionally a tiny subset of fmt — only what the ported HMAS code relies on.
+ *
+ * A single non-recursive variadic template handles every arity: the argument
+ * pack is consumed once, eagerly, into `pieces` (each entry already
+ * stringified), then a plain loop walks the format string substituting each
+ * `{}` in turn. Because every argument is read unconditionally where the pack
+ * is expanded, there is no pack-forwarding recursion and no terminal empty-pack
+ * instantiation — so no suppression hack is needed to keep the argument unused.
  */
-inline void formatAppend(std::string& out, const std::string& fmt) { out += fmt; }
-
-template <typename T, typename... Rest>
-inline void formatAppend(std::string& out, const std::string& fmt, T&& value, Rest&&... rest) {
-  const std::string placeholder = "{}";
-  auto pos = fmt.find(placeholder);
-  if (pos == std::string::npos) {
-    out += fmt;
-    return;
-  }
-  out += fmt.substr(0, pos);
-  std::ostringstream oss;
-  oss << std::forward<T>(value);
-  out += oss.str();
-  formatAppend(out, fmt.substr(pos + placeholder.size()), std::forward<Rest>(rest)...);
-}
-
-// Zero-argument overload: a format string with no substitution arguments is
-// emitted verbatim. Providing this as a non-template overload (rather than
-// relying on an empty `Args...` pack instantiation) keeps the variadic
-// template below from ever instantiating with an empty pack.
-inline std::string format(const std::string& fmt) { return fmt; }
-
-template <typename T, typename... Args>
-inline std::string format(const std::string& fmt, T&& value, Args&&... args) {
-  (void)sizeof...(args);
+template <typename... Args>
+inline std::string format(const std::string& fmt, const Args&... args) {
+  const std::string pieces[] = {stringify(args)..., std::string()};
   std::string out;
-  formatAppend(out, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  out.reserve(fmt.size());
+  std::string::size_type scanPos = 0;
+  // pieces has one trailing sentinel entry, so iterate only the real args.
+  for (std::size_t i = 0; i < sizeof...(Args); ++i) {
+    scanPos = substituteNext(out, fmt, scanPos, pieces[i]);
+    if (scanPos == std::string::npos) {
+      // No placeholders left: remaining args are surplus and ignored.
+      return out;
+    }
+  }
+  // Surplus placeholders (and any text after the last substitution) stay intact.
+  out.append(fmt, scanPos, std::string::npos);
   return out;
 }
 
@@ -155,50 +187,38 @@ class Logger {
   static void shutdown();
   static void setLevel(LogLevel level);
 
-  // Each severity method has a non-template zero-argument overload (the format
-  // string is emitted verbatim) plus a variadic overload that requires at least
-  // one substitution argument. Splitting them this way means the variadic
-  // template is never instantiated with an empty parameter pack.
-  static void trace(const std::string& fmt) { log(LogLevel::trace, fmt); }
-
-  template <typename T, typename... Args>
-  static void trace(const std::string& fmt, T&& value, Args&&... args) {
-    log(LogLevel::trace, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  // Each severity method is a single variadic template that handles every arity
+  // (including zero substitution arguments — the format string is then emitted
+  // verbatim). The argument pack is forwarded straight into `log`, which is the
+  // one place the formatter is invoked, so there is no per-method dead pack.
+  template <typename... Args>
+  static void trace(const std::string& fmt, const Args&... args) {
+    log(LogLevel::trace, fmt, args...);
   }
 
-  static void debug(const std::string& fmt) { log(LogLevel::debug, fmt); }
-
-  template <typename T, typename... Args>
-  static void debug(const std::string& fmt, T&& value, Args&&... args) {
-    log(LogLevel::debug, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  template <typename... Args>
+  static void debug(const std::string& fmt, const Args&... args) {
+    log(LogLevel::debug, fmt, args...);
   }
 
-  static void info(const std::string& fmt) { log(LogLevel::info, fmt); }
-
-  template <typename T, typename... Args>
-  static void info(const std::string& fmt, T&& value, Args&&... args) {
-    log(LogLevel::info, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  template <typename... Args>
+  static void info(const std::string& fmt, const Args&... args) {
+    log(LogLevel::info, fmt, args...);
   }
 
-  static void warn(const std::string& fmt) { log(LogLevel::warn, fmt); }
-
-  template <typename T, typename... Args>
-  static void warn(const std::string& fmt, T&& value, Args&&... args) {
-    log(LogLevel::warn, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  template <typename... Args>
+  static void warn(const std::string& fmt, const Args&... args) {
+    log(LogLevel::warn, fmt, args...);
   }
 
-  static void error(const std::string& fmt) { log(LogLevel::err, fmt); }
-
-  template <typename T, typename... Args>
-  static void error(const std::string& fmt, T&& value, Args&&... args) {
-    log(LogLevel::err, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  template <typename... Args>
+  static void error(const std::string& fmt, const Args&... args) {
+    log(LogLevel::err, fmt, args...);
   }
 
-  static void critical(const std::string& fmt) { log(LogLevel::critical, fmt); }
-
-  template <typename T, typename... Args>
-  static void critical(const std::string& fmt, T&& value, Args&&... args) {
-    log(LogLevel::critical, fmt, std::forward<T>(value), std::forward<Args>(args)...);
+  template <typename... Args>
+  static void critical(const std::string& fmt, const Args&... args) {
+    log(LogLevel::critical, fmt, args...);
   }
 
  private:
@@ -207,22 +227,15 @@ class Logger {
 
   static void emit(LogLevel level, const std::string& message);
 
-  static void log(LogLevel level, const std::string& fmt) {
+  // Single variadic sink: builds the formatted body (any arity) and emits it.
+  // The pack is consumed by `detail::format`, so it is always read.
+  template <typename... Args>
+  static void log(LogLevel level, const std::string& fmt, const Args&... args) {
     if (static_cast<int>(level) < static_cast<int>(level_)) {
       return;
     }
-    std::string context = LogContext::getContextString();
-    emit(level, context + " " + detail::format(fmt));
-  }
-
-  template <typename T, typename... Args>
-  static void log(LogLevel level, const std::string& fmt, T&& value, Args&&... args) {
-    if (static_cast<int>(level) < static_cast<int>(level_)) {
-      return;
-    }
-    std::string context = LogContext::getContextString();
-    std::string body = detail::format(fmt, std::forward<T>(value), std::forward<Args>(args)...);
-    emit(level, context + " " + body);
+    const std::string context = LogContext::getContextString();
+    emit(level, context + " " + detail::format(fmt, args...));
   }
 };
 
