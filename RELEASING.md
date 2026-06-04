@@ -65,6 +65,21 @@ Register OIDC publishers at <https://pypi.org/manage/account/publishing/>
 Each entry's five values must match the workflow file exactly or the OIDC
 exchange will be rejected. Both packages use the same workflow and environment.
 
+#### 2a. Registration log
+
+Pending publishers have been registered on pypi.org against the `pypi`
+environment in this repo. Re-register only if any of the five values in
+the §2 tables changes (workflow rename, repo rename, env rename, etc.).
+
+| PyPI project                                  | Workflow                    | Environment | Registered |
+| --------------------------------------------- | --------------------------- | ----------- | ---------- |
+| `HomericIntelligence-Agamemnon`               | `python-client-release.yml` | `pypi`      | 2026-06-04 |
+| `HomericIntelligence-Agamemnon-Orchestration` | `python-client-release.yml` | `pypi`      | 2026-06-04 |
+
+If the workflow filename is ever renamed, both rows above must be
+re-registered on pypi.org **before** the next `v*` tag push or the OIDC
+token exchange will 403.
+
 #### 3. GPG signing key
 
 `just release` runs `git commit -S` and `git tag -s`, both of which require a
