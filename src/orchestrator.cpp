@@ -198,17 +198,17 @@ std::string Orchestrator::myrmidon_subject(HmasLayer layer, const std::string& t
 }
 
 void Orchestrator::delegate_unblocked_children(const std::string& completed_task_id) {
-  // Find the completed task to know its brief.
   auto completed_opt = store_.get_hmas_task(completed_task_id);
   if (!completed_opt) return;
 
-  // Get all tasks in this brief.
-  auto siblings = store_.list_hmas_tasks_by_brief(completed_opt->brief_id);
-
-  for (const auto& candidate : siblings) {
+  // #156: iterate only this task's children (populated by PlanningBreakdown)
+  // rather than scanning every task in the brief. O(k_children) per completion.
+  for (const auto& child_id : completed_opt->child_task_ids) {
+    auto candidate_opt = store_.get_hmas_task(child_id);
+    if (!candidate_opt) continue;
+    const auto& candidate = *candidate_opt;
     if (candidate.state != TaskState::Pending) continue;
 
-    // Check if all blockers are now Completed.
     bool all_clear = true;
     for (const auto& blocker_id : candidate.blocked_by) {
       auto blocker_opt = store_.get_hmas_task(blocker_id);
@@ -217,7 +217,6 @@ void Orchestrator::delegate_unblocked_children(const std::string& completed_task
         break;
       }
     }
-
     if (all_clear) delegate(candidate.id);
   }
 }
