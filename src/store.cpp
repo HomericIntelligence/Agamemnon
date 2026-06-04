@@ -596,6 +596,9 @@ bool Store::remove_fault(const std::string& id) {
 void Store::create_hmas_task(const HmasTask& task) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   hmas_tasks_[task.id] = task;
+  if (!task.brief_id.empty()) {
+    hmas_tasks_by_brief_[task.brief_id].push_back(task.id);
+  }
 }
 
 std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
@@ -627,7 +630,19 @@ bool Store::update_hmas_task(const HmasTask& task) {
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(task.id);
   if (it == hmas_tasks_.end()) return false;
+  const std::string old_brief = it->second.brief_id;
   it->second = task;
+  if (old_brief != task.brief_id) {
+    if (!old_brief.empty()) {
+      auto& old_bucket = hmas_tasks_by_brief_[old_brief];
+      old_bucket.erase(std::remove(old_bucket.begin(), old_bucket.end(), task.id),
+                       old_bucket.end());
+      if (old_bucket.empty()) hmas_tasks_by_brief_.erase(old_brief);
+    }
+    if (!task.brief_id.empty()) {
+      hmas_tasks_by_brief_[task.brief_id].push_back(task.id);
+    }
+  }
   return true;
 }
 
@@ -652,8 +667,12 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent
 std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_id) {
   std::shared_lock<std::shared_mutex> lk(mutex_);
   std::vector<HmasTask> out;
-  for (const auto& [id, task] : hmas_tasks_) {
-    if (task.brief_id == brief_id) out.push_back(task);
+  auto idx_it = hmas_tasks_by_brief_.find(brief_id);
+  if (idx_it == hmas_tasks_by_brief_.end()) return out;
+  out.reserve(idx_it->second.size());
+  for (const auto& task_id : idx_it->second) {
+    auto t_it = hmas_tasks_.find(task_id);
+    if (t_it != hmas_tasks_.end()) out.push_back(t_it->second);
   }
   return out;
 }
