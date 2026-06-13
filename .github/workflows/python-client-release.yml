@@ -87,7 +87,7 @@ jobs:
       - name: Install Pixi
         uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
-          pixi-version: "v0.32.1"
+          pixi-version: v0.70.2
 
       - name: Build wheel and sdist
         run: pixi run -- hatch build

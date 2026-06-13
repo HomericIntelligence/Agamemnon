@@ -38,7 +38,7 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
-          pixi-version: v0.39.5
+          pixi-version: v0.70.2
           manifest-path: clients/python/pixi.toml
 
       - name: Run ruff
@@ -92,7 +92,7 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
-          pixi-version: v0.39.5
+          pixi-version: v0.70.2
           manifest-path: clients/python/pixi.toml
 
       - name: Run mypy
@@ -114,7 +114,7 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
-          pixi-version: v0.39.5
+          pixi-version: v0.70.2
           manifest-path: clients/python/pixi.toml
 
       - name: Run tests
