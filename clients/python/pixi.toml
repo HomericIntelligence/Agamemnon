@@ -41,6 +41,7 @@ typecheck = "mypy src/"
 
 [feature.lint.pypi-dependencies]
 pip-audit = ">=2.8"
+pip = ">=26.1.2"
 
 [feature.lint.tasks]
 audit = "pip-audit --skip-editable"
