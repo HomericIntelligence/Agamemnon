@@ -26,9 +26,9 @@ jobs:
     name: Lint
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             clients/python/.pixi
@@ -36,7 +36,7 @@ jobs:
           key: pixi-${{ runner.os }}-${{ hashFiles('clients/python/pixi.lock') }}
           restore-keys: pixi-${{ runner.os }}-
 
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
           pixi-version: v0.39.5
           manifest-path: clients/python/pixi.toml
@@ -80,9 +80,9 @@ jobs:
     name: Type Check
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             clients/python/.pixi
@@ -90,7 +90,7 @@ jobs:
           key: pixi-${{ runner.os }}-${{ hashFiles('clients/python/pixi.lock') }}
           restore-keys: pixi-${{ runner.os }}-
 
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
           pixi-version: v0.39.5
           manifest-path: clients/python/pixi.toml
@@ -102,9 +102,9 @@ jobs:
     name: Test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             clients/python/.pixi
@@ -112,7 +112,7 @@ jobs:
           key: pixi-${{ runner.os }}-${{ hashFiles('clients/python/pixi.lock') }}
           restore-keys: pixi-${{ runner.os }}-
 
-      - uses: prefix-dev/setup-pixi@v0.8.1
+      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
           pixi-version: v0.39.5
           manifest-path: clients/python/pixi.toml
