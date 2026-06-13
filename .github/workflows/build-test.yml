@@ -18,10 +18,10 @@ jobs:
         compiler: [gcc, clang]
         build_type: [debug, release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Restore Conan cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.conan2
           key: conan-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('conanfile.py') }}
@@ -30,7 +30,7 @@ jobs:
             conan-${{ runner.os }}-
 
       - name: Restore FetchContent cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
           key: fetchcontent-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
@@ -84,10 +84,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Restore Conan cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.conan2
           key: conan-${{ runner.os }}-asan-${{ hashFiles('conanfile.py') }}
@@ -96,7 +96,7 @@ jobs:
             conan-${{ runner.os }}-
 
       - name: Restore FetchContent cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/_deps
           key: fetchcontent-${{ runner.os }}-clang-asan-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
@@ -133,11 +133,11 @@ jobs:
     name: python-orchestration
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: prefix-dev/setup-pixi@v0.9.5
+      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
         with:
-          pixi-version: v0.67.2
+          pixi-version: v0.70.2
           cache: true
 
       - name: Lint agamemnon/
@@ -153,7 +153,7 @@ jobs:
     name: schema-validation
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Install check-jsonschema
         run: pip install check-jsonschema
@@ -180,7 +180,7 @@ jobs:
     name: cyclonedx-validate
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Install check-jsonschema
         run: pip install check-jsonschema
@@ -195,10 +195,10 @@ jobs:
     name: port-smoke-test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Restore Conan cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.conan2
           key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
@@ -207,7 +207,7 @@ jobs:
             conan-${{ runner.os }}-
 
       - name: Restore FetchContent cache
-        uses: actions/cache@v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/_deps
           key: fetchcontent-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
@@ -257,7 +257,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
       - name: Install just
         uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
