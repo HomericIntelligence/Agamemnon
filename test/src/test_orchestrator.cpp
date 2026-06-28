@@ -157,4 +157,42 @@ TEST_F(OrchestratorTest, FakeNatsPublisherRecordsPublishLog) {
   EXPECT_EQ(fake_nats_.log_calls[0], "hi.logs.agamemnon.info");
 }
 
+TEST_F(OrchestratorTest, DelegateUnblockedChildrenUsesChildTaskIds) {
+  HmasTask parent;
+  parent.id = "parent-1";
+  parent.brief_id = "brief-foo";
+  parent.layer = HmasLayer::L2_ModuleLead;
+  parent.state = TaskState::Completed;
+  parent.child_task_ids = {"child-1"};
+  store_.create_hmas_task(parent);
+
+  HmasTask child;
+  child.id = "child-1";
+  child.brief_id = "brief-foo";
+  child.parent_task_id = "parent-1";
+  child.layer = HmasLayer::L3_TaskAgent;
+  child.state = TaskState::Pending;
+  child.blocked_by = {"parent-1"};
+  store_.create_hmas_task(child);
+
+  // Unrelated task in a DIFFERENT brief — must not be touched even though
+  // pre-fix code would have scanned it.
+  HmasTask noise;
+  noise.id = "noise";
+  noise.brief_id = "brief-other";
+  noise.layer = HmasLayer::L3_TaskAgent;
+  noise.state = TaskState::Pending;
+  store_.create_hmas_task(noise);
+
+  json payload = {{"task_id", "parent-1"}};
+  orch_->on_myrmidon_completion("hi.tasks.t.t.completed", payload.dump());
+
+  auto child_after = store_.get_hmas_task("child-1");
+  ASSERT_TRUE(child_after.has_value());
+  EXPECT_NE(child_after->state, TaskState::Pending);  // delegated
+  auto noise_after = store_.get_hmas_task("noise");
+  ASSERT_TRUE(noise_after.has_value());
+  EXPECT_EQ(noise_after->state, TaskState::Pending);  // untouched
+}
+
 }  // namespace projectagamemnon::test

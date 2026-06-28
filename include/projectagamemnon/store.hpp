@@ -97,6 +97,10 @@ class Store {
   std::unordered_map<std::string, json> tasks_;
   std::unordered_map<std::string, json> faults_;
   std::unordered_map<std::string, HmasTask> hmas_tasks_;
+  // Secondary index: brief_id -> task ids. Maintained under the same write
+  // lock as hmas_tasks_; read under shared_lock by list_hmas_tasks_by_brief.
+  // #156: avoids O(n) full-map scan on every myrmidon completion.
+  std::unordered_map<std::string, std::vector<std::string>> hmas_tasks_by_brief_;
 
   // Atomic flags: checked outside the lock; once_flags guard the single fetch.
   std::atomic<bool> agents_loaded_{false};

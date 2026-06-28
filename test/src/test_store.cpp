@@ -453,4 +453,48 @@ TEST_F(StoreHmasTest, HmasTaskConcurrentGetAndUpdate) {
   EXPECT_TRUE(final_task.has_value());
 }
 
+TEST_F(StoreHmasTest, ListByBriefUsesIndexAndReturnsOnlyBriefTasks) {
+  HmasTask a;
+  a.id = "a";
+  a.brief_id = "brief-A";
+  a.layer = HmasLayer::L1_ComponentLead;
+  a.state = TaskState::Pending;
+  HmasTask b;
+  b.id = "b";
+  b.brief_id = "brief-A";
+  b.layer = HmasLayer::L2_ModuleLead;
+  b.state = TaskState::Pending;
+  HmasTask c;
+  c.id = "c";
+  c.brief_id = "brief-B";
+  c.layer = HmasLayer::L2_ModuleLead;
+  c.state = TaskState::Pending;
+  store.create_hmas_task(a);
+  store.create_hmas_task(b);
+  store.create_hmas_task(c);
+
+  auto a_tasks = store.list_hmas_tasks_by_brief("brief-A");
+  ASSERT_EQ(a_tasks.size(), 2u);
+  auto b_tasks = store.list_hmas_tasks_by_brief("brief-B");
+  ASSERT_EQ(b_tasks.size(), 1u);
+  EXPECT_EQ(b_tasks[0].id, "c");
+  EXPECT_TRUE(store.list_hmas_tasks_by_brief("brief-missing").empty());
+}
+
+TEST_F(StoreHmasTest, UpdateHmasTaskMovesBetweenBriefBuckets) {
+  HmasTask t;
+  t.id = "t1";
+  t.brief_id = "brief-X";
+  t.layer = HmasLayer::L3_TaskAgent;
+  t.state = TaskState::Pending;
+  store.create_hmas_task(t);
+  ASSERT_EQ(store.list_hmas_tasks_by_brief("brief-X").size(), 1u);
+
+  t.brief_id = "brief-Y";
+  ASSERT_TRUE(store.update_hmas_task(t));
+  EXPECT_TRUE(store.list_hmas_tasks_by_brief("brief-X").empty());
+  ASSERT_EQ(store.list_hmas_tasks_by_brief("brief-Y").size(), 1u);
+  EXPECT_EQ(store.list_hmas_tasks_by_brief("brief-Y")[0].id, "t1");
+}
+
 }  // namespace projectagamemnon::test
