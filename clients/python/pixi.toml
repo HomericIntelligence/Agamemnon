@@ -42,6 +42,10 @@ typecheck = "mypy src/"
 [feature.lint.pypi-dependencies]
 pip-audit = ">=2.8"
 pip = ">=26.1.2"
+# Transitive dep of pip-audit (via cachecontrol). Pinned to the first patched
+# release for GHSA-6v7p-g79w-8964 (use-after-free DoS, CVSS 7.5); msgpack
+# <= 1.2.0 is flagged by security/dependency-scan and blocks all open PRs.
+msgpack = ">=1.2.1"
 
 [feature.lint.tasks]
 audit = "pip-audit --skip-editable"
