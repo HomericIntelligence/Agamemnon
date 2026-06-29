@@ -72,7 +72,7 @@ target_compile_features(agamemnon_peer_discovery PUBLIC cxx_std_20)
 set_target_properties(agamemnon_peer_discovery PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(agamemnon_peer_discovery PUBLIC
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>)
-target_link_libraries(agamemnon_peer_discovery PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(agamemnon_peer_discovery PUBLIC nlohmann_json::nlohmann_json Threads::Threads)
 target_compile_options(agamemnon_peer_discovery PRIVATE
   -Wno-old-style-cast
   -Wno-conversion
