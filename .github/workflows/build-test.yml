@@ -288,7 +288,7 @@ jobs:
         env:
           NATS_VERSION: v2.10.20
         run: |
-          curl -fsSL --retry 3 -o /tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz \
+          curl -fsSL --retry 3 -o "/tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz" \
             "https://github.com/nats-io/nats-server/releases/download/${NATS_VERSION}/nats-server-${NATS_VERSION}-linux-amd64.tar.gz"
 
       - name: Verify nats-server tarball SHA256
@@ -305,7 +305,7 @@ jobs:
         env:
           NATS_VERSION: v2.10.20
         run: |
-          tar -xzf /tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz -C /tmp
+          tar -xzf "/tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz" -C /tmp
           sudo install -m 0755 \
             "/tmp/nats-server-${NATS_VERSION}-linux-amd64/nats-server" \
             /usr/local/bin/nats-server
