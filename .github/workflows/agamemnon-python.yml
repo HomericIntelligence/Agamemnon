@@ -1,0 +1,84 @@
+name: Agamemnon Python CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "agamemnon/**"
+      - ".github/workflows/agamemnon-python.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "agamemnon/**"
+      - ".github/workflows/agamemnon-python.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            agamemnon/.pixi
+            ~/.cache/rattler/cache
+          key: pixi-${{ runner.os }}-agamemnon-${{ hashFiles('agamemnon/pixi.lock') }}
+          restore-keys: pixi-${{ runner.os }}-agamemnon-
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.70.1
+          manifest-path: agamemnon/pixi.toml
+
+      - name: Run ruff
+        run: pixi run --manifest-path agamemnon/pixi.toml lint
+
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            agamemnon/.pixi
+            ~/.cache/rattler/cache
+          key: pixi-${{ runner.os }}-agamemnon-${{ hashFiles('agamemnon/pixi.lock') }}
+          restore-keys: pixi-${{ runner.os }}-agamemnon-
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.70.1
+          manifest-path: agamemnon/pixi.toml
+
+      - name: Run mypy
+        run: pixi run --manifest-path agamemnon/pixi.toml typecheck
+
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            agamemnon/.pixi
+            ~/.cache/rattler/cache
+          key: pixi-${{ runner.os }}-agamemnon-${{ hashFiles('agamemnon/pixi.lock') }}
+          restore-keys: pixi-${{ runner.os }}-agamemnon-
+
+      - uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          pixi-version: v0.70.1
+          manifest-path: agamemnon/pixi.toml
+
+      - name: Run tests
+        run: pixi run --manifest-path agamemnon/pixi.toml test
