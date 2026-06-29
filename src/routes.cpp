@@ -3,6 +3,7 @@
 #include "projectagamemnon/auth.hpp"
 #include "projectagamemnon/circuit_breaker.hpp"
 #include "projectagamemnon/dead_letter_queue.hpp"
+#include "projectagamemnon/github_webhook.hpp"
 #include "projectagamemnon/hmas_types.hpp"
 #include "projectagamemnon/metrics.hpp"
 #include "projectagamemnon/nats_publisher.hpp"
@@ -233,6 +234,11 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // Enforce per-IP rate limit and API key auth on every request.
   // Health endpoints are exempt from rate limiting but still require auth.
   server.set_pre_routing_handler([rl, ap](const httplib::Request& req, httplib::Response& res) {
+    // (#165) GitHub webhook does HMAC auth in its own handler. Skip API-key
+    // middleware entirely so a missing AGAMEMNON_API_KEY header does not 401 it.
+    if (req.path == "/v1/github/webhook") {
+      return httplib::Server::HandlerResponse::Unhandled;
+    }
     // Authenticate first.
     if (!ap->validate(req)) {
       res.status = 401;
@@ -798,6 +804,28 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                            {"layer", hmas_layer_to_string(task->layer)},
                            {"task", task_json}});
              });
+
+  // POST /v1/github/webhook — bidirectional sync from GitHub Issues (#165)
+  server.Post("/v1/github/webhook",
+              [sp, mp](const httplib::Request& req, httplib::Response& res) {
+    const char* secret_env = std::getenv("GITHUB_WEBHOOK_SECRET");
+    std::string secret = secret_env ? secret_env : "";
+    std::string sig_hdr = req.get_header_value("X-Hub-Signature-256");
+    if (!verify_github_signature(secret, sig_hdr, req.body)) {
+      reply_json(res, 401, {{"error", "invalid signature"}});
+      return;
+    }
+    std::string event = req.get_header_value("X-GitHub-Event");
+    if (event == "ping") { reply_json(res, 200, {{"pong", true}}); return; }
+    if (event != "issues") { reply_json(res, 200, {{"ignored", event}}); return; }
+    json payload;
+    if (!parse_body(req, res, payload)) return;
+    auto normalized = normalize_issues_event(payload);
+    if (!normalized) { reply_json(res, 200, {{"ignored", "no-op action or label"}}); return; }
+    bool changed = sp->apply_github_event(normalized->entity_label, normalized->action,
+                                          normalized->issue_shape, normalized->updated_at);
+    reply_json(res, 200, {{"applied", changed}, {"action", normalized->action}});
+  });
 
   std::cout << "[agamemnon] routes registered\n";
 }
