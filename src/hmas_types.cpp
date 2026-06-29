@@ -143,4 +143,35 @@ TaskBrief task_brief_from_json(const json& j) {
   return brief;
 }
 
+HmasTask hmas_task_from_json(const json& j) {
+  HmasTask t;
+  t.id = j.value("id", "");
+  t.brief_id = j.value("brief_id", "");
+  t.parent_task_id = j.value("parent_task_id", "");
+  t.layer = hmas_layer_from_string(j.value("layer", "L0_ChiefArchitect"));
+  t.state = task_state_from_string(j.value("state", "Pending"));
+  t.subject = j.value("subject", "");
+  t.description = j.value("description", "");
+  t.repo = j.value("repo", "");
+  t.module = j.value("module", "");
+  t.assigned_lead_id = j.value("assigned_lead_id", "");
+  t.created_at = j.value("created_at", "");
+  t.completed_at = j.value("completed_at", "");
+  if (j.contains("blocked_by") && j["blocked_by"].is_array())
+    for (const auto& s : j["blocked_by"]) t.blocked_by.push_back(s.get<std::string>());
+  if (j.contains("child_task_ids") && j["child_task_ids"].is_array())
+    for (const auto& s : j["child_task_ids"]) t.child_task_ids.push_back(s.get<std::string>());
+  if (j.contains("escalations") && j["escalations"].is_array()) {
+    for (const auto& e : j["escalations"]) {
+      EscalationRecord r;
+      r.task_id = e.value("task_id", "");
+      r.reason = e.value("reason", "");
+      r.escalated_at = e.value("escalated_at", "");
+      r.from_layer = hmas_layer_from_string(e.value("from_layer", "L0_ChiefArchitect"));
+      t.escalations.push_back(std::move(r));
+    }
+  }
+  return t;
+}
+
 }  // namespace projectagamemnon

@@ -43,6 +43,9 @@ class Orchestrator {
   PlanningBreakdown breakdown_;
   TaskStateMachine state_machine_;
 
+  /// Publish task state to hi.tasks.<state> NATS subject per ADR-006.
+  void publish_task_state(const HmasTask& task);
+
   /// NATS subject for a given layer.
   static std::string myrmidon_subject(HmasLayer layer, const std::string& task_id);
 

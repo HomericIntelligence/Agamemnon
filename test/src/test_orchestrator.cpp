@@ -143,6 +143,14 @@ TEST_F(OrchestratorTest, SubmitPublishesToMyrmidonSubject) {
   EXPECT_TRUE(fake_nats_.has_subject_prefix("hi.myrmidon."));
 }
 
+TEST_F(OrchestratorTest, SubmitPublishesTaskStateOnHiTasksSubject) {
+  fake_nats_.clear();
+  orch_->submit(make_brief("hi-tasks", {"repo-a"}, {{"repo-a", {"m1"}}}));
+  // L0 root transitions Pending -> Decomposing -> Delegated; publish_task_state
+  // fires once after update_hmas_task on the Delegated state.
+  EXPECT_TRUE(fake_nats_.has_subject("hi.tasks.delegated"));
+}
+
 TEST_F(OrchestratorTest, FakeNatsPublisherReturnsTrueOnPublish) {
   // Verify the fake publish always succeeds (happy path for caller logic).
   EXPECT_TRUE(fake_nats_.publish("hi.test.subj", R"({"k":"v"})"));
