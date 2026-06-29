@@ -1,16 +1,22 @@
 #include "projectagamemnon/peer_discovery.hpp"
 
+#include <algorithm>
 #include <arpa/inet.h>
 #include <array>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <netinet/in.h>
 #include <nlohmann/json.hpp>
 #include <regex>
 #include <sstream>
 #include <string>
 #include <sys/socket.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 
@@ -188,44 +194,123 @@ bool probe_nats_peer(const std::string& ip, int nats_port, int monitor_port, int
   return tcp_connect_with_timeout(ip, nats_port, timeout_ms);
 }
 
+std::string discover_nats_url(const std::vector<PeerCandidate>& peers,
+                              const std::string& hostname_pattern, int nats_port, int monitor_port,
+                              const DiscoveryOptions& opts) {
+  if (peers.empty()) return "";
+
+  // Filter by hostname pattern up front so worker count reflects real work.
+  std::vector<PeerCandidate> matched;
+  matched.reserve(peers.size());
+  for (const auto& p : peers) {
+    if (matches_hostname_pattern(p.hostname, hostname_pattern)) matched.push_back(p);
+  }
+  if (matched.empty()) return "";
+
+  // Hard cap — no sentinel value. Operators get predictable thread counts.
+  const std::size_t clamped_workers = std::clamp<std::size_t>(opts.max_workers, 1U, 32U);
+  const std::size_t worker_count = std::min(matched.size(), clamped_workers);
+
+  const auto deadline = std::chrono::steady_clock::now() + opts.total_budget;
+
+  std::mutex mtx;
+  std::condition_variable cv;
+  std::atomic<bool> found{false};
+  std::string winning_url;  // guarded by mtx
+  std::atomic<std::size_t> next_idx{0};
+
+  auto remaining_ms = [&]() -> int {
+    using namespace std::chrono;
+    const auto left = duration_cast<milliseconds>(deadline - steady_clock::now()).count();
+    return left > 0 ? static_cast<int>(left) : 0;
+  };
+
+  auto worker = [&]() {
+    while (!found.load(std::memory_order_acquire)) {
+      const std::size_t i = next_idx.fetch_add(1, std::memory_order_relaxed);
+      if (i >= matched.size()) return;
+
+      // Clamp socket timeout to remaining wall-clock budget.
+      // probe_nats_peer programs SO_RCVTIMEO/SO_SNDTIMEO from this value
+      // (src/peer_discovery.cpp:62-65, :104-107), so the kernel cannot
+      // exceed the deadline by more than its timer-wheel granularity (~tens of ms).
+      const int budget_left = remaining_ms();
+      if (budget_left == 0) return;
+      const int probe_timeout = std::min(opts.per_probe_timeout_ms, budget_left);
+
+      const auto& peer = matched[i];
+      if (!probe_nats_peer(peer.tailscale_ip, nats_port, monitor_port, probe_timeout)) continue;
+
+      // Memory order: CAS publishes the win before any reader can observe it.
+      // Main thread reads winning_url ONLY after acquiring `mtx`, which the
+      // worker releases AFTER writing. Happens-before chain:
+      //   CAS(found=true, acq_rel) -> lock(mtx) -> write -> unlock
+      //   -> main lock(mtx) -> read.
+      bool expected = false;
+      if (found.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        {
+          std::lock_guard<std::mutex> lk(mtx);
+          winning_url = "nats://" + peer.tailscale_ip + ":" + std::to_string(nats_port);
+        }
+        cv.notify_one();
+      }
+      return;
+    }
+  };
+
+  std::vector<std::thread> workers;
+  workers.reserve(worker_count);
+  for (std::size_t w = 0; w < worker_count; ++w) workers.emplace_back(worker);
+
+  // Wait until either a winner is published or the deadline expires.
+  // No polling — cv.wait_until returns precisely at the deadline.
+  {
+    std::unique_lock<std::mutex> lk(mtx);
+    cv.wait_until(lk, deadline, [&]() { return found.load(std::memory_order_acquire); });
+  }
+
+  // Losing workers either already saw found==true (and returned), or are
+  // mid-probe with a socket timeout clamped to remaining budget — so the
+  // join wait is bounded by kernel timer jitter (~tens of ms), NOT by the
+  // original per-probe timeout. This is the documented overshoot.
+  for (auto& t : workers) t.join();
+
+  std::lock_guard<std::mutex> lk(mtx);
+  return winning_url;  // "" if deadline beat every probe
+}
+
 std::string discover_nats_url(const std::string& hostname_pattern) {
   std::string pattern = hostname_pattern;
   if (pattern.empty()) {
-    const char* env = std::getenv("NATS_PEER_HOSTNAME_PATTERN");
-    if (env) pattern = env;
+    if (const char* env = std::getenv("NATS_PEER_HOSTNAME_PATTERN")) pattern = env;
   }
 
-  // Read configurable ports and timeout from environment
-  int nats_port = 4222;     // default
-  int monitor_port = 8222;  // default
-  int timeout_ms = 500;     // default
+  int nats_port = 4222;
+  int monitor_port = 8222;
+  DiscoveryOptions opts;  // defaults: 2 s budget, 500 ms per probe, 8 workers
 
-  const char* env_nats_port = std::getenv("NATS_PORT");
-  if (env_nats_port) {
-    nats_port = std::atoi(env_nats_port);
-    if (nats_port <= 0 || nats_port > 65535) nats_port = 4222;
+  if (const char* e = std::getenv("NATS_PORT")) {
+    int v = std::atoi(e);
+    if (v > 0 && v <= 65535) nats_port = v;
+  }
+  if (const char* e = std::getenv("NATS_MONITOR_PORT")) {
+    int v = std::atoi(e);
+    if (v > 0 && v <= 65535) monitor_port = v;
+  }
+  if (const char* e = std::getenv("NATS_DISCOVERY_TIMEOUT_MS")) {
+    int v = std::atoi(e);
+    if (v > 0) opts.per_probe_timeout_ms = v;
+  }
+  if (const char* e = std::getenv("NATS_DISCOVERY_BUDGET_MS")) {
+    int v = std::atoi(e);
+    if (v > 0) opts.total_budget = std::chrono::milliseconds{v};
+  }
+  if (const char* e = std::getenv("NATS_DISCOVERY_MAX_WORKERS")) {
+    int v = std::atoi(e);
+    if (v > 0) opts.max_workers = static_cast<std::size_t>(v);
   }
 
-  const char* env_monitor_port = std::getenv("NATS_MONITOR_PORT");
-  if (env_monitor_port) {
-    monitor_port = std::atoi(env_monitor_port);
-    if (monitor_port <= 0 || monitor_port > 65535) monitor_port = 8222;
-  }
-
-  const char* env_timeout = std::getenv("NATS_DISCOVERY_TIMEOUT_MS");
-  if (env_timeout) {
-    timeout_ms = std::atoi(env_timeout);
-    if (timeout_ms <= 0) timeout_ms = 500;
-  }
-
-  auto peers = enumerate_tailscale_peers();
-  for (const auto& peer : peers) {
-    if (!matches_hostname_pattern(peer.hostname, pattern)) continue;
-    if (probe_nats_peer(peer.tailscale_ip, nats_port, monitor_port, timeout_ms)) {
-      return "nats://" + peer.tailscale_ip + ":" + std::to_string(nats_port);
-    }
-  }
-  return "";
+  return discover_nats_url(enumerate_tailscale_peers(), pattern, nats_port, monitor_port, opts);
 }
 
 }  // namespace projectagamemnon

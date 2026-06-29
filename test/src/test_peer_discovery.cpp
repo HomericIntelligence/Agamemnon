@@ -196,4 +196,94 @@ TEST(PeerDiscoveryTest, EmptyTailscaleOutputReturnsEmpty) {
   EXPECT_TRUE(peers.empty());
 }
 
+// ── parallel probing & wall-clock budget (issue #167) ────────────────────────
+
+TEST(PeerDiscoveryTest, DiscoverHonorsWallClockBudgetWithManyDeadPeers) {
+  // 12 unroutable TEST-NET-1 peers. Serial 500 ms × 12 = 6 s would blow past
+  // the 1 s budget. Parallel + shared budget must finish well under 2× budget,
+  // even on a loaded CI runner. Headroom: 1 s budget + 1 s CI slack.
+  std::vector<PeerCandidate> peers;
+  for (int i = 1; i <= 12; ++i) {
+    peers.push_back({"192.0.2." + std::to_string(i), "dead-" + std::to_string(i)});
+  }
+  DiscoveryOptions opts;
+  opts.per_probe_timeout_ms = 500;
+  opts.total_budget = std::chrono::milliseconds{1000};
+
+  const auto t0 = std::chrono::steady_clock::now();
+  const std::string url = discover_nats_url(peers, /*pattern=*/"", 4222, 8222, opts);
+  const auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+
+  EXPECT_TRUE(url.empty());
+  EXPECT_LT(elapsed.count(), 2000) << "wall-clock budget exceeded; serial probing?";
+}
+
+TEST(PeerDiscoveryTest, DiscoverReturnsEmptyOnEmptyPeers) {
+  DiscoveryOptions opts;
+  opts.total_budget = std::chrono::milliseconds{200};
+  EXPECT_EQ(discover_nats_url({}, "", 4222, 8222, opts), "");
+}
+
+TEST(PeerDiscoveryTest, DiscoverAppliesHostnamePatternBeforeProbing) {
+  std::vector<PeerCandidate> peers = {
+      {"192.0.2.10", "keep-me"},
+      {"192.0.2.11", "skip-me"},
+  };
+  DiscoveryOptions opts;
+  opts.per_probe_timeout_ms = 500;
+  opts.total_budget = std::chrono::milliseconds{500};
+
+  const auto t0 = std::chrono::steady_clock::now();
+  const std::string url = discover_nats_url(peers, /*pattern=*/"nonexistent", 4222, 8222, opts);
+  const auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+
+  EXPECT_TRUE(url.empty());
+  // No peers match → no probes → returns near-immediately, not after budget.
+  EXPECT_LT(elapsed.count(), 200) << "pattern filtering must happen before probe fan-out";
+}
+
+TEST(PeerDiscoveryTest, DiscoverCapsWorkerCount) {
+  // 20 peers, max_workers=4 → work-stealing queue drains all peers within
+  // the budget. Verifies the cap doesn't break correctness, just throughput.
+  std::vector<PeerCandidate> peers;
+  for (int i = 1; i <= 20; ++i) {
+    peers.push_back({"192.0.2." + std::to_string(i), ""});
+  }
+  DiscoveryOptions opts;
+  opts.per_probe_timeout_ms = 200;
+  opts.total_budget = std::chrono::milliseconds{800};
+  opts.max_workers = 4;
+
+  const auto t0 = std::chrono::steady_clock::now();
+  (void)discover_nats_url(peers, /*pattern=*/"", 4222, 8222, opts);
+  const auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+  EXPECT_LT(elapsed.count(), 2000);
+}
+
+TEST(PeerDiscoveryTest, DiscoverClampsMaxWorkersToUpperBound) {
+  // POLA / R0 fix: max_workers is hard-clamped to 32 — no sentinel for
+  // "unbounded". Passing 1000 must NOT spawn 1000 threads. We can't
+  // directly observe thread count, but we verify the call still returns
+  // within budget rather than crashing/exhausting resources.
+  std::vector<PeerCandidate> peers;
+  for (int i = 1; i <= 50; ++i) {
+    peers.push_back({"192.0.2." + std::to_string(i), ""});
+  }
+  DiscoveryOptions opts;
+  opts.per_probe_timeout_ms = 200;
+  opts.total_budget = std::chrono::milliseconds{800};
+  opts.max_workers = 1000;  // would be catastrophic if not clamped
+
+  const auto t0 = std::chrono::steady_clock::now();
+  const std::string url = discover_nats_url(peers, /*pattern=*/"", 4222, 8222, opts);
+  const auto elapsed =
+      std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0);
+
+  EXPECT_TRUE(url.empty());
+  EXPECT_LT(elapsed.count(), 2000) << "max_workers clamp must not regress throughput";
+}
+
 }  // namespace projectagamemnon::test
