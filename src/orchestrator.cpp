@@ -3,6 +3,8 @@
 #include "projectagamemnon/nats_publisher.hpp"
 #include "projectagamemnon/store.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 
 namespace projectagamemnon {
@@ -13,6 +15,8 @@ Orchestrator::Orchestrator(Store& store, NatsPublisher& nats) : store_(store), n
 
 std::string Orchestrator::submit(TaskBrief brief) {
   if (brief.id.empty()) brief.id = generate_uuid();
+
+  store_.create_task_brief(brief);
 
   // Decompose into full task tree.
   auto tasks = breakdown_.decompose(brief);
@@ -28,6 +32,7 @@ std::string Orchestrator::submit(TaskBrief brief) {
       state_machine_.try_transition(root, TaskEvent::Submit);    // Pending -> Decomposing
       state_machine_.try_transition(root, TaskEvent::Delegate);  // Decomposing -> Delegated
       store_.update_hmas_task(root);
+      publish_task_state(root);
 
       std::string subj = myrmidon_subject(HmasLayer::L0_ChiefArchitect, root.id);
       json payload = hmas_task_to_json(root);
@@ -55,6 +60,7 @@ bool Orchestrator::delegate(const std::string& task_id) {
   if (!ok) return false;
 
   store_.update_hmas_task(task);
+  publish_task_state(task);
   std::string subj = myrmidon_subject(task.layer, task.id);
   nats_.publish(subj, hmas_task_to_json(task).dump());
   return true;
@@ -75,6 +81,7 @@ bool Orchestrator::escalate(const std::string& task_id, const std::string& reaso
   rec.from_layer = task.layer;
   task.escalations.push_back(rec);
   store_.update_hmas_task(task);
+  publish_task_state(task);
 
   // Re-enqueue to parent layer's subject.
   HmasLayer parent_layer = (task.layer == HmasLayer::L0_ChiefArchitect)
@@ -141,6 +148,7 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
     }
     state_machine_.try_transition(task, TaskEvent::Complete);
     store_.update_hmas_task(task);
+    publish_task_state(task);
 
     std::cout << "[orchestrator] task completed via " << subject << ": " << task_id << "\n";
 
@@ -164,7 +172,6 @@ void Orchestrator::on_myrmidon_completion(const std::string& subject, const std:
 
 json Orchestrator::get_plan(const std::string& brief_id) const {
   auto tasks = store_.list_hmas_tasks_by_brief(brief_id);
-
   json root_json = nullptr;
   json tasks_arr = json::array();
   for (const auto& t : tasks) {
@@ -172,11 +179,35 @@ json Orchestrator::get_plan(const std::string& brief_id) const {
     tasks_arr.push_back(tj);
     if (t.parent_task_id.empty()) root_json = tj;
   }
-
+  if (tasks_arr.empty()) {
+    // Fall back to brief store: a brief may exist without (yet) having tasks
+    // hydrated, or vice versa. Returning nullptr root with empty tasks here
+    // lets routes.cpp distinguish "no such brief" from "brief with no tasks".
+    auto brief_opt = store_.get_task_brief(brief_id);
+    if (brief_opt) {
+      return {{"brief_id", brief_id},
+              {"root", nullptr},
+              {"tasks", json::array()},
+              {"brief", task_brief_to_json(*brief_opt)}};
+    }
+  }
   return {{"brief_id", brief_id}, {"root", root_json}, {"tasks", tasks_arr}};
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
+
+void Orchestrator::publish_task_state(const HmasTask& task) {
+  // NATS subjects are lowercase (ADR-005 subject schema); task_state_to_string
+  // returns the capitalized form used in the JSON `state` field, so lowercase
+  // only the subject token here.
+  std::string state_token = task_state_to_string(task.state);
+  std::transform(state_token.begin(), state_token.end(), state_token.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  const std::string subj = "hi.tasks." + state_token;
+  json payload = hmas_task_to_json(task);
+  payload["brief_id"] = task.brief_id;
+  nats_.publish(subj, payload.dump());
+}
 
 std::string Orchestrator::myrmidon_subject(HmasLayer layer, const std::string& task_id) {
   std::string layer_str;

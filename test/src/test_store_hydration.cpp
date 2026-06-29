@@ -297,6 +297,102 @@ TEST(WriteThroughTest, CreateTaskPublishesToGitHub) {
   EXPECT_EQ(creates, 1);
 }
 
+// ── HMAS Task and TaskBrief Hydration Tests ────────────────────────────────────
+
+static json make_hmas_task_issue(int number, const HmasTask& task) {
+  std::string body = "## AgamemnonEntity: hmas-tasks/" + task.id + "\n\n```json\n" +
+                     hmas_task_to_json(task).dump(2) + "\n```\n";
+  return {{"number", number}, {"body", body}};
+}
+
+static json make_brief_issue(int number, const TaskBrief& brief) {
+  std::string body = "## AgamemnonEntity: briefs/" + brief.id + "\n\n```json\n" +
+                     task_brief_to_json(brief).dump(2) + "\n```\n";
+  return {{"number", number}, {"body", body}};
+}
+
+static HmasTask sample_hmas_task(const std::string& id, const std::string& brief_id) {
+  HmasTask t;
+  t.id = id;
+  t.brief_id = brief_id;
+  t.parent_task_id = "";
+  t.layer = HmasLayer::L0_ChiefArchitect;
+  t.state = TaskState::Delegated;
+  t.subject = "test-subject";
+  t.description = "test-description";
+  t.repo = "repo-a";
+  t.module = "module-1";
+  t.assigned_lead_id = "agent-1";
+  t.created_at = "2026-01-01T00:00:00Z";
+  t.completed_at = "";
+  return t;
+}
+
+static TaskBrief sample_brief(const std::string& id) {
+  TaskBrief b;
+  b.id = id;
+  b.title = "test-brief";
+  b.description = "test description";
+  b.repos = {"repo-a"};
+  b.modules["repo-a"] = {"module-1"};
+  return b;
+}
+
+TEST(HydrationTest, LoadsHmasTasksFromGitHub) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  HmasTask t1 = sample_hmas_task("task-1", "brief-1");
+  HmasTask t2 = sample_hmas_task("task-2", "brief-1");
+  t2.layer = HmasLayer::L1_ComponentLead;
+  mock->seed_issues["agamemnon-hmas-task"] = {make_hmas_task_issue(50, t1),
+                                              make_hmas_task_issue(51, t2)};
+
+  Store store(mock);
+  auto tasks = store.list_hmas_tasks_by_brief("brief-1");
+
+  EXPECT_EQ(tasks.size(), 2u);
+  EXPECT_EQ(tasks[0].id, "task-1");
+  EXPECT_EQ(tasks[1].id, "task-2");
+}
+
+TEST(HydrationTest, LoadsBriefsFromGitHub) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  TaskBrief b1 = sample_brief("brief-1");
+  TaskBrief b2 = sample_brief("brief-2");
+  b2.title = "another-brief";
+  mock->seed_issues["agamemnon-brief"] = {make_brief_issue(60, b1), make_brief_issue(61, b2)};
+
+  Store store(mock);
+  auto brief_opt = store.get_task_brief("brief-1");
+
+  ASSERT_TRUE(brief_opt.has_value());
+  EXPECT_EQ(brief_opt->id, "brief-1");
+  EXPECT_EQ(brief_opt->title, "test-brief");
+}
+
+TEST(HydrationTest, HmasTaskHydrationStoresGitHubIssueNumber) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  HmasTask t = sample_hmas_task("task-hn", "brief-1");
+  mock->seed_issues["agamemnon-hmas-task"] = {make_hmas_task_issue(70, t)};
+
+  Store store(mock);
+  auto task = store.get_hmas_task("task-hn");
+
+  ASSERT_TRUE(task.has_value());
+  EXPECT_EQ(task->id, "task-hn");
+}
+
+TEST(HydrationTest, TaskBriefHydrationStoresGitHubIssueNumber) {
+  auto mock = std::make_shared<MockGitHubClient>();
+  TaskBrief b = sample_brief("brief-hn");
+  mock->seed_issues["agamemnon-brief"] = {make_brief_issue(80, b)};
+
+  Store store(mock);
+  auto brief = store.get_task_brief("brief-hn");
+
+  ASSERT_TRUE(brief.has_value());
+  EXPECT_EQ(brief->id, "brief-hn");
+}
+
 TEST(WriteThroughTest, MarkTaskCompletedUpdatesGitHub) {
   auto mock = std::make_shared<MockGitHubClient>();
   Store store(mock);

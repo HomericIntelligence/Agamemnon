@@ -88,6 +88,11 @@ class Store {
   std::vector<HmasTask> list_hmas_tasks_by_parent(const std::string& parent_id);
   std::vector<HmasTask> list_hmas_tasks_by_brief(const std::string& brief_id);
 
+  // ── TaskBriefs (HMAS root submissions) ─────────────────────────────────
+  void create_task_brief(const TaskBrief& brief);
+  std::optional<TaskBrief> get_task_brief(const std::string& id);
+  std::vector<TaskBrief> list_task_briefs();
+
  private:
   std::shared_ptr<IGitHubClient> gh_;
   MetricsRegistry* metrics_ = nullptr;
@@ -101,22 +106,31 @@ class Store {
   // lock as hmas_tasks_; read under shared_lock by list_hmas_tasks_by_brief.
   // #156: avoids O(n) full-map scan on every myrmidon completion.
   std::unordered_map<std::string, std::vector<std::string>> hmas_tasks_by_brief_;
+  std::unordered_map<std::string, TaskBrief> task_briefs_;
+  std::unordered_map<std::string, std::string> hmas_task_issue_numbers_;
+  std::unordered_map<std::string, std::string> brief_issue_numbers_;
 
   // Atomic flags: checked outside the lock; once_flags guard the single fetch.
   std::atomic<bool> agents_loaded_{false};
   std::atomic<bool> teams_loaded_{false};
   std::atomic<bool> tasks_loaded_{false};
   std::atomic<bool> faults_loaded_{false};
+  std::atomic<bool> hmas_tasks_loaded_{false};
+  std::atomic<bool> briefs_loaded_{false};
   mutable std::once_flag agents_once_;
   mutable std::once_flag teams_once_;
   mutable std::once_flag tasks_once_;
   mutable std::once_flag faults_once_;
+  mutable std::once_flag hmas_tasks_once_;
+  mutable std::once_flag briefs_once_;
 
   // Called while holding mutex_; loads entity type from GitHub on first access.
   void ensure_agents_loaded_();
   void ensure_teams_loaded_();
   void ensure_tasks_loaded_();
   void ensure_faults_loaded_();
+  void ensure_hmas_tasks_loaded_();
+  void ensure_briefs_loaded_();
 
   // Parses the JSON payload embedded in an issue body; returns nullptr on failure.
   static json parse_issue_entity_(const json& issue);

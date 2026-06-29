@@ -724,7 +724,10 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
              [op](const httplib::Request& req, httplib::Response& res) {
                const std::string brief_id = req.matches[1];
                const json plan = op->get_plan(brief_id);
-               if (plan["tasks"].empty()) {
+               // 404 only when both the brief store AND task list are empty.
+               const bool no_tasks = plan["tasks"].empty();
+               const bool no_brief = !plan.contains("brief") && plan["root"].is_null();
+               if (no_tasks && no_brief) {
                  reply_not_found(res, "brief");
                  return;
                }

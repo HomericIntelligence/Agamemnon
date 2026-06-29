@@ -76,6 +76,7 @@ HmasLayer hmas_layer_from_string(const std::string& s);
 TaskState task_state_from_string(const std::string& s);
 
 json hmas_task_to_json(const HmasTask& task);
+HmasTask hmas_task_from_json(const json& j);
 json escalation_record_to_json(const EscalationRecord& rec);
 json task_brief_to_json(const TaskBrief& brief);
 TaskBrief task_brief_from_json(const json& j);

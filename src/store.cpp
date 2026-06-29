@@ -225,6 +225,83 @@ void Store::ensure_faults_loaded_() {
   }
 }
 
+void Store::ensure_hmas_tasks_loaded_() {
+  if (hmas_tasks_loaded_.load(std::memory_order_acquire)) return;
+  if (gh_) {
+    std::call_once(hmas_tasks_once_, [this]() {
+      std::vector<json> issues;
+      try {
+        issues = gh_->list_issues("agamemnon-hmas-task");
+      } catch (const std::exception& e) {
+        std::cerr << "[agamemnon] hydration error (hmas-tasks): " << e.what() << "\n";
+        hmas_tasks_loaded_.store(true, std::memory_order_release);
+        return;
+      }
+      std::unique_lock<std::shared_mutex> lk(mutex_);
+      for (auto& issue : issues) {
+        json entity = parse_issue_entity_(issue);
+        if (entity.is_null() || !entity.contains("id")) {
+          std::cerr << "[agamemnon] skipping malformed hmas-task issue\n";
+          continue;
+        }
+        try {
+          HmasTask t = hmas_task_from_json(entity);
+          if (issue.contains("number"))
+            hmas_task_issue_numbers_[t.id] = std::to_string(issue["number"].get<int>());
+          const std::string brief_id = t.brief_id;
+          const std::string task_id = t.id;
+          hmas_tasks_[t.id] = std::move(t);
+          // #156: keep the brief_id -> task ids secondary index consistent with
+          // the hydrated tasks so list_hmas_tasks_by_brief() works after restart.
+          if (!brief_id.empty()) {
+            hmas_tasks_by_brief_[brief_id].push_back(task_id);
+          }
+        } catch (const std::exception& e) {
+          std::cerr << "[agamemnon] failed to deserialize hmas-task: " << e.what() << "\n";
+        }
+      }
+      hmas_tasks_loaded_.store(true, std::memory_order_release);
+    });
+  } else {
+    hmas_tasks_loaded_.store(true, std::memory_order_release);
+  }
+}
+
+void Store::ensure_briefs_loaded_() {
+  if (briefs_loaded_.load(std::memory_order_acquire)) return;
+  if (gh_) {
+    std::call_once(briefs_once_, [this]() {
+      std::vector<json> issues;
+      try {
+        issues = gh_->list_issues("agamemnon-brief");
+      } catch (const std::exception& e) {
+        std::cerr << "[agamemnon] hydration error (briefs): " << e.what() << "\n";
+        briefs_loaded_.store(true, std::memory_order_release);
+        return;
+      }
+      std::unique_lock<std::shared_mutex> lk(mutex_);
+      for (auto& issue : issues) {
+        json entity = parse_issue_entity_(issue);
+        if (entity.is_null() || !entity.contains("id")) {
+          std::cerr << "[agamemnon] skipping malformed brief issue\n";
+          continue;
+        }
+        try {
+          TaskBrief b = task_brief_from_json(entity);
+          if (issue.contains("number"))
+            brief_issue_numbers_[b.id] = std::to_string(issue["number"].get<int>());
+          task_briefs_[b.id] = std::move(b);
+        } catch (const std::exception& e) {
+          std::cerr << "[agamemnon] failed to deserialize brief: " << e.what() << "\n";
+        }
+      }
+      briefs_loaded_.store(true, std::memory_order_release);
+    });
+  } else {
+    briefs_loaded_.store(true, std::memory_order_release);
+  }
+}
+
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 json Store::create_agent(const json& body) {
@@ -594,7 +671,15 @@ bool Store::remove_fault(const std::string& id) {
 // ── HMAS typed tasks ──────────────────────────────────────────────────────────
 
 void Store::create_hmas_task(const HmasTask& task) {
+  ensure_hmas_tasks_loaded_();  // also guards write-first race
   std::unique_lock<std::shared_mutex> lk(mutex_);
+  if (gh_) {
+    const std::string title = "hmas-task: " + task.id;
+    std::string issue_num =
+        gh_->create_issue(title, make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)),
+                          "agamemnon-hmas-task");
+    if (!issue_num.empty()) hmas_task_issue_numbers_[task.id] = issue_num;
+  }
   hmas_tasks_[task.id] = task;
   if (!task.brief_id.empty()) {
     hmas_tasks_by_brief_[task.brief_id].push_back(task.id);
@@ -602,6 +687,7 @@ void Store::create_hmas_task(const HmasTask& task) {
 }
 
 std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
+  ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return std::nullopt;
@@ -610,23 +696,47 @@ std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
 
 bool Store::update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
                                                          const EscalationRecord& escalation) {
+  ensure_hmas_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
   it->second.state = new_state;
   it->second.escalations.push_back(escalation);
+  if (gh_) {
+    auto num_it = hmas_task_issue_numbers_.find(id);
+    if (num_it != hmas_task_issue_numbers_.end()) {
+      gh_->update_issue_body(num_it->second,
+                             make_issue_body_("hmas-tasks/" + id, hmas_task_to_json(it->second)));
+    } else {
+      std::cerr << "[agamemnon] update_hmas_task_state_and_record_escalation: "
+                << "no GitHub issue number for " << id
+                << "; in-memory updated, GitHub NOT updated\n";
+    }
+  }
   return true;
 }
 
 bool Store::update_hmas_task_state(const std::string& id, TaskState state) {
+  ensure_hmas_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
   it->second.state = state;
+  if (gh_) {
+    auto num_it = hmas_task_issue_numbers_.find(id);
+    if (num_it != hmas_task_issue_numbers_.end()) {
+      gh_->update_issue_body(num_it->second,
+                             make_issue_body_("hmas-tasks/" + id, hmas_task_to_json(it->second)));
+    } else {
+      std::cerr << "[agamemnon] update_hmas_task_state: no GitHub issue number for " << id
+                << "; in-memory updated, GitHub NOT updated\n";
+    }
+  }
   return true;
 }
 
 bool Store::update_hmas_task(const HmasTask& task) {
+  ensure_hmas_tasks_loaded_();  // review fix: run hydration even on write-first paths
   std::unique_lock<std::shared_mutex> lk(mutex_);
   auto it = hmas_tasks_.find(task.id);
   if (it == hmas_tasks_.end()) return false;
@@ -643,10 +753,21 @@ bool Store::update_hmas_task(const HmasTask& task) {
       hmas_tasks_by_brief_[task.brief_id].push_back(task.id);
     }
   }
+  if (gh_) {
+    auto num_it = hmas_task_issue_numbers_.find(task.id);
+    if (num_it != hmas_task_issue_numbers_.end()) {
+      gh_->update_issue_body(num_it->second,
+                             make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)));
+    } else {
+      std::cerr << "[agamemnon] update_hmas_task: no GitHub issue number for " << task.id
+                << "; in-memory updated, GitHub NOT updated\n";
+    }
+  }
   return true;
 }
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
+  ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(mutex_);
   std::vector<HmasTask> out;
   for (const auto& [id, task] : hmas_tasks_) {
@@ -656,6 +777,7 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
 }
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent_id) {
+  ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(mutex_);
   std::vector<HmasTask> out;
   for (const auto& [id, task] : hmas_tasks_) {
@@ -665,6 +787,7 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent
 }
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_id) {
+  ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(mutex_);
   std::vector<HmasTask> out;
   auto idx_it = hmas_tasks_by_brief_.find(brief_id);
@@ -674,6 +797,49 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_i
     auto t_it = hmas_tasks_.find(task_id);
     if (t_it != hmas_tasks_.end()) out.push_back(t_it->second);
   }
+  return out;
+}
+
+// ── TaskBriefs ────────────────────────────────────────────────────────────────
+
+void Store::create_task_brief(const TaskBrief& brief) {
+  ensure_briefs_loaded_();
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  if (gh_) {
+    // Truncate by code points, not bytes, to avoid splitting UTF-8 sequences
+    std::string truncated_title;
+    truncated_title.reserve(80);
+    std::size_t code_points = 0;
+    for (std::size_t i = 0; i < brief.title.size() && code_points < 80;) {
+      unsigned char c = static_cast<unsigned char>(brief.title[i]);
+      std::size_t adv = (c < 0x80) ? 1u : (c < 0xC0) ? 1u : (c < 0xE0) ? 2u : (c < 0xF0) ? 3u : 4u;
+      if (i + adv > brief.title.size()) break;
+      truncated_title.append(brief.title, i, adv);
+      i += adv;
+      ++code_points;
+    }
+    std::string issue_num = gh_->create_issue(
+        "brief: " + truncated_title,
+        make_issue_body_("briefs/" + brief.id, task_brief_to_json(brief)), "agamemnon-brief");
+    if (!issue_num.empty()) brief_issue_numbers_[brief.id] = issue_num;
+  }
+  task_briefs_[brief.id] = brief;
+}
+
+std::optional<TaskBrief> Store::get_task_brief(const std::string& id) {
+  ensure_briefs_loaded_();
+  std::shared_lock<std::shared_mutex> lk(mutex_);
+  auto it = task_briefs_.find(id);
+  if (it == task_briefs_.end()) return std::nullopt;
+  return it->second;
+}
+
+std::vector<TaskBrief> Store::list_task_briefs() {
+  ensure_briefs_loaded_();
+  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::vector<TaskBrief> out;
+  out.reserve(task_briefs_.size());
+  for (const auto& [_, b] : task_briefs_) out.push_back(b);
   return out;
 }
 
