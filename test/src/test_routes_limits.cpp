@@ -1,54 +1,27 @@
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
-
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include <string>
-#include <thread>
-
-#include "httplib.h"
-#include "nlohmann/json.hpp"
-#include <gtest/gtest.h>
+#include "route_test_fixture.hpp"
 
 namespace projectagamemnon::test {
 
 using json = nlohmann::json;
 
-// ── Fixture ───────────────────────────────────────────────────────────────────
+class RoutesLimitsTest : public RouteTestFixture {
+ public:
+  RoutesLimitsTest() {
+    // Preserve original order: bind first, then register_routes
+    // (test_routes_limits.cpp:25-30).
+    bind_before_register_routes_ = true;
+    // Original fixture never called wait_until_ready().
+    skip_wait_until_ready_ = true;
+  }
 
-class RoutesLimitsTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    port_ = svr_.bind_to_any_port("127.0.0.1");
-    ASSERT_GT(port_, 0);
-    register_routes(svr_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
-    thread_ = std::thread([this] { svr_.listen_after_bind(); });
-  }
-
-  void TearDown() override {
-    svr_.stop();
-    if (thread_.joinable()) thread_.join();
-  }
-
+  // Original helper: fresh client per call with a 5-second connect timeout.
   httplib::Client client() const {
     httplib::Client c("127.0.0.1", port_);
     c.set_connection_timeout(5);
     return c;
   }
-
-  Store store_;
-  NatsClient nats_{"nats://127.0.0.1:14222"};  // unreachable — publishes are no-ops
-  RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for limits tests
-  AuthMiddleware auth_{""};                    // no-key mode — auth is bypassed
-  MetricsRegistry metrics_;
-  Orchestrator orchestrator_{store_, nats_};  // HMAS orchestrator
-  httplib::Server svr_;
-  int port_{0};
-  std::thread thread_;
 };
 
 // ── Transport-layer body size limit ──────────────────────────────────────────

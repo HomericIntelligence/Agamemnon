@@ -1,78 +1,34 @@
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
-
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include <memory>
-#include <thread>
-
-#include "httplib.h"
-#include <gtest/gtest.h>
+#include "route_test_fixture.hpp"
 
 namespace projectagamemnon::test {
 
-// Starts a real httplib::Server in a background thread for integration tests.
-// The server is stopped and the thread joined in TearDown.
-class RoutesAuthTest : public ::testing::Test {
- protected:
+class RoutesAuthTest : public RouteTestFixture {
+ public:
   static constexpr const char* kKey = "test-api-key";
 
-  void SetUp() override {
-    auth_ = std::make_unique<AuthMiddleware>(kKey);
-    store_ = std::make_unique<Store>();
-    nats_ = std::make_unique<NatsClient>("nats://127.0.0.1:14222");
-    orchestrator_ = std::make_unique<Orchestrator>(*store_, *nats_);
+  RoutesAuthTest() { api_key_ = kKey; }
 
-    register_routes(server_, *store_, *nats_, rate_limiter_, *auth_, metrics_, *orchestrator_);
-
-    // Bind to an OS-assigned port to avoid cross-test port conflicts.
-    port_ = server_.bind_to_any_port("127.0.0.1");
-    ASSERT_GT(port_, 0) << "bind_to_any_port failed";
-    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
-    server_.wait_until_ready();
-  }
-
-  void TearDown() override {
-    server_.stop();
-    if (server_thread_.joinable()) {
-      server_thread_.join();
-    }
-  }
-
-  // Helpers for making authenticated / unauthenticated requests.
+ protected:
+  // Preserve fresh-client-per-call semantics from test_routes_auth.cpp:47-65.
+  // Cpp-httplib Client maintains a keep-alive socket across calls; reusing
+  // client_ would change semantics for auth state assertions.
   httplib::Result get_no_auth(const std::string& path) {
     httplib::Client cli("127.0.0.1", port_);
     return cli.Get(path);
   }
-
   httplib::Result get_with_key(const std::string& path) {
     httplib::Client cli("127.0.0.1", port_);
     return cli.Get(path, {{"X-API-Key", kKey}});
   }
-
   httplib::Result get_with_bearer(const std::string& path) {
     httplib::Client cli("127.0.0.1", port_);
     return cli.Get(path, {{"Authorization", std::string("Bearer ") + kKey}});
   }
-
   httplib::Result get_with_wrong_key(const std::string& path) {
     httplib::Client cli("127.0.0.1", port_);
     return cli.Get(path, {{"X-API-Key", "wrong-key"}});
   }
-
-  int port_{0};
-  httplib::Server server_;
-  std::thread server_thread_;
-  RateLimiter rate_limiter_{1e9, 1e9};  // effectively unlimited for auth tests
-  MetricsRegistry metrics_;
-  std::unique_ptr<AuthMiddleware> auth_;
-  std::unique_ptr<Store> store_;
-  std::unique_ptr<NatsClient> nats_;
-  std::unique_ptr<Orchestrator> orchestrator_;
 };
 
 // ── Health endpoints: exempt from auth ───────────────────────────────────────
