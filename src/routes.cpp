@@ -14,6 +14,7 @@
 // cpp-httplib — single-header, no SSL needed for internal mesh traffic
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
@@ -38,7 +39,25 @@ static constexpr std::size_t kMaxProgramLen = 1024;
 
 static constexpr std::size_t kMaxBodyBytes = 1U * 1024U * 1024U;  // 1 MiB
 
-static void reply_json(httplib::Response& res, int status, const json& body) {
+// #164: strip internal-only fields from any JSON reachable in `body` before it
+// is serialised to the wire. Store retains `_github_issue` for its own GitHub-
+// sync paths (see src/store.cpp:303, 488, 538, …); REST consumers must never
+// see it. Add additional internal field names to kInternalFields when needed.
+static constexpr std::array<std::string_view, 1> kInternalFields = {
+    std::string_view{"_github_issue"},
+};
+
+static void strip_internal_fields(json& node) {  // NOLINT(misc-no-recursion)
+  if (node.is_object()) {
+    for (auto f : kInternalFields) node.erase(std::string(f));
+    for (auto it = node.begin(); it != node.end(); ++it) strip_internal_fields(it.value());
+  } else if (node.is_array()) {
+    for (auto& v : node) strip_internal_fields(v);
+  }
+}
+
+static void reply_json(httplib::Response& res, int status, json body) {
+  strip_internal_fields(body);
   res.status = status;
   res.set_header("X-API-Version", std::string(kVersion));
   res.set_content(body.dump(), "application/json");
