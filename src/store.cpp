@@ -302,6 +302,77 @@ void Store::ensure_briefs_loaded_() {
   }
 }
 
+std::unordered_map<std::string, json>* Store::pick_map_(std::string_view label) {
+  if (label == "agamemnon-agent") { ensure_agents_loaded_(); return &agents_; }
+  if (label == "agamemnon-team")  { ensure_teams_loaded_();  return &teams_; }
+  if (label == "agamemnon-task")  { ensure_tasks_loaded_();  return &tasks_; }
+  if (label == "agamemnon-fault") { ensure_faults_loaded_(); return &faults_; }
+  return nullptr;
+}
+
+bool Store::apply_github_event(std::string_view entity_label, std::string_view action,
+                               const json& issue_shape, std::string_view updated_at) {
+  auto* map = pick_map_(entity_label);
+  if (!map) return false;
+  json entity = parse_issue_entity_(issue_shape);
+  if (entity.is_null() || !entity.contains("id")) return false;
+  const std::string id = entity["id"].get<std::string>();
+  if (issue_shape.contains("number"))
+    entity["_github_issue"] = std::to_string(issue_shape["number"].get<int>());
+
+  std::unique_lock<std::shared_mutex> lk(mutex_);
+  auto it = map->find(id);
+
+  // closed/reopened are terminal state transitions — always apply (no LWW skip).
+  if (action == "closed") {
+    if (it == map->end()) return false;
+    it->second["status"] = "closed";
+    it->second["closedAt"] = std::string(updated_at);
+    it->second["updatedAt"] = std::string(updated_at);
+    if (metrics_) metrics_->record_inbound_sync("closed");
+    return true;
+  }
+  if (action == "reopened") {
+    if (it == map->end()) { (*map)[id] = std::move(entity); }
+    else { it->second["status"] = "active"; it->second["updatedAt"] = std::string(updated_at); }
+    if (metrics_) metrics_->record_inbound_sync("reopened");
+    return true;
+  }
+
+  // edited / opened / labeled / unlabeled: LWW via updatedAt.
+  if (it != map->end() && !updated_at.empty()) {
+    const std::string local_ts = it->second.value("updatedAt", std::string{});
+    if (!local_ts.empty() && local_ts >= std::string(updated_at)) {
+      if (metrics_) metrics_->record_inbound_sync("skipped_stale");
+      return false;
+    }
+  }
+  entity["updatedAt"] = std::string(updated_at);
+  (*map)[id] = std::move(entity);
+  if (metrics_) metrics_->record_inbound_sync("applied");
+  return true;
+}
+
+std::size_t Store::reconcile_from_github() {
+  if (!gh_) return 0;
+  static constexpr std::array<std::string_view, 4> kLabels{
+      "agamemnon-agent", "agamemnon-team", "agamemnon-task", "agamemnon-fault"};
+  std::size_t changed = 0;
+  for (auto label : kLabels) {
+    std::vector<json> issues;
+    try { issues = gh_->list_issues(label); }
+    catch (const std::exception& e) {
+      std::cerr << "[agamemnon] reconcile error (" << label << "): " << e.what() << "\n";
+      continue;
+    }
+    for (auto& issue : issues) {
+      std::string ts = issue.value("updated_at", "");
+      if (apply_github_event(label, "edited", issue, ts)) ++changed;
+    }
+  }
+  return changed;
+}
+
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 json Store::create_agent(const json& body) {
@@ -322,6 +393,7 @@ json Store::create_agent(const json& body) {
   agent["host"] = body.value("host", "local");
   agent["status"] = "offline";
   agent["createdAt"] = now_iso8601();
+  agent["updatedAt"] = agent["createdAt"];
 
   if (gh_) {
     std::string issue_num =
@@ -375,8 +447,9 @@ json Store::update_agent(const std::string& id, const json& fields) {
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   for (auto& [key, val] : fields.items()) {
-    if (key != "id" && key != "createdAt" && key != "_github_issue") it->second[key] = val;
+    if (key != "id" && key != "createdAt" && key != "_github_issue" && key != "updatedAt") it->second[key] = val;
   }
+  it->second["updatedAt"] = now_iso8601();
   if (gh_ && it->second.contains("_github_issue")) {
     gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
                            make_issue_body_("agents/" + id, it->second));
@@ -435,6 +508,7 @@ json Store::create_team(const json& body) {
   team["agentIds"] =
       body.contains("agent_ids") ? body["agent_ids"] : body.value("agentIds", json::array());
   team["createdAt"] = now_iso8601();
+  team["updatedAt"] = team["createdAt"];
 
   if (gh_) {
     std::string issue_num =
@@ -479,6 +553,7 @@ json Store::update_team(const std::string& id, const json& body) {
   else if (body.contains("agent_ids"))
     it->second["agentIds"] = body["agent_ids"];
   if (body.contains("name")) it->second["name"] = body["name"];
+  it->second["updatedAt"] = now_iso8601();
   if (gh_ && it->second.contains("_github_issue")) {
     gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
                            make_issue_body_("teams/" + id, it->second));
@@ -514,6 +589,7 @@ json Store::create_task(const std::string& team_id, const json& body) {
   task["type"] = body.value("type", "general");
   task["status"] = "pending";
   task["createdAt"] = now_iso8601();
+  task["updatedAt"] = task["createdAt"];
   task["completedAt"] = nullptr;
 
   if (gh_) {
@@ -555,13 +631,14 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
   if (it == tasks_.end()) return nullptr;
   if (it->second.value("teamId", "") != team_id) return nullptr;
   for (auto& [key, val] : body.items()) {
-    if (key != "id" && key != "teamId" && key != "createdAt" && key != "_github_issue")
+    if (key != "id" && key != "teamId" && key != "createdAt" && key != "_github_issue" && key != "updatedAt")
       it->second[key] = val;
   }
   if (body.contains("status") && body["status"] == "completed" &&
       it->second.value("completedAt", json(nullptr)).is_null()) {
     it->second["completedAt"] = now_iso8601();
   }
+  it->second["updatedAt"] = now_iso8601();
   if (gh_ && it->second.contains("_github_issue")) {
     gh_->update_issue_body(it->second["_github_issue"].get<std::string>(),
                            make_issue_body_("tasks/" + task_id, it->second));
@@ -645,6 +722,7 @@ json Store::create_fault(const std::string& type) {
   fault["type"] = type;
   fault["active"] = true;
   fault["createdAt"] = now_iso8601();
+  fault["updatedAt"] = fault["createdAt"];
 
   if (gh_) {
     std::string issue_num = gh_->create_issue(

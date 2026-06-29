@@ -33,6 +33,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_github_client.cpp
   src/test_agent_envelope.cpp
   src/test_orchestrator_persistence.cpp
+  src/test_github_webhook.cpp
 )
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)

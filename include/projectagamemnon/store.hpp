@@ -93,6 +93,11 @@ class Store {
   std::optional<TaskBrief> get_task_brief(const std::string& id);
   std::vector<TaskBrief> list_task_briefs();
 
+  // ── Inbound sync (#165) ───────────────────────────────────────────────
+  bool apply_github_event(std::string_view entity_label, std::string_view action,
+                          const json& issue_shape, std::string_view updated_at);
+  std::size_t reconcile_from_github();
+
  private:
   std::shared_ptr<IGitHubClient> gh_;
   MetricsRegistry* metrics_ = nullptr;
@@ -137,6 +142,9 @@ class Store {
 
   // Builds a GitHub issue body containing a labelled JSON block.
   static std::string make_issue_body_(std::string_view entity_type, const json& entity);
+
+  // Returns the map matching the agamemnon-* label, or nullptr on unknown label.
+  std::unordered_map<std::string, json>* pick_map_(std::string_view entity_label);
 };
 
 }  // namespace projectagamemnon
