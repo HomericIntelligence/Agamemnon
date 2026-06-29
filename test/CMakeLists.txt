@@ -113,7 +113,8 @@ gtest_discover_tests(${PROJECT_NAME}_routes_tests DISCOVERY_TIMEOUT 120)
 add_executable(${PROJECT_NAME}_integration_tests
   src/integration/test_agent_endpoints.cpp
   src/integration/test_task_lifecycle.cpp
-  src/integration/test_chaos_endpoints.cpp)
+  src/integration/test_chaos_endpoints.cpp
+  src/integration/test_peer_discovery_integration.cpp)
 
 target_compile_features(${PROJECT_NAME}_integration_tests PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_integration_tests PROPERTIES CXX_EXTENSIONS OFF)
@@ -138,6 +139,7 @@ target_link_libraries(${PROJECT_NAME}_integration_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
     ProjectAgamemnon_core
+    agamemnon_peer_discovery
     GTest::gtest_main
     httplib::httplib)
 
