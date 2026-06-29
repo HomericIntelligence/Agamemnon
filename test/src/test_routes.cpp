@@ -1,71 +1,11 @@
-#include <memory>
-#include <string>
-#include <thread>
-
-#include <gtest/gtest.h>
-
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
-
-#include "httplib.h"
-#include "nlohmann/json.hpp"
+#include "route_test_fixture.hpp"
 
 namespace projectagamemnon::test {
 
 using json = nlohmann::json;
 
-class RoutesHappyPathTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
-    // Bind to an OS-assigned port to avoid cross-test port conflicts.
-    int port = server_.bind_to_any_port("127.0.0.1");
-    ASSERT_GT(port, 0) << "bind_to_any_port failed";
-    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
-    client_ = std::make_unique<httplib::Client>("127.0.0.1", port);
-    client_->set_connection_timeout(5);
-    client_->set_read_timeout(5);
-    server_.wait_until_ready();
-  }
-
-  void TearDown() override {
-    server_.stop();
-    if (server_thread_.joinable()) server_thread_.join();
-  }
-
-  // Convenience helpers
-  httplib::Result Get(const std::string& path) { return client_->Get(path); }
-
-  httplib::Result Post(const std::string& path, const json& body) {
-    return client_->Post(path, body.dump(), "application/json");
-  }
-
-  httplib::Result Patch(const std::string& path, const json& body) {
-    return client_->Patch(path, body.dump(), "application/json");
-  }
-
-  httplib::Result Put(const std::string& path, const json& body) {
-    return client_->Put(path, body.dump(), "application/json");
-  }
-
-  httplib::Result Delete(const std::string& path) { return client_->Delete(path); }
-
-  Store store_;
-  NatsClient nats_{"nats://127.0.0.1:14222"};  // never connected — all publishes are no-ops
-  RateLimiter rate_limiter_{1e9, 1e9};         // effectively unlimited for tests
-  AuthMiddleware auth_{""};                    // empty key = allow all requests in tests
-  MetricsRegistry metrics_;
-  Orchestrator orchestrator_{store_, nats_};  // HMAS orchestrator
-  httplib::Server server_;
-  std::thread server_thread_;
-  std::unique_ptr<httplib::Client> client_;
-};
+class RoutesHappyPathTest : public RouteTestFixture {};
 
 // ── Health / version ──────────────────────────────────────────────────────────
 
@@ -648,36 +588,13 @@ TEST_F(RoutesHappyPathTest, CompleteTaskFromPendingReachesCompleted) {
 
 // ── Rate limiting ─────────────────────────────────────────────────────────
 
-class RateLimitedRouteTest : public ::testing::Test {
- protected:
-  void SetUp() override {
-    // Use a strict rate limit: 2 requests max per window, to easily trigger 429s.
-    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
-    int port = server_.bind_to_any_port("127.0.0.1");
-    ASSERT_GT(port, 0) << "bind_to_any_port failed";
-    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
-    client_ = std::make_unique<httplib::Client>("127.0.0.1", port);
-    client_->set_connection_timeout(5);
-    client_->set_read_timeout(5);
-    server_.wait_until_ready();
+class RateLimitedRouteTest : public RouteTestFixture {
+ public:
+  RateLimitedRouteTest() {
+    // 2 tokens/sec, burst=2 → 3rd request triggers 429 (matches test_routes.cpp:674).
+    rate_tokens_per_sec_ = 2;
+    rate_burst_ = 2;
   }
-
-  void TearDown() override {
-    server_.stop();
-    if (server_thread_.joinable()) server_thread_.join();
-  }
-
-  httplib::Result Get(const std::string& path) { return client_->Get(path); }
-
-  Store store_;
-  NatsClient nats_{"nats://127.0.0.1:14222"};
-  RateLimiter rate_limiter_{2, 2};  // 2 tokens/sec, burst=2 → 3rd request triggers 429
-  AuthMiddleware auth_{""};         // allow all requests
-  MetricsRegistry metrics_;
-  Orchestrator orchestrator_{store_, nats_};
-  httplib::Server server_;
-  std::thread server_thread_;
-  std::unique_ptr<httplib::Client> client_;
 };
 
 TEST_F(RateLimitedRouteTest, RateLimitExceededReturns429WithRetryAfterHeader) {

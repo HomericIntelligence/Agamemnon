@@ -39,7 +39,8 @@ set_target_properties(${PROJECT_NAME}_tests PROPERTIES CXX_EXTENSIONS OFF)
 target_include_directories(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src)
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/test/src)
 
 # Suppress warnings from external headers in test binary
 target_compile_options(${PROJECT_NAME}_tests PRIVATE
@@ -90,7 +91,8 @@ target_compile_options(${PROJECT_NAME}_routes_tests PRIVATE
 target_include_directories(${PROJECT_NAME}_routes_tests
   PRIVATE
     ${PROJECT_SOURCE_DIR}/include
-    ${PROJECT_SOURCE_DIR}/src)
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/test/src)
 
 target_link_libraries(${PROJECT_NAME}_routes_tests
   PRIVATE

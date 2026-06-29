@@ -1,53 +1,11 @@
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
-
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include <memory>
-#include <string>
-#include <thread>
-
-#include "httplib.h"
-#include "nlohmann/json.hpp"
-#include <gtest/gtest.h>
+#include "route_test_fixture.hpp"
 
 namespace projectagamemnon::test {
 
 using json = nlohmann::json;
 
-class RoutesTest : public ::testing::Test {
- protected:
-  Store store_;
-  NatsClient nats_{"nats://127.0.0.1:4222"};  // disconnected — all publish() are no-ops
-  RateLimiter rate_limiter_{1e9, 1e9};        // effectively unlimited for tests
-  AuthMiddleware auth_{""};                   // empty key — all requests pass auth in test
-  MetricsRegistry metrics_;
-  Orchestrator orchestrator_{store_, nats_};  // HMAS orchestrator
-  httplib::Server server_;
-  std::thread server_thread_;
-  std::unique_ptr<httplib::Client> client_;
-
-  void SetUp() override {
-    register_routes(server_, store_, nats_, rate_limiter_, auth_, metrics_, orchestrator_);
-    int port = server_.bind_to_any_port("127.0.0.1");
-    ASSERT_GT(port, 0);
-    server_thread_ = std::thread([this] { server_.listen_after_bind(); });
-    client_ = std::make_unique<httplib::Client>("127.0.0.1", port);
-    client_->set_connection_timeout(5);
-    client_->set_read_timeout(5);
-    // Wait until the server is actually listening
-    server_.wait_until_ready();
-  }
-
-  void TearDown() override {
-    server_.stop();
-    if (server_thread_.joinable()) server_thread_.join();
-  }
-};
+class RoutesTest : public RouteTestFixture {};
 
 // ── Unknown top-level routes ──────────────────────────────────────────────────
 
