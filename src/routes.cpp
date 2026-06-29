@@ -811,8 +811,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   if (!secret_env || std::string(secret_env).empty()) {
     std::cerr << "[agamemnon] warning: GITHUB_WEBHOOK_SECRET not set; webhook disabled\n";
   }
-  server.Post("/v1/github/webhook",
-              [secret_env, sp, mp](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/github/webhook", [secret_env, sp, mp](const httplib::Request& req,
+                                                         httplib::Response& res) {
     if (!secret_env || std::string(secret_env).empty()) {
       reply_json(res, 503, {{"error", "webhook not configured"}});
       return;
@@ -824,12 +824,21 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       return;
     }
     std::string event = req.get_header_value("X-GitHub-Event");
-    if (event == "ping") { reply_json(res, 200, {{"pong", true}}); return; }
-    if (event != "issues") { reply_json(res, 200, {{"ignored", event}}); return; }
+    if (event == "ping") {
+      reply_json(res, 200, {{"pong", true}});
+      return;
+    }
+    if (event != "issues") {
+      reply_json(res, 200, {{"ignored", event}});
+      return;
+    }
     json payload;
     if (!parse_body(req, res, payload)) return;
     auto normalized = normalize_issues_event(payload);
-    if (!normalized) { reply_json(res, 200, {{"ignored", "no-op action or label"}}); return; }
+    if (!normalized) {
+      reply_json(res, 200, {{"ignored", "no-op action or label"}});
+      return;
+    }
     bool changed = sp->apply_github_event(normalized->entity_label, normalized->action,
                                           normalized->issue_shape, normalized->updated_at);
     reply_json(res, 200, {{"applied", changed}, {"action", normalized->action}});

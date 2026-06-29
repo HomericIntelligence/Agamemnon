@@ -1,9 +1,11 @@
-#include <gtest/gtest.h>
+#include "projectagamemnon/github_webhook.hpp"
+
+#include <iomanip>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
-#include <iomanip>
 #include <sstream>
-#include "projectagamemnon/github_webhook.hpp"
+
+#include <gtest/gtest.h>
 
 namespace projectagamemnon {
 
@@ -165,8 +167,8 @@ TEST_F(GitHubWebhookTest, NormalizeNulloptOnMissingAgamemnonLabel) {
 }
 
 TEST_F(GitHubWebhookTest, NormalizeAllowedActions) {
-  const std::array<std::string_view, 6> actions = {"opened", "edited", "closed", "reopened",
-                                                    "labeled", "unlabeled"};
+  const std::array<std::string_view, 6> actions = {"opened",   "edited",  "closed",
+                                                   "reopened", "labeled", "unlabeled"};
 
   for (auto action : actions) {
     nlohmann::json payload = nlohmann::json::parse(

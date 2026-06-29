@@ -11,11 +11,13 @@
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "httplib.h"
 
@@ -23,12 +25,16 @@
 // Set before sigaction(), nulled after cleanup to guard against late signals.
 namespace {
 std::atomic<bool>* g_shutdown_flag =
-    nullptr;                          // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-httplib::Server* g_server = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+    nullptr;                           // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+httplib::Server* g_server = nullptr;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+std::jthread* g_reconciler = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 void shutdown_handler(int /*sig*/) {
   if (g_shutdown_flag) {
     g_shutdown_flag->store(true, std::memory_order_relaxed);
+  }
+  if (g_reconciler) {
+    g_reconciler->request_stop();
   }
   if (g_server) {
     g_server->stop();
@@ -64,6 +70,25 @@ int main() {
 
   projectagamemnon::Store store(gh_client);
   store.set_metrics(&metrics);
+
+  // ── GitHub reconciliation (#165) ─────────────────────────────────────────
+  auto reconcile_env = std::getenv("GITHUB_RECONCILE_INTERVAL_SEC");
+  int reconcile_sec = reconcile_env ? std::stoi(reconcile_env) : 300;
+  std::jthread reconciler;
+  if (gh_client && reconcile_sec > 0) {
+    reconciler = std::jthread([&store, reconcile_sec](std::stop_token st) {
+      while (!st.stop_requested()) {
+        try {
+          std::size_t n = store.reconcile_from_github();
+          if (n) std::cout << "[agamemnon] reconcile applied " << n << " GitHub edits\n";
+        } catch (const std::exception& e) {
+          std::cerr << "[agamemnon] reconcile failed: " << e.what() << "\n";
+        }
+        for (int i = 0; i < reconcile_sec && !st.stop_requested(); ++i)
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
+    });
+  }
 
   // ── NATS client ──────────────────────────────────────────────────────────
   const char* nats_url_env = std::getenv("NATS_URL");
@@ -151,6 +176,7 @@ int main() {
   std::atomic<bool> shutdown_requested{false};
   g_shutdown_flag = &shutdown_requested;
   g_server = &server;
+  g_reconciler = &reconciler;
 
   struct sigaction sa {};
   sa.sa_handler = shutdown_handler;
@@ -165,6 +191,7 @@ int main() {
   // Null the static pointers before any further work so late signals are no-ops.
   g_server = nullptr;
   g_shutdown_flag = nullptr;
+  g_reconciler = nullptr;
 
   if (shutdown_requested.load()) {
     std::cout << "[agamemnon] shutdown signal received — draining complete\n";

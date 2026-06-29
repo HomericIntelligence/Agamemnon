@@ -1,4 +1,5 @@
 #include "projectagamemnon/github_webhook.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -99,8 +100,7 @@ std::optional<NormalizedEvent> normalize_issues_event(const nlohmann::json& payl
   std::string entity_label;
   if (issue.contains("labels") && issue["labels"].is_array()) {
     for (const auto& label_obj : issue["labels"]) {
-      if (!label_obj.is_object() || !label_obj.contains("name") ||
-          !label_obj["name"].is_string()) {
+      if (!label_obj.is_object() || !label_obj.contains("name") || !label_obj["name"].is_string()) {
         continue;
       }
       std::string label_name = label_obj["name"].get<std::string>();

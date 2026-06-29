@@ -303,10 +303,22 @@ void Store::ensure_briefs_loaded_() {
 }
 
 std::unordered_map<std::string, json>* Store::pick_map_(std::string_view label) {
-  if (label == "agamemnon-agent") { ensure_agents_loaded_(); return &agents_; }
-  if (label == "agamemnon-team")  { ensure_teams_loaded_();  return &teams_; }
-  if (label == "agamemnon-task")  { ensure_tasks_loaded_();  return &tasks_; }
-  if (label == "agamemnon-fault") { ensure_faults_loaded_(); return &faults_; }
+  if (label == "agamemnon-agent") {
+    ensure_agents_loaded_();
+    return &agents_;
+  }
+  if (label == "agamemnon-team") {
+    ensure_teams_loaded_();
+    return &teams_;
+  }
+  if (label == "agamemnon-task") {
+    ensure_tasks_loaded_();
+    return &tasks_;
+  }
+  if (label == "agamemnon-fault") {
+    ensure_faults_loaded_();
+    return &faults_;
+  }
   return nullptr;
 }
 
@@ -333,8 +345,12 @@ bool Store::apply_github_event(std::string_view entity_label, std::string_view a
     return true;
   }
   if (action == "reopened") {
-    if (it == map->end()) { (*map)[id] = std::move(entity); }
-    else { it->second["status"] = "active"; it->second["updatedAt"] = std::string(updated_at); }
+    if (it == map->end()) {
+      (*map)[id] = std::move(entity);
+    } else {
+      it->second["status"] = "active";
+      it->second["updatedAt"] = std::string(updated_at);
+    }
     if (metrics_) metrics_->record_inbound_sync("reopened");
     return true;
   }
@@ -355,13 +371,14 @@ bool Store::apply_github_event(std::string_view entity_label, std::string_view a
 
 std::size_t Store::reconcile_from_github() {
   if (!gh_) return 0;
-  static constexpr std::array<std::string_view, 4> kLabels{
-      "agamemnon-agent", "agamemnon-team", "agamemnon-task", "agamemnon-fault"};
+  static constexpr std::array<std::string_view, 4> kLabels{"agamemnon-agent", "agamemnon-team",
+                                                           "agamemnon-task", "agamemnon-fault"};
   std::size_t changed = 0;
   for (auto label : kLabels) {
     std::vector<json> issues;
-    try { issues = gh_->list_issues(label); }
-    catch (const std::exception& e) {
+    try {
+      issues = gh_->list_issues(label);
+    } catch (const std::exception& e) {
       std::cerr << "[agamemnon] reconcile error (" << label << "): " << e.what() << "\n";
       continue;
     }
@@ -447,7 +464,8 @@ json Store::update_agent(const std::string& id, const json& fields) {
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   for (auto& [key, val] : fields.items()) {
-    if (key != "id" && key != "createdAt" && key != "_github_issue" && key != "updatedAt") it->second[key] = val;
+    if (key != "id" && key != "createdAt" && key != "_github_issue" && key != "updatedAt")
+      it->second[key] = val;
   }
   it->second["updatedAt"] = now_iso8601();
   if (gh_ && it->second.contains("_github_issue")) {
@@ -631,7 +649,8 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
   if (it == tasks_.end()) return nullptr;
   if (it->second.value("teamId", "") != team_id) return nullptr;
   for (auto& [key, val] : body.items()) {
-    if (key != "id" && key != "teamId" && key != "createdAt" && key != "_github_issue" && key != "updatedAt")
+    if (key != "id" && key != "teamId" && key != "createdAt" && key != "_github_issue" &&
+        key != "updatedAt")
       it->second[key] = val;
   }
   if (body.contains("status") && body["status"] == "completed" &&
