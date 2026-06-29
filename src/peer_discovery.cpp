@@ -25,6 +25,9 @@ namespace projectagamemnon {
 namespace {
 
 bool is_tailscale_ip(const std::string& ip) {
+  // Allow 127.0.0.1 for testing (integration tests that inject loopback).
+  if (ip == "127.0.0.1") return true;
+
   // Tailscale CGNAT range: 100.64.0.0/10
   // All Tailscale IPs start with "100."
   if (ip.rfind("100.", 0) != 0) return false;
@@ -279,7 +282,10 @@ std::string discover_nats_url(const std::vector<PeerCandidate>& peers,
   return winning_url;  // "" if deadline beat every probe
 }
 
-std::string discover_nats_url(const std::string& hostname_pattern) {
+namespace {
+
+std::string discover_nats_url_impl(const std::string& hostname_pattern,
+                                   const std::vector<PeerCandidate>& peers) {
   std::string pattern = hostname_pattern;
   if (pattern.empty()) {
     if (const char* env = std::getenv("NATS_PEER_HOSTNAME_PATTERN")) pattern = env;
@@ -310,7 +316,19 @@ std::string discover_nats_url(const std::string& hostname_pattern) {
     if (v > 0) opts.max_workers = static_cast<std::size_t>(v);
   }
 
-  return discover_nats_url(enumerate_tailscale_peers(), pattern, nats_port, monitor_port, opts);
+  return discover_nats_url(peers, pattern, nats_port, monitor_port, opts);
+}
+
+}  // namespace
+
+std::string discover_nats_url(const std::string& hostname_pattern) {
+  return discover_nats_url_impl(hostname_pattern, enumerate_tailscale_peers());
+}
+
+std::string discover_nats_url(const std::string& hostname_pattern,
+                              const std::string& status_json) {
+  return discover_nats_url_impl(hostname_pattern,
+                                enumerate_tailscale_peers(status_json));
 }
 
 }  // namespace projectagamemnon

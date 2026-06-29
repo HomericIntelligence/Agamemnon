@@ -44,4 +44,12 @@ std::string discover_nats_url(const std::vector<PeerCandidate>& peers,
                               const std::string& hostname_pattern, int nats_port, int monitor_port,
                               const DiscoveryOptions& opts);
 
+// Same as discover_nats_url(hostname_pattern), but uses `status_json` as the
+// tailscale peer source instead of invoking `tailscale status`. Intended for
+// integration tests that need to point discovery at a fixed IP (e.g. 127.0.0.1)
+// without depending on a live tailscale daemon. status_json must be the same
+// JSON shape that enumerate_tailscale_peers() accepts.
+std::string discover_nats_url(const std::string& hostname_pattern,
+                              const std::string& status_json);
+
 }  // namespace projectagamemnon
