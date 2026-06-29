@@ -54,6 +54,10 @@ class MetricsRegistry {
   /// Set the NATS connectivity gauge (1 = connected, 0 = disconnected).
   void set_nats_connected(bool connected);
 
+  // ── GitHub Inbound Sync (#165) ──────────────────────────────────────────
+  /// Record inbound sync event outcome (applied, skipped_stale, closed, reopened).
+  void record_inbound_sync(std::string_view outcome);
+
   // ── Serialization ───────────────────────────────────────────────────────
   /// Return the full Prometheus text-format snapshot (thread-safe).
   std::string serialize() const;
@@ -77,6 +81,9 @@ class MetricsRegistry {
   prometheus::Family<prometheus::Counter>& nats_messages_published_total_;
   prometheus::Family<prometheus::Counter>& nats_messages_received_total_;
   prometheus::Family<prometheus::Gauge>& nats_connected_;
+
+  // GitHub inbound sync
+  prometheus::Family<prometheus::Counter>& github_inbound_sync_total_;
 
   // Process / build info
   prometheus::Family<prometheus::Gauge>& process_start_time_seconds_;

@@ -88,6 +88,7 @@ add_library(ProjectAgamemnon_core STATIC
   src/circuit_breaker.cpp
   src/dead_letter_queue.cpp
   src/github_client.cpp
+  src/github_webhook.cpp
   src/rate_limiter.cpp
   src/auth.cpp
   src/metrics.cpp

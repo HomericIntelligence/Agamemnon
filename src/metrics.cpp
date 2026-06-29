@@ -67,6 +67,11 @@ MetricsRegistry::MetricsRegistry()
                           .Help("1 if connected to NATS, 0 otherwise")
                           .Register(*registry_)),
 
+      github_inbound_sync_total_(prometheus::BuildCounter()
+                                     .Name("hi_github_inbound_sync_total")
+                                     .Help("Total GitHub inbound sync events")
+                                     .Register(*registry_)),
+
       process_start_time_seconds_(prometheus::BuildGauge()
                                       .Name("hi_process_start_time_seconds")
                                       .Help("Unix timestamp of process start (seconds)")
@@ -135,6 +140,12 @@ void MetricsRegistry::record_nats_receive(const std::string& subject) {
 
 void MetricsRegistry::set_nats_connected(bool connected) {
   nats_connected_.Add({}).Set(connected ? 1.0 : 0.0);
+}
+
+// ── GitHub Inbound Sync ───────────────────────────────────────────────────────
+
+void MetricsRegistry::record_inbound_sync(std::string_view outcome) {
+  github_inbound_sync_total_.Add({{"outcome", std::string(outcome)}}).Increment();
 }
 
 // ── Serialization ─────────────────────────────────────────────────────────────
