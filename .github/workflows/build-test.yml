@@ -252,6 +252,84 @@ jobs:
             exit 1
           fi
 
+  peer-discovery-integration:
+    name: peer-discovery-integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/debug/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-debug-
+            fetchcontent-${{ runner.os }}-gcc-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          pip install conan
+          conan profile detect --force
+
+      - name: Download nats-server tarball (pinned)
+        env:
+          NATS_VERSION: v2.10.20
+        run: |
+          curl -fsSL --retry 3 -o /tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz \
+            "https://github.com/nats-io/nats-server/releases/download/${NATS_VERSION}/nats-server-${NATS_VERSION}-linux-amd64.tar.gz"
+
+      - name: Verify nats-server tarball SHA256
+        env:
+          NATS_VERSION: v2.10.20
+        run: |
+          # Fail loud and early if the downloaded bytes do not match the pinned
+          # digest committed in the repo. The verification happens BEFORE
+          # extraction and BEFORE the binary is ever executed.
+          cd /tmp
+          sha256sum -c "$GITHUB_WORKSPACE/.github/checksums/nats-server-${NATS_VERSION}-linux-amd64.tar.gz.sha256"
+
+      - name: Install nats-server
+        env:
+          NATS_VERSION: v2.10.20
+        run: |
+          tar -xzf /tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz -C /tmp
+          sudo install -m 0755 \
+            "/tmp/nats-server-${NATS_VERSION}-linux-amd64/nats-server" \
+            /usr/local/bin/nats-server
+          nats-server --version
+          # Sanity-check the CLI flag the fixture depends on.
+          nats-server -h 2>&1 | grep -q '\-a'
+
+      - name: Install Conan dependencies
+        run: |
+          conan install . --build=missing -s build_type=Debug \
+            --output-folder build/debug
+
+      - name: Configure
+        run: cmake --preset debug
+
+      - name: Build integration tests
+        run: cmake --build --preset debug --target ProjectAgamemnon_integration_tests
+
+      - name: Run peer-discovery integration tests
+        env:
+          AGAMEMNON_PEER_DISCOVERY_INTEGRATION: required
+        working-directory: build/debug
+        run: ctest -L integration -R PeerDiscovery --output-on-failure --timeout 60
+
   docs:
     name: docs-validate
     runs-on: ubuntu-24.04
@@ -270,7 +348,7 @@ jobs:
   check-all:
     name: All Build/Test Checks
     runs-on: ubuntu-24.04
-    needs: [build-test, asan, python-orchestration, schema-validation, cyclonedx-validate, port-smoke-test, docs]
+    needs: [build-test, asan, python-orchestration, schema-validation, cyclonedx-validate, port-smoke-test, peer-discovery-integration, docs]
     if: always()
     steps:
       - name: Check all jobs passed
@@ -282,6 +360,7 @@ jobs:
           SCHEMA_VALIDATION_RESULT: ${{ needs.schema-validation.result }}
           CYCLONEDX_RESULT: ${{ needs.cyclonedx-validate.result }}
           PORT_SMOKE_RESULT: ${{ needs.port-smoke-test.result }}
+          PEER_DISCOVERY_INTEGRATION_RESULT: ${{ needs.peer-discovery-integration.result }}
         run: |
           if [ "$BUILD_TEST_RESULT" != "success" ]; then
             echo "build-test failed"
@@ -309,6 +388,10 @@ jobs:
           fi
           if [ "$PORT_SMOKE_RESULT" != "success" ]; then
             echo "port-smoke-test failed"
+            exit 1
+          fi
+          if [ "$PEER_DISCOVERY_INTEGRATION_RESULT" != "success" ]; then
+            echo "peer-discovery-integration failed"
             exit 1
           fi
           echo "All checks passed"

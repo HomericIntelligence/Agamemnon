@@ -325,10 +325,8 @@ std::string discover_nats_url(const std::string& hostname_pattern) {
   return discover_nats_url_impl(hostname_pattern, enumerate_tailscale_peers());
 }
 
-std::string discover_nats_url(const std::string& hostname_pattern,
-                              const std::string& status_json) {
-  return discover_nats_url_impl(hostname_pattern,
-                                enumerate_tailscale_peers(status_json));
+std::string discover_nats_url(const std::string& hostname_pattern, const std::string& status_json) {
+  return discover_nats_url_impl(hostname_pattern, enumerate_tailscale_peers(status_json));
 }
 
 }  // namespace projectagamemnon

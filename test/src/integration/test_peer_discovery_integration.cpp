@@ -7,13 +7,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
-#include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
+
+#include <gtest/gtest.h>
 
 namespace projectagamemnon::test {
 
@@ -26,7 +27,7 @@ namespace {
 int reserve_ephemeral_port() {
   int sock = ::socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) return -1;
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_port = 0;
   ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
@@ -47,12 +48,12 @@ int reserve_ephemeral_port() {
 bool varz_responds(int monitor_port, int timeout_ms) {
   int sock = ::socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) return false;
-  struct timeval tv{};
+  struct timeval tv {};
   tv.tv_sec = timeout_ms / 1000;
   tv.tv_usec = (timeout_ms % 1000) * 1000;
   ::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
   ::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-  struct sockaddr_in addr{};
+  struct sockaddr_in addr {};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(static_cast<uint16_t>(monitor_port));
   ::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
@@ -118,11 +119,8 @@ class NatsServerFixture : public ::testing::Test {
       }
       const std::string nats_port_s = std::to_string(nats_port_);
       const std::string mon_port_s = std::to_string(monitor_port_);
-      ::execlp("nats-server", "nats-server",
-               "-a", "127.0.0.1",
-               "-p", nats_port_s.c_str(),
-               "-m", mon_port_s.c_str(),
-               static_cast<char*>(nullptr));
+      ::execlp("nats-server", "nats-server", "-a", "127.0.0.1", "-p", nats_port_s.c_str(), "-m",
+               mon_port_s.c_str(), static_cast<char*>(nullptr));
       _exit(127);
     }
 
@@ -140,8 +138,8 @@ class NatsServerFixture : public ::testing::Test {
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    ASSERT_TRUE(ready_) << "nats-server did not become ready within 5 s on "
-                        << "ports " << nats_port_ << "/" << monitor_port_;
+    ASSERT_TRUE(ready_) << "nats-server did not become ready within 5 s on " << "ports "
+                        << nats_port_ << "/" << monitor_port_;
 
     // Make the env-var configuration path of discover_nats_url see the
     // ephemeral ports and a generous timeout for slow CI runners.
