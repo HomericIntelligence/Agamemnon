@@ -806,10 +806,18 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
              });
 
   // POST /v1/github/webhook — bidirectional sync from GitHub Issues (#165)
+  // Load secret at startup; fail if missing (webhook disabled).
+  const char* secret_env = std::getenv("GITHUB_WEBHOOK_SECRET");
+  if (!secret_env || std::string(secret_env).empty()) {
+    std::cerr << "[agamemnon] warning: GITHUB_WEBHOOK_SECRET not set; webhook disabled\n";
+  }
   server.Post("/v1/github/webhook",
-              [sp, mp](const httplib::Request& req, httplib::Response& res) {
-    const char* secret_env = std::getenv("GITHUB_WEBHOOK_SECRET");
-    std::string secret = secret_env ? secret_env : "";
+              [secret_env, sp, mp](const httplib::Request& req, httplib::Response& res) {
+    if (!secret_env || std::string(secret_env).empty()) {
+      reply_json(res, 503, {{"error", "webhook not configured"}});
+      return;
+    }
+    std::string secret(secret_env);
     std::string sig_hdr = req.get_header_value("X-Hub-Signature-256");
     if (!verify_github_signature(secret, sig_hdr, req.body)) {
       reply_json(res, 401, {{"error", "invalid signature"}});
