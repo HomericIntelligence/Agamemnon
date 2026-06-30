@@ -602,3 +602,281 @@ jobs:
 
           print("OK: versions match")
           EOF
+
+  # ── 9. test (aggregate) ────────────────────────────────────────────────────
+  # Canonical aggregate for the Ecosystem CI Status board. Surfaces a single
+  # `test` check-run that gates on the split suites (unit-tests +
+  # integration-tests) without duplicating their work. The sub-checks remain
+  # first-class and are kept as-is.
+  test:
+    name: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [unit-tests, integration-tests]
+    steps:
+      - name: Aggregate test results
+        env:
+          UNIT_RESULT: ${{ needs.unit-tests.result }}
+          INTEGRATION_RESULT: ${{ needs.integration-tests.result }}
+        run: |
+          set -euo pipefail
+          echo "unit-tests:        $UNIT_RESULT"
+          echo "integration-tests: $INTEGRATION_RESULT"
+          if [ "$UNIT_RESULT" != "success" ]; then
+            echo "::error::unit-tests did not succeed"
+            exit 1
+          fi
+          if [ "$INTEGRATION_RESULT" != "success" ]; then
+            echo "::error::integration-tests did not succeed"
+            exit 1
+          fi
+          echo "OK: all test suites passed"
+
+  # ── 10. package ────────────────────────────────────────────────────────────
+  # Builds the distributable release archive: a clean `cmake --install` tree
+  # (server + healthcheck binaries, library, CMake export targets) plus the
+  # CycloneDX SBOM, tarred into a versioned artifact. Runs on every push/PR to
+  # main so the board's `package` cell reflects whether the distributable can
+  # still be produced (the tag-gated docker/PyPI publish jobs stay separate).
+  package:
+    name: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Restore Conan cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: build/**/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install Conan dependencies (release)
+        run: |
+          conan install . --build=missing -s build_type=Release \
+            --output-folder build/release
+
+      - name: Configure (release)
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Stage install tree
+        run: |
+          cmake --install build/release --prefix "$PWD/stage"
+          echo "── staged install tree ──"
+          find stage -maxdepth 3 -type f | sort
+
+      - name: Read project version
+        id: ver
+        run: |
+          VERSION=$(grep -oP 'kVersion\{"\K[^"]+' include/projectagamemnon/version.hpp)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Packaging version $VERSION"
+
+      - name: Install Syft (SBOM generator)
+        run: |
+          SYFT_VERSION=1.4.1
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin "v${SYFT_VERSION}"
+          syft version
+
+      - name: Generate package SBOM
+        run: syft dir:stage -o cyclonedx-json=stage-sbom.cdx.json
+
+      - name: Create release archive
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          ARCHIVE="ProjectAgamemnon-${VERSION}-linux-x86_64.tar.gz"
+          tar -czf "$ARCHIVE" -C stage .
+          echo "Created $ARCHIVE"
+          ls -lh "$ARCHIVE"
+          # Verify the archive is non-empty and contains the server binary.
+          tar -tzf "$ARCHIVE" | grep -q 'bin/ProjectAgamemnon_server'
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: package-release-archive
+          path: |
+            ${{ env.ARCHIVE }}
+            stage-sbom.cdx.json
+          retention-days: 30
+
+  # ── 11. install ────────────────────────────────────────────────────────────
+  # Clean-install smoke test: builds, runs `cmake --install` into a fresh
+  # prefix, and verifies the installed binaries are present and runnable
+  # (server + healthcheck) and that the CMake package config files land where
+  # downstream consumers expect them.
+  install:
+    name: install
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Restore Conan cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: build/**/_deps
+          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-${{ runner.os }}-gcc-release-
+            fetchcontent-${{ runner.os }}-gcc-
+            fetchcontent-${{ runner.os }}-
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          pip install conan
+
+      - name: Detect Conan profile
+        run: conan profile detect --force
+
+      - name: Install Conan dependencies (release)
+        run: |
+          conan install . --build=missing -s build_type=Release \
+            --output-folder build/release
+
+      - name: Configure (release)
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Clean install into prefix
+        run: cmake --install build/release --prefix "$PWD/prefix"
+
+      - name: Verify installed artifacts
+        run: |
+          set -euo pipefail
+          PREFIX="$PWD/prefix"
+          echo "── installed tree ──"
+          find "$PREFIX" -maxdepth 3 | sort
+
+          SERVER="$PREFIX/bin/ProjectAgamemnon_server"
+          HEALTH="$PREFIX/bin/ProjectAgamemnon_healthcheck"
+
+          # 1. Binaries are present and executable.
+          test -x "$SERVER" || { echo "::error::missing installed binary: $SERVER"; exit 1; }
+          test -x "$HEALTH" || { echo "::error::missing installed binary: $HEALTH"; exit 1; }
+
+          # 2. CMake package export config is installed for downstream consumers.
+          test -f "$PREFIX/lib/cmake/ProjectAgamemnon/ProjectAgamemnonTargets.cmake" \
+            || { echo "::error::missing installed CMake export targets"; exit 1; }
+
+          # 3. The static/shared library is installed.
+          ls "$PREFIX"/lib/libProjectAgamemnon.* >/dev/null 2>&1 \
+            || { echo "::error::missing installed ProjectAgamemnon library"; exit 1; }
+
+          echo "OK: clean install smoke test passed"
+
+  # ── 12. release (dry-run) ──────────────────────────────────────────────────
+  # Release-readiness validation that runs on every push/PR to main WITHOUT
+  # publishing anything. It checks that the version is consistent across all
+  # release sources and that the CHANGELOG has an Unreleased section ready to
+  # promote. The real publish (PyPI + GHCR) stays tag-gated in
+  # python-client-release.yml / docker-publish.yml.
+  release:
+    name: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Validate release readiness (dry-run, no publish)
+        run: |
+          python3 - <<'EOF'
+          import re, sys
+
+          errors = []
+
+          def read(path):
+              with open(path) as f:
+                  return f.read()
+
+          # Version from CMakeLists.txt
+          cmake = read("CMakeLists.txt")
+          m = re.search(r"project\s*\([^)]*VERSION\s+(\S+)", cmake)
+          cmake_ver = m.group(1) if m else None
+          if not cmake_ver:
+              errors.append("could not find VERSION in CMakeLists.txt")
+
+          # Version from conanfile.py
+          conan = read("conanfile.py")
+          m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', conan)
+          conan_ver = m.group(1) if m else None
+          if not conan_ver:
+              errors.append("could not find version in conanfile.py")
+
+          # Version from the C++ header
+          header = read("include/projectagamemnon/version.hpp")
+          m = re.search(r'kVersion\{"([^"]+)"\}', header)
+          hdr_ver = m.group(1) if m else None
+          if not hdr_ver:
+              errors.append("could not find kVersion in version.hpp")
+
+          versions = {
+              "CMakeLists.txt": cmake_ver,
+              "conanfile.py": conan_ver,
+              "version.hpp": hdr_ver,
+          }
+          print("Release version sources:")
+          for k, v in versions.items():
+              print(f"  {k:18} {v}")
+
+          uniq = {v for v in versions.values() if v}
+          if len(uniq) > 1:
+              errors.append(f"version mismatch across release sources: {versions}")
+
+          # Validate semver shape.
+          if cmake_ver and not re.fullmatch(r"\d+\.\d+\.\d+", cmake_ver):
+              errors.append(f"version '{cmake_ver}' is not semver MAJOR.MINOR.PATCH")
+
+          # CHANGELOG must have an Unreleased section ready to promote.
+          changelog = read("CHANGELOG.md")
+          if "## [Unreleased]" not in changelog:
+              errors.append("CHANGELOG.md has no '## [Unreleased]' section")
+
+          if errors:
+              for e in errors:
+                  print(f"::error::{e}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"\nOK: release dry-run validated version {cmake_ver}")
+          EOF
