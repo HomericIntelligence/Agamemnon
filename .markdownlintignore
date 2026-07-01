@@ -1,0 +1,3 @@
+# Auto-generated myrmidon prompt files contain untrusted content
+# that cannot be made markdownlint-compliant (embedded issue bodies, code blocks, tables)
+.claude-prompt-*.md
