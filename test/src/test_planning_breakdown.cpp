@@ -139,4 +139,64 @@ TEST(PlanningBreakdownTest, EmptyReposYieldsOnlyL0) {
   EXPECT_EQ(tasks[0].layer, HmasLayer::L0_ChiefArchitect);
 }
 
+// ── ADR-013 issue-ref parsing ────────────────────────────────────────────────
+
+TEST(ParseImplRef, PlainDescriptionHasNoIssue) {
+  const ImplRef ref = parse_impl_ref("Implement core");
+  EXPECT_EQ(ref.issue, 0);
+  EXPECT_FALSE(ref.has_explicit_deps);
+}
+
+TEST(ParseImplRef, IssueRefOnly) {
+  const ImplRef ref = parse_impl_ref("#123");
+  EXPECT_EQ(ref.issue, 123);
+  EXPECT_TRUE(ref.depends_on.empty());
+  EXPECT_FALSE(ref.has_explicit_deps);
+}
+
+TEST(ParseImplRef, IssueRefWithDeps) {
+  const ImplRef ref = parse_impl_ref("#123 (depends on: #456, #789)");
+  EXPECT_EQ(ref.issue, 123);
+  EXPECT_TRUE(ref.has_explicit_deps);
+  ASSERT_EQ(ref.depends_on.size(), 2u);
+  EXPECT_EQ(ref.depends_on[0], 456);
+  EXPECT_EQ(ref.depends_on[1], 789);
+}
+
+TEST(ParseImplRef, EmptyDepsAnnotationStillExplicit) {
+  const ImplRef ref = parse_impl_ref("#9 (depends on: )");
+  EXPECT_EQ(ref.issue, 9);
+  EXPECT_TRUE(ref.has_explicit_deps);
+  EXPECT_TRUE(ref.depends_on.empty());
+}
+
+TEST(PlanningBreakdownAdr013, IssueRefsWireExplicitDependencies) {
+  TaskBrief brief;
+  brief.id = "b-1";
+  brief.title = "epic";
+  brief.repos = {"o/r"};
+  brief.modules = {{"o/r", {"epic-5"}}};
+  brief.impls = {{"o/r", {{"epic-5", {"#11", "#12 (depends on: #11)"}}}}};
+
+  PlanningBreakdown pb;
+  auto tasks = pb.decompose(brief);
+
+  const HmasTask* t11 = nullptr;
+  const HmasTask* t12 = nullptr;
+  for (const auto& t : tasks) {
+    if (t.issue == 11) t11 = &t;
+    if (t.issue == 12) t12 = &t;
+  }
+  ASSERT_NE(t11, nullptr);
+  ASSERT_NE(t12, nullptr);
+
+  // #12 is blocked by #11's task (explicit edge) and NOT by the default
+  // sequential chain duplicate.
+  EXPECT_NE(std::find(t12->blocked_by.begin(), t12->blocked_by.end(), t11->id),
+            t12->blocked_by.end());
+  // #11's task lists #12's task as an unblock candidate.
+  EXPECT_NE(std::find(t11->child_task_ids.begin(), t11->child_task_ids.end(), t12->id),
+            t11->child_task_ids.end());
+}
+
 }  // namespace projectagamemnon::test

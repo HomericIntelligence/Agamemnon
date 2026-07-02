@@ -34,10 +34,9 @@ std::string Orchestrator::submit(TaskBrief brief) {
       store_.update_hmas_task(root);
       publish_task_state(root);
 
-      std::string subj = myrmidon_subject(HmasLayer::L0_ChiefArchitect, root.id);
       json payload = hmas_task_to_json(root);
       payload["brief_id"] = brief.id;
-      nats_.publish(subj, payload.dump());
+      dispatch_task(root, payload);
       nats_.publish_log(
           "hi.logs.agamemnon.brief_submitted", "info", "Brief submitted: " + brief.id,
           {{"brief_id", brief.id}, {"root_task_id", root.id}, {"task_count", tasks.size()}});
@@ -61,8 +60,7 @@ bool Orchestrator::delegate(const std::string& task_id) {
 
   store_.update_hmas_task(task);
   publish_task_state(task);
-  std::string subj = myrmidon_subject(task.layer, task.id);
-  nats_.publish(subj, hmas_task_to_json(task).dump());
+  dispatch_task(task, hmas_task_to_json(task));
   return true;
 }
 
@@ -91,6 +89,8 @@ bool Orchestrator::escalate(const std::string& task_id, const std::string& reaso
   json payload = hmas_task_to_json(task);
   payload["escalation_reason"] = reason;
   nats_.publish(myrmidon_subject(parent_layer, task.id), payload.dump());
+  nats_.publish(mesh_dispatch_subject("pipeline", mesh_role_name(parent_layer), task.id),
+                payload.dump());
   nats_.publish_log(
       "hi.logs.agamemnon.task_escalated", "warn", "Task escalated: " + task_id,
       {{"task_id", task_id}, {"reason", reason}, {"from_layer", hmas_layer_to_string(task.layer)}});
@@ -194,6 +194,196 @@ json Orchestrator::get_plan(const std::string& brief_id) const {
   return {{"brief_id", brief_id}, {"root", root_json}, {"tasks", tasks_arr}};
 }
 
+void Orchestrator::on_myrmidon_started(const std::string& subject, const std::string& payload) {
+  try {
+    auto msg = json::parse(payload);
+    const std::string task_id = msg.value("task_id", "");
+    if (task_id.empty()) return;
+
+    auto task_opt = store_.get_hmas_task(task_id);
+    if (!task_opt) return;  // non-HMAS (flat) task — nothing to drive
+
+    auto task = std::move(*task_opt);
+    // Walk toward InProgress (same tolerant walk as completion handling).
+    if (task.state == TaskState::Escalated) state_machine_.try_transition(task, TaskEvent::Retry);
+    if (task.state == TaskState::Pending) {
+      if (!state_machine_.try_transition(task, TaskEvent::Delegate)) {
+        state_machine_.try_transition(task, TaskEvent::Submit);
+      }
+    }
+    if (task.state == TaskState::Decomposing) {
+      state_machine_.try_transition(task, TaskEvent::Delegate);
+    }
+    state_machine_.try_transition(task, TaskEvent::Start);
+
+    // Claim = assignment (ADR-013 §2): record who took the task and where.
+    const std::string agent_id = msg.value("agent_id", "");
+    const std::string exec_host = msg.value("exec_host", "");
+    if (!agent_id.empty()) {
+      task.assigned_lead_id = exec_host.empty() ? agent_id : agent_id + "@" + exec_host;
+    }
+
+    store_.update_hmas_task(task);
+    publish_task_state(task);
+    nats_.publish_log("hi.logs.agamemnon.task_started", "info", "Task started: " + task_id,
+                      {{"task_id", task_id}, {"agent_id", agent_id}, {"exec_host", exec_host}});
+  } catch (const std::exception& e) {
+    std::cerr << "[orchestrator] on_myrmidon_started failed for subject \"" << subject
+              << "\": " << e.what() << "\n";
+  }
+}
+
+void Orchestrator::on_myrmidon_failed(const std::string& subject, const std::string& payload) {
+  try {
+    auto msg = json::parse(payload);
+    const std::string task_id = msg.value("task_id", "");
+    if (task_id.empty()) return;
+
+    auto task_opt = store_.get_hmas_task(task_id);
+    if (!task_opt) return;
+
+    auto task = std::move(*task_opt);
+    // Fail is valid from InProgress or Escalated; walk forward when needed.
+    if (task.state == TaskState::Pending) {
+      if (!state_machine_.try_transition(task, TaskEvent::Delegate)) {
+        state_machine_.try_transition(task, TaskEvent::Submit);
+      }
+    }
+    if (task.state == TaskState::Decomposing) {
+      state_machine_.try_transition(task, TaskEvent::Delegate);
+    }
+    if (task.state == TaskState::Delegated) {
+      state_machine_.try_transition(task, TaskEvent::Start);
+    }
+    state_machine_.try_transition(task, TaskEvent::Fail);
+    store_.update_hmas_task(task);
+    publish_task_state(task);
+
+    const json error = msg.value("error", json::object());
+    nats_.publish_log("hi.logs.agamemnon.task_failed", "warn", "Task failed: " + task_id,
+                      {{"task_id", task_id}, {"error", error}});
+  } catch (const std::exception& e) {
+    std::cerr << "[orchestrator] on_myrmidon_failed failed for subject \"" << subject
+              << "\": " << e.what() << "\n";
+  }
+}
+
+std::string Orchestrator::on_epic_registered(const std::string& subject,
+                                             const std::string& payload) {
+  try {
+    auto msg = json::parse(payload);
+    const json epic = msg.value("epic", json::object());
+    const std::string repo = epic.value("repo", "");
+    const std::string key = epic.value("key", "");
+    const int issue = epic.value("issue", 0);
+    if (repo.empty() || key.empty() || issue == 0) {
+      std::cerr << "[orchestrator] epic.registered payload missing epic{repo,issue,key} on "
+                << subject << "\n";
+      return "";
+    }
+
+    // Placeholder brief: the root parks in Decomposing while a planner
+    // myrmidon decomposes the epic. The planner's POST /v1/briefs then
+    // creates the executable L0–L3 tree (ADR-013 §10).
+    TaskBrief brief;
+    brief.id = generate_uuid();
+    brief.title = "[epic] " + key;
+    brief.description = "Decompose epic " + repo + "#" + std::to_string(issue);
+    store_.create_task_brief(brief);
+
+    HmasTask root;
+    root.id = generate_uuid();
+    root.brief_id = brief.id;
+    root.layer = HmasLayer::L0_ChiefArchitect;
+    root.state = TaskState::Pending;
+    root.subject = brief.title;
+    root.description = brief.description;
+    root.repo = repo;
+    root.issue = issue;
+    root.created_at = now_iso8601();
+    store_.create_hmas_task(root);
+
+    state_machine_.try_transition(root, TaskEvent::Submit);  // Pending -> Decomposing
+    store_.update_hmas_task(root);
+    publish_task_state(root);
+
+    // Decompose burst → pipeline.chief-architect role queue (+ legacy form).
+    json dispatch = hmas_task_to_json(root);
+    dispatch["task_id"] = root.id;
+    dispatch["team_id"] = msg.value("team_id", "mesh");
+    dispatch["epic"] = epic;
+    dispatch["brief_id"] = brief.id;
+    dispatch_task(root, dispatch);
+
+    nats_.publish_log(
+        "hi.logs.agamemnon.epic_registered", "info", "Epic registered: " + key,
+        {{"brief_id", brief.id}, {"root_task_id", root.id}, {"repo", repo}, {"issue", issue}});
+    return brief.id;
+  } catch (const std::exception& e) {
+    std::cerr << "[orchestrator] on_epic_registered failed for subject \"" << subject
+              << "\": " << e.what() << "\n";
+    return "";
+  }
+}
+
+json Orchestrator::split_task(const std::string& task_id, const json& subtasks) {
+  auto task_opt = store_.get_hmas_task(task_id);
+  if (!task_opt) return {{"error", "task not found"}};
+  if (!subtasks.is_array() || subtasks.empty()) {
+    return {{"error", "subtasks must be a non-empty array"}};
+  }
+
+  auto original = std::move(*task_opt);
+  std::vector<std::string> created;
+  std::string prev_id;
+  const std::string ts = now_iso8601();
+
+  for (const auto& sub : subtasks) {
+    if (!sub.is_object() || sub.value("title", "").empty()) {
+      return {{"error", "each subtask needs a non-empty 'title'"}};
+    }
+    HmasTask child;
+    child.id = generate_uuid();
+    child.brief_id = original.brief_id;
+    // Tree position: sibling of the original (same parent); unblock mechanics
+    // hang off the original's child list below.
+    child.parent_task_id = original.parent_task_id;
+    child.layer = original.layer;
+    child.state = TaskState::Pending;
+    child.repo = original.repo;
+    child.module = original.module;
+    child.issue = sub.value("issue", 0);
+    child.subject = sub.value("title", "");
+    child.description = sub.value("description", "");
+    const std::string base_branch = sub.value("base_branch", "");
+    if (!base_branch.empty()) {
+      child.description +=
+          (child.description.empty() ? "" : "\n") + std::string("Base branch: ") + base_branch;
+    }
+    child.created_at = ts;
+
+    // Remainder runs after the first slice (the original) completes; chain
+    // sequentially plus any caller-provided blockers.
+    child.blocked_by.push_back(original.id);
+    if (!prev_id.empty()) child.blocked_by.push_back(prev_id);
+    if (sub.contains("blocked_by") && sub["blocked_by"].is_array()) {
+      for (const auto& b : sub["blocked_by"]) {
+        if (b.is_string()) child.blocked_by.push_back(b.get<std::string>());
+      }
+    }
+
+    store_.create_hmas_task(child);
+    original.child_task_ids.push_back(child.id);
+    created.push_back(child.id);
+    prev_id = child.id;
+  }
+
+  store_.update_hmas_task(original);
+  nats_.publish_log("hi.logs.agamemnon.task_split", "info", "Task split: " + task_id,
+                    {{"task_id", task_id}, {"created", created}});
+  return {{"task_id", task_id}, {"created", created}};
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 void Orchestrator::publish_task_state(const HmasTask& task) {
@@ -226,6 +416,21 @@ std::string Orchestrator::myrmidon_subject(HmasLayer layer, const std::string& t
       break;
   }
   return "hi.myrmidon." + layer_str + "." + task_id;
+}
+
+void Orchestrator::dispatch_task(const HmasTask& task, json payload) {
+  // ADR-013 §2 pointer fields for the worker claim loop.
+  payload["task_id"] = task.id;
+  if (!payload.contains("team_id")) payload["team_id"] = "mesh";
+  payload["role"] = mesh_role_name(task.layer);
+  payload["domain"] = "pipeline";
+  if (task.issue != 0) payload["issue"] = task.issue;
+  const std::string dumped = payload.dump();
+
+  // Legacy two-token subject — dual-published for one release (ADR-013).
+  nats_.publish(myrmidon_subject(task.layer, task.id), dumped);
+  // Role-addressed queue consumed by mesh workers.
+  nats_.publish(mesh_dispatch_subject("pipeline", mesh_role_name(task.layer), task.id), dumped);
 }
 
 void Orchestrator::delegate_unblocked_children(const std::string& completed_task_id) {
