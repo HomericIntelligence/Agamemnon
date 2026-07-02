@@ -2,7 +2,42 @@
 
 #include "projectagamemnon/store.hpp"  // generate_uuid, now_iso8601
 
+#include <algorithm>
+#include <cctype>
+#include <unordered_map>
+
 namespace projectagamemnon {
+
+ImplRef parse_impl_ref(const std::string& impl_desc) {
+  ImplRef ref;
+  // Leading issue ref: optional whitespace then "#123".
+  size_t i = impl_desc.find_first_not_of(" \t");
+  if (i == std::string::npos || impl_desc[i] != '#') return ref;
+  size_t j = i + 1;
+  while (j < impl_desc.size() && (std::isdigit(static_cast<unsigned char>(impl_desc[j])) != 0)) ++j;
+  if (j == i + 1) return ref;
+  ref.issue = std::stoi(impl_desc.substr(i + 1, j - i - 1));
+
+  // Optional "(depends on: #A, #B)" annotation anywhere after the ref.
+  const std::string marker = "(depends on:";
+  const size_t dep_start = impl_desc.find(marker, j);
+  if (dep_start == std::string::npos) return ref;
+  const size_t dep_end = impl_desc.find(')', dep_start);
+  if (dep_end == std::string::npos) return ref;
+  ref.has_explicit_deps = true;
+  size_t k = dep_start + marker.size();
+  while (k < dep_end) {
+    if (impl_desc[k] == '#') {
+      size_t m = k + 1;
+      while (m < dep_end && (std::isdigit(static_cast<unsigned char>(impl_desc[m])) != 0)) ++m;
+      if (m > k + 1) ref.depends_on.push_back(std::stoi(impl_desc.substr(k + 1, m - k - 1)));
+      k = m;
+    } else {
+      ++k;
+    }
+  }
+  return ref;
+}
 
 std::vector<HmasTask> PlanningBreakdown::decompose(const TaskBrief& brief) const {
   std::vector<HmasTask> tasks;
@@ -98,11 +133,48 @@ std::vector<HmasTask> PlanningBreakdown::decompose(const TaskBrief& brief) const
         l3.description = impl_desc;
         l3.created_at = ts;
         l3.blocked_by.push_back(l2.id);
-        if (!prev_l3_id.empty()) l3.blocked_by.push_back(prev_l3_id);
+
+        // ADR-013: impl strings may carry a GitHub issue ref plus explicit
+        // dependency edges ("#123 (depends on: #456)"). Explicit annotations
+        // replace the default sequential chain; issue-ref wiring happens in
+        // the post-pass below once every L3 id is known.
+        const ImplRef ref = parse_impl_ref(impl_desc);
+        l3.issue = ref.issue;
+        if (!ref.has_explicit_deps && !prev_l3_id.empty()) l3.blocked_by.push_back(prev_l3_id);
 
         tasks[l2_idx].child_task_ids.push_back(l3.id);
         prev_l3_id = l3.id;
         tasks.push_back(l3);
+      }
+    }
+  }
+
+  // ── Post-pass: wire explicit issue dependencies (ADR-013) ────────────────
+  // Map every L3's issue ref to its task index, then add blocked_by edges and
+  // parent child links for "(depends on: #N)" annotations. Cross-module edges
+  // are supported; refs to issues outside this brief are ignored.
+  std::unordered_map<int, size_t> issue_to_idx;
+  for (size_t idx = 0; idx < tasks.size(); ++idx) {
+    if (tasks[idx].layer == HmasLayer::L3_TaskAgent && tasks[idx].issue != 0) {
+      issue_to_idx.emplace(tasks[idx].issue, idx);
+    }
+  }
+  for (auto& t : tasks) {
+    if (t.layer != HmasLayer::L3_TaskAgent || t.issue == 0) continue;
+    const ImplRef ref = parse_impl_ref(t.subject);
+    for (const int dep_issue : ref.depends_on) {
+      auto it = issue_to_idx.find(dep_issue);
+      if (it == issue_to_idx.end()) continue;
+      auto& blocker = tasks[it->second];
+      if (blocker.id == t.id) continue;
+      if (std::find(t.blocked_by.begin(), t.blocked_by.end(), blocker.id) == t.blocked_by.end()) {
+        t.blocked_by.push_back(blocker.id);
+      }
+      // Completion of the blocker must consider this task for delegation
+      // (delegate_unblocked_children walks child_task_ids).
+      if (std::find(blocker.child_task_ids.begin(), blocker.child_task_ids.end(), t.id) ==
+          blocker.child_task_ids.end()) {
+        blocker.child_task_ids.push_back(t.id);
       }
     }
   }

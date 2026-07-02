@@ -75,6 +75,7 @@ json hmas_task_to_json(const HmasTask& task) {
   j["description"] = task.description;
   j["repo"] = task.repo;
   j["module"] = task.module;
+  j["issue"] = task.issue;
   j["assigned_lead_id"] = task.assigned_lead_id;
   j["blocked_by"] = task.blocked_by;
   j["child_task_ids"] = task.child_task_ids;
@@ -154,6 +155,7 @@ HmasTask hmas_task_from_json(const json& j) {
   t.description = j.value("description", "");
   t.repo = j.value("repo", "");
   t.module = j.value("module", "");
+  t.issue = j.value("issue", 0);
   t.assigned_lead_id = j.value("assigned_lead_id", "");
   t.created_at = j.value("created_at", "");
   t.completed_at = j.value("completed_at", "");
@@ -172,6 +174,27 @@ HmasTask hmas_task_from_json(const json& j) {
     }
   }
   return t;
+}
+
+// ── HMAS mesh wire helpers (Odysseus ADR-013 §1) ─────────────────────────────
+
+std::string mesh_role_name(HmasLayer layer) {
+  switch (layer) {
+    case HmasLayer::L0_ChiefArchitect:
+      return "chief-architect";
+    case HmasLayer::L1_ComponentLead:
+      return "component-lead";
+    case HmasLayer::L2_ModuleLead:
+      return "module-lead";
+    case HmasLayer::L3_TaskAgent:
+      return "task-agent";
+  }
+  return "task-agent";
+}
+
+std::string mesh_dispatch_subject(const std::string& domain, const std::string& role,
+                                  const std::string& task_id) {
+  return "hi.myrmidon." + domain + "." + role + ".task." + task_id;
 }
 
 }  // namespace projectagamemnon

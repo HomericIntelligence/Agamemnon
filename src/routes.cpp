@@ -614,6 +614,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                              {"type", task_type},
                              {"assignee", task.value("assigneeAgentId", "")}};
     np->publish(myrmidon_subject, myrmidon_payload.dump());
+    // ADR-013 role-addressed dual publish (legacy form above kept for one
+    // release). Flat team tasks map type → role within the pipeline domain.
+    np->publish(mesh_dispatch_subject("pipeline", task_type, task_id), myrmidon_payload.dump());
     np->publish_log("hi.logs.agamemnon.task_dispatched", "info", "Task dispatched: " + task_id,
                     {{"task_id", task_id},
                      {"team_id", team_id},
@@ -774,6 +777,32 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                 }
                 reply_json(res, 200, {{"task_id", task_id}, {"escalated", true}});
               });
+
+  // POST /v1/tasks/:task_id/split — worker overrun re-adjustment (ADR-013 §4):
+  // register remainder subtasks blocked by the original so it can complete as
+  // the first slice of the split.
+  server.Post(R"(/v1/tasks/([^/]+)/split)", [op](const httplib::Request& req,
+                                                 httplib::Response& res) {
+    const std::string task_id = req.matches[1];
+    json body;
+    if (!parse_body(req, res, body)) {
+      return;
+    }
+    if (!body.contains("subtasks") || !body["subtasks"].is_array() || body["subtasks"].empty()) {
+      reply_bad_request(res, "subtasks must be a non-empty array");
+      return;
+    }
+    const json result = op->split_task(task_id, body["subtasks"]);
+    if (result.contains("error")) {
+      if (result["error"] == "task not found") {
+        reply_not_found(res, "task");
+      } else {
+        reply_bad_request(res, result["error"].get<std::string>());
+      }
+      return;
+    }
+    reply_json(res, 201, result);
+  });
 
   // POST /v1/tasks/:task_id/complete — mark an HMAS task completed
   server.Post(R"(/v1/tasks/([^/]+)/complete)",

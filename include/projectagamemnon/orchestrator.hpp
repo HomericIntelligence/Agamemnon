@@ -34,6 +34,30 @@ class Orchestrator {
   /// Called by the NATS subscription callback when a myrmidon publishes completion.
   void on_myrmidon_completion(const std::string& subject, const std::string& payload);
 
+  /// Called when a worker publishes hi.tasks.{team}.{task}.started (ADR-013 §2).
+  /// Drives the task to InProgress and records the assignment — the claim IS
+  /// the assignment: agent_id/exec_host from the payload land on the task.
+  void on_myrmidon_started(const std::string& subject, const std::string& payload);
+
+  /// Called when a worker publishes hi.tasks.{team}.{task}.failed (ADR-013 §2).
+  /// Drives the task to Failed (via InProgress when needed).
+  void on_myrmidon_failed(const std::string& subject, const std::string& payload);
+
+  /// Called when Telemachy publishes hi.pipeline.epic.{key}.registered
+  /// (ADR-013 §6). Creates a placeholder brief + L0 root (Pending →
+  /// Decomposing) and dispatches the decompose burst to the
+  /// pipeline.chief-architect role queue. Returns the new brief id ("" on
+  /// invalid payloads).
+  std::string on_epic_registered(const std::string& subject, const std::string& payload);
+
+  /// Worker overrun re-adjustment (ADR-013 §4): register remainder subtasks
+  /// under task_id. Each subtask {title, description?, blocked_by?[],
+  /// base_branch?} becomes a Pending sibling blocked by the original (plus
+  /// any listed blockers), so completing the original — the first slice of
+  /// the split — dispatches the remainder. Returns
+  /// {"task_id", "created": [ids]} or {"error": ...}.
+  json split_task(const std::string& task_id, const json& subtasks);
+
   /// Serialize the full task tree for a brief as JSON.
   json get_plan(const std::string& brief_id) const;
 
@@ -46,8 +70,13 @@ class Orchestrator {
   /// Publish task state to hi.tasks.<state> NATS subject per ADR-006.
   void publish_task_state(const HmasTask& task);
 
-  /// NATS subject for a given layer.
+  /// Legacy NATS subject for a given layer (dual-published for one release —
+  /// ADR-013 migration; the role-addressed form is mesh_dispatch_subject()).
   static std::string myrmidon_subject(HmasLayer layer, const std::string& task_id);
+
+  /// Publish a task to BOTH the legacy layer subject and the role-addressed
+  /// ADR-013 queue (hi.myrmidon.pipeline.{role}.task.{id}).
+  void dispatch_task(const HmasTask& task, json payload);
 
   /// Delegate all child tasks of parent_id that are no longer blocked.
   void delegate_unblocked_children(const std::string& parent_id);

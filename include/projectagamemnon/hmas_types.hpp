@@ -49,6 +49,7 @@ struct HmasTask {
   std::string description;
   std::string repo;                     // relevant repository (L1+)
   std::string module;                   // relevant module (L2+)
+  int issue = 0;                        // linked GitHub issue number (0 = none; L3, ADR-013)
   std::string assigned_lead_id;         // agent assigned at this layer
   std::vector<std::string> blocked_by;  // task IDs this task depends on
   std::vector<std::string> child_task_ids;
@@ -80,5 +81,15 @@ HmasTask hmas_task_from_json(const json& j);
 json escalation_record_to_json(const EscalationRecord& rec);
 json task_brief_to_json(const TaskBrief& brief);
 TaskBrief task_brief_from_json(const json& j);
+
+// ── HMAS mesh wire helpers (Odysseus ADR-013 §1) ─────────────────────────────
+
+/// Role NAME for a layer (roles are addressed by name, never level number):
+/// chief-architect / component-lead / module-lead / task-agent.
+std::string mesh_role_name(HmasLayer layer);
+
+/// Role-addressed dispatch subject: hi.myrmidon.{domain}.{role}.task.{task_id}.
+std::string mesh_dispatch_subject(const std::string& domain, const std::string& role,
+                                  const std::string& task_id);
 
 }  // namespace projectagamemnon

@@ -116,11 +116,28 @@ int main() {
     std::cout << "[agamemnon] connected to NATS at " << nats_url << "\n";
     nats.ensure_streams();
 
-    // Subscribe to task-completion events published by myrmidons.
-    // Myrmidons publish to hi.tasks.{team_id}.{task_id}.completed
+    // Subscribe to task state events published by myrmidons (ADR-013 §2):
+    // hi.tasks.{team_id}.{task_id}.{started|completed|failed}. `started`
+    // records the assignment (claim = assignment); `failed` drives Fail.
     nats.subscribe("hi.tasks.*.*.completed",
                    [&orchestrator](const std::string& subject, const std::string& data) {
                      orchestrator.on_myrmidon_completion(subject, data);
+                   });
+    nats.subscribe("hi.tasks.*.*.started",
+                   [&orchestrator](const std::string& subject, const std::string& data) {
+                     orchestrator.on_myrmidon_started(subject, data);
+                   });
+    nats.subscribe("hi.tasks.*.*.failed",
+                   [&orchestrator](const std::string& subject, const std::string& data) {
+                     orchestrator.on_myrmidon_failed(subject, data);
+                   });
+
+    // Epic registration trigger from Telemachy (ADR-013 §6). Core
+    // subscription for the slice; the durable JetStream consumer
+    // ('agamemnon-epics') documented in ADR-013 is a follow-up.
+    nats.subscribe("hi.pipeline.epic.*.registered",
+                   [&orchestrator](const std::string& subject, const std::string& data) {
+                     orchestrator.on_epic_registered(subject, data);
                    });
   } else {
     std::cerr << "[agamemnon] WARNING: running without NATS — events will be skipped\n";
@@ -178,7 +195,7 @@ int main() {
   g_server = &server;
   g_reconciler = &reconciler;
 
-  struct sigaction sa {};
+  struct sigaction sa = {};
   sa.sa_handler = shutdown_handler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_RESTART;
