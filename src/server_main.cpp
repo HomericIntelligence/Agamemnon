@@ -195,7 +195,7 @@ int main() {
   g_server = &server;
   g_reconciler = &reconciler;
 
-  struct sigaction sa{};
+  struct sigaction sa = {};
   sa.sa_handler = shutdown_handler;
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = SA_RESTART;
