@@ -203,6 +203,35 @@ TEST_F(OrchestratorTest, DelegateUnblockedChildrenUsesChildTaskIds) {
   EXPECT_EQ(noise_after->state, TaskState::Pending);  // untouched
 }
 
+TEST_F(OrchestratorTest, DelegateUnblockedChildrenDelegatesNonLeafChild) {
+  // Pending → Delegated is guarded to L3 leaves; a Pending L1/L2 child must be
+  // walked through Submit → Decomposing → Delegate when its parent completes.
+  HmasTask root;
+  root.id = "root-1";
+  root.brief_id = "brief-foo";
+  root.layer = HmasLayer::L0_ChiefArchitect;
+  root.state = TaskState::Completed;
+  root.child_task_ids = {"lead-1"};
+  store_.create_hmas_task(root);
+
+  HmasTask lead;
+  lead.id = "lead-1";
+  lead.brief_id = "brief-foo";
+  lead.parent_task_id = "root-1";
+  lead.layer = HmasLayer::L1_ComponentLead;
+  lead.state = TaskState::Pending;
+  lead.blocked_by = {"root-1"};
+  store_.create_hmas_task(lead);
+
+  json payload = {{"task_id", "root-1"}};
+  orch_->on_myrmidon_completion("hi.tasks.t.t.completed", payload.dump());
+
+  auto lead_after = store_.get_hmas_task("lead-1");
+  ASSERT_TRUE(lead_after.has_value());
+  EXPECT_EQ(lead_after->state, TaskState::Delegated);
+  EXPECT_TRUE(fake_nats_.has_subject_prefix("hi.myrmidon.pipeline.component-lead.task."));
+}
+
 // ── HMAS mesh wire tests (Odysseus ADR-013) ──────────────────────────────────
 
 TEST_F(OrchestratorTest, SubmitDualPublishesRoleAddressedDispatch) {
