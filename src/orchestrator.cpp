@@ -51,9 +51,12 @@ bool Orchestrator::delegate(const std::string& task_id) {
   if (!task_opt) return false;
 
   auto task = std::move(*task_opt);
+  // Pending → Delegated is guarded to L3 leaves; non-leaf coordination nodes
+  // (L1/L2 children unlocked by delegate_unblocked_children) must walk
+  // Pending → (Submit) → Decomposing → (Delegate) → Delegated.
   bool ok = state_machine_.try_transition(task, TaskEvent::Delegate);
-  if (!ok) {
-    // L3 leaf tasks transition Pending → Delegated; try again in case state is still Pending.
+  if (!ok && task.state == TaskState::Pending &&
+      state_machine_.try_transition(task, TaskEvent::Submit)) {
     ok = state_machine_.try_transition(task, TaskEvent::Delegate);
   }
   if (!ok) return false;
