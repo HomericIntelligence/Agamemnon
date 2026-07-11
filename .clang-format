@@ -8,7 +8,7 @@ PointerAlignment: Left
 SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
 IncludeCategories:
-  - Regex: '^"projectagamemnon/'
+  - Regex: '^"agamemnon/'
     Priority: 1
   - Regex: '^<(gtest|gmock)/'
     Priority: 3

@@ -1,4 +1,4 @@
-# ProjectAgamemnon API Reference
+# Agamemnon API Reference
 
 Full machine-readable spec: [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1)
 
@@ -24,9 +24,9 @@ MUST set this variable.
 
 | Method | Path | Summary | Response |
 |--------|------|---------|----------|
-| GET | `/health` | Root health check | `{"status":"ok","service":"ProjectAgamemnon"}` |
+| GET | `/health` | Root health check | `{"status":"ok","service":"Agamemnon"}` |
 | GET | `/v1/health` | Versioned health check | `{"status":"ok"}` |
-| GET | `/v1/version` | Service version | `{"version":"0.1.0","name":"ProjectAgamemnon"}` |
+| GET | `/v1/version` | Service version | `{"version":"0.1.0","name":"Agamemnon"}` |
 | GET | `/metrics` | Prometheus metrics — see [`docs/metrics.md`](../metrics.md) | `text/plain` exposition format |
 
 ---

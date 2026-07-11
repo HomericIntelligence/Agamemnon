@@ -1,8 +1,8 @@
-#include "projectagamemnon/hmas_types.hpp"
+#include "agamemnon/hmas_types.hpp"
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 TEST(HmasTypesTest, LayerRoundTrip) {
   for (auto layer : {HmasLayer::L0_ChiefArchitect, HmasLayer::L1_ComponentLead,
@@ -69,4 +69,4 @@ TEST(HmasTypesTest, TaskBriefRoundTrip) {
   EXPECT_EQ(j2["repos"].size(), 2u);
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

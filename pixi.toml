@@ -1,5 +1,5 @@
 [workspace]
-name = "projectagamemnon"
+name = "agamemnon"
 version = "0.1.0"
 description = "Planning, coordination, and agentic orchestration for HomericIntelligence"
 channels = ["conda-forge"]
@@ -19,7 +19,7 @@ actionlint = ">=1.6"
 
 [tasks]
 deps = "conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing"
-build = { cmd = "cmake --preset debug -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/c++ -DProjectAgamemnon_ENABLE_CLANG_TIDY=OFF && cmake --build --preset debug", depends-on = ["deps"] }
+build = { cmd = "cmake --preset debug -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/c++ -DAgamemnon_ENABLE_CLANG_TIDY=OFF && cmake --build --preset debug", depends-on = ["deps"] }
 test = "ctest --preset debug --output-on-failure && python -m pytest clients/python/tests/test_agents_md_consistency.py -v"
 lint = "./scripts/lint.sh"
 format = "./scripts/format.sh"

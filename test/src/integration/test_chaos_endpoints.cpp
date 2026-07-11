@@ -2,7 +2,7 @@
 #include "server_fixture.hpp"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -116,4 +116,4 @@ TEST_F(ChaosEndpointTest, InjectMultipleFaultTypes) {
   }
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

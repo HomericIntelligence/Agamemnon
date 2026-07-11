@@ -1,8 +1,8 @@
-#include "projectagamemnon/rate_limiter.hpp"
+#include "agamemnon/rate_limiter.hpp"
 
 #include <algorithm>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 RateLimiter::RateLimiter(double tokens_per_second, double burst_capacity)
     : tokens_per_second_(tokens_per_second), burst_capacity_(burst_capacity) {}
@@ -69,4 +69,4 @@ double RateLimiter::retry_after_seconds(const std::string& client_ip) {
   return tokens_needed / tokens_per_second_;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

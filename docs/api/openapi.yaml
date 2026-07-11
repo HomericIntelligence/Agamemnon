@@ -1,10 +1,10 @@
 openapi: "3.1.0"
 
 info:
-  title: ProjectAgamemnon API
+  title: Agamemnon API
   version: "0.1.0"
   description: |
-    REST API for ProjectAgamemnon — the planning, coordination, and agentic orchestration
+    REST API for Agamemnon — the planning, coordination, and agentic orchestration
     service for the HomericIntelligence distributed agent mesh.
 
     **Authentication:** All endpoints (except `/health` and `/v1/health`) require an API key
@@ -89,7 +89,7 @@ paths:
                 $ref: "#/components/schemas/RootHealth"
               example:
                 status: ok
-                service: ProjectAgamemnon
+                service: Agamemnon
 
   /v1/health:
     get:
@@ -122,7 +122,7 @@ paths:
                 $ref: "#/components/schemas/Version"
               example:
                 version: "0.1.0"
-                name: ProjectAgamemnon
+                name: Agamemnon
 
   # ── Agents ────────────────────────────────────────────────────────────────────
 
@@ -661,11 +661,11 @@ paths:
             example:
               title: Wire X-API-Key header into SDK
               description: Auth roundtrip implementation
-              repos: ["ProjectAgamemnon"]
+              repos: ["Agamemnon"]
               modules:
-                ProjectAgamemnon: ["clients/python"]
+                Agamemnon: ["clients/python"]
               impls:
-                ProjectAgamemnon:
+                Agamemnon:
                   clients/python: ["Add api_key to AgamemnonConfig"]
       responses:
         "201":
@@ -1003,7 +1003,7 @@ components:
           enum: [ok]
         service:
           type: string
-          example: ProjectAgamemnon
+          example: Agamemnon
 
     Health:
       type: object
@@ -1022,7 +1022,7 @@ components:
           example: "0.1.0"
         name:
           type: string
-          example: ProjectAgamemnon
+          example: Agamemnon
 
     # ── Shared ──────────────────────────────────────────────────────────────
 

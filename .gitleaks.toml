@@ -1,4 +1,4 @@
-title = "ProjectAgamemnon Gitleaks Config"
+title = "Agamemnon Gitleaks Config"
 
 [allowlist]
   description = "Allowlist for test fixtures and example data containing sample keys"

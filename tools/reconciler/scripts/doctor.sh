@@ -165,11 +165,11 @@ check_connectivity() {
         pass "Agamemnon reachable at ${AGAMEMNON_URL}" "HTTP ${http_code}"
     elif [[ "$http_code" == "000" ]]; then
         fail "Agamemnon unreachable at ${AGAMEMNON_URL}" \
-            "Is ProjectAgamemnon running? Check AGAMEMNON_URL env var."
+            "Is Agamemnon running? Check AGAMEMNON_URL env var."
         return
     else
         fail "Agamemnon health check failed" \
-            "HTTP ${http_code} — check ProjectAgamemnon logs"
+            "HTTP ${http_code} — check Agamemnon logs"
         return
     fi
 

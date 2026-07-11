@@ -1,14 +1,14 @@
 #pragma once
 
-#include "projectagamemnon/hmas_types.hpp"
-#include "projectagamemnon/planning_breakdown.hpp"
-#include "projectagamemnon/state_machine.hpp"
+#include "agamemnon/hmas_types.hpp"
+#include "agamemnon/planning_breakdown.hpp"
+#include "agamemnon/state_machine.hpp"
 
 #include <string>
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 class Store;
 class NatsPublisher;
@@ -82,4 +82,4 @@ class Orchestrator {
   void delegate_unblocked_children(const std::string& parent_id);
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

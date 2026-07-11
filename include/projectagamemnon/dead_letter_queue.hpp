@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Bounded ring buffer for NATS messages that failed all publish retries.
 ///
@@ -46,4 +46,4 @@ class DeadLetterQueue {
   std::deque<Entry> queue_;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

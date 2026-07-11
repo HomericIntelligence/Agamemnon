@@ -1,11 +1,11 @@
-#include "projectagamemnon/planning_breakdown.hpp"
+#include "agamemnon/planning_breakdown.hpp"
 
 #include <algorithm>
 #include <unordered_set>
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 namespace {
 TaskBrief make_brief(
@@ -199,4 +199,4 @@ TEST(PlanningBreakdownAdr013, IssueRefsWireExplicitDependencies) {
             t11->child_task_ids.end());
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

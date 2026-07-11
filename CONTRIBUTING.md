@@ -1,6 +1,6 @@
-# Contributing to ProjectAgamemnon
+# Contributing to Agamemnon
 
-Thank you for your interest in contributing to ProjectAgamemnon! This is the planning,
+Thank you for your interest in contributing to Agamemnon! This is the planning,
 coordination, and agentic orchestration service for the
 [HomericIntelligence](https://github.com/HomericIntelligence) distributed agent mesh.
 
@@ -30,8 +30,8 @@ For an overview of the full ecosystem, see the
 
 ```bash
 # Clone the repository
-git clone https://github.com/HomericIntelligence/ProjectAgamemnon.git
-cd ProjectAgamemnon
+git clone https://github.com/HomericIntelligence/Agamemnon.git
+cd Agamemnon
 
 # Activate the Pixi environment (installs CMake, Ninja, clang-tools, gcovr)
 pixi shell
@@ -97,7 +97,7 @@ criteria. Good first targets are the deferred features with clear acceptance cri
 
 Before starting work:
 
-- Browse [existing issues](https://github.com/HomericIntelligence/ProjectAgamemnon/issues)
+- Browse [existing issues](https://github.com/HomericIntelligence/Agamemnon/issues)
 - Comment on an issue to claim it before starting work
 - Create a new issue if one doesn't exist for your contribution
 
@@ -292,4 +292,4 @@ Please review our [Code of Conduct](CODE_OF_CONDUCT.md) before contributing.
 
 ---
 
-Thank you for contributing to ProjectAgamemnon!
+Thank you for contributing to Agamemnon!

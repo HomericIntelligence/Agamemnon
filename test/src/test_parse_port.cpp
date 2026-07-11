@@ -1,8 +1,8 @@
-#include "projectagamemnon/port_parse.hpp"
+#include "agamemnon/port_parse.hpp"
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 TEST(ParsePortTest, ValidPorts) {
   EXPECT_EQ(parse_port("8080").port.value(), 8080);
@@ -48,4 +48,4 @@ TEST(ParsePortTest, EmptyStringReturnsNullopt) {
   EXPECT_STREQ(r.error, "empty");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

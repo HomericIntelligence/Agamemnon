@@ -1,4 +1,4 @@
-# Roadmap — ProjectAgamemnon
+# Roadmap — Agamemnon
 
 This roadmap distinguishes what is **implemented today** from what is **planned**.
 Each deferred feature includes its current status, why it was deferred, and measurable

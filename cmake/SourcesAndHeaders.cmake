@@ -1,4 +1,4 @@
-# Sources and headers for the ProjectAgamemnon library target (version only).
+# Sources and headers for the Agamemnon library target (version only).
 # The server executable sources are declared directly in CMakeLists.txt.
 #
 # NOTE: src/main.cpp is NOT included here — it has a main() function that
@@ -10,7 +10,7 @@ set(sources
     src/rate_limiter.cpp)
 
 set(headers
-    include/projectagamemnon/version.hpp
-    include/projectagamemnon/store.hpp
-    include/projectagamemnon/peer_discovery.hpp
-    include/projectagamemnon/rate_limiter.hpp)
+    include/agamemnon/version.hpp
+    include/agamemnon/store.hpp
+    include/agamemnon/peer_discovery.hpp
+    include/agamemnon/rate_limiter.hpp)

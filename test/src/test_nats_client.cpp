@@ -1,8 +1,8 @@
-#include "projectagamemnon/nats_client.hpp"
+#include "agamemnon/nats_client.hpp"
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // All tests use an unreachable server so they exercise the disconnected path
 // without requiring a live NATS instance.
@@ -156,4 +156,4 @@ TEST(NatsClientTest, EffectiveRetryBaseMsNonNumericFallsBackToDefault) {
   unsetenv("AGAMEMNON_NATS_RETRY_BASE_MS");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

@@ -1,8 +1,8 @@
-# AGENTS.md — ProjectAgamemnon Multi-Agent Coordination
+# AGENTS.md — Agamemnon Multi-Agent Coordination
 
 ## Overview
 
-ProjectAgamemnon is the HMAS (Homeric Multi-Agent System) orchestration service within the
+Agamemnon is the HMAS (Homeric Multi-Agent System) orchestration service within the
 HomericIntelligence distributed agent mesh. It receives researched briefs from ProjectNestor and
 manages the full 4-layer agent hierarchy: planning breakdown, delegation, state machine
 coordination, and pull-based work queue management.
@@ -117,7 +117,7 @@ to scrape from sidecars or k8s/Nomad probes.
 
 | Endpoint | Use | Status code | Body |
 | --- | --- | --- | --- |
-| `GET /health` | Liveness — process is up | `200` | `{"status":"ok","service":"ProjectAgamemnon"}` |
+| `GET /health` | Liveness — process is up | `200` | `{"status":"ok","service":"Agamemnon"}` |
 | `GET /v1/health` | Readiness — versioned API surface is live | `200` | `{"status":"ok"}` |
 
 Probes should treat any non-`200` response (including connection refused) as

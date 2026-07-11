@@ -1,8 +1,8 @@
-#include "projectagamemnon/hmas_types.hpp"
+#include "agamemnon/hmas_types.hpp"
 
 #include <stdexcept>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 std::string hmas_layer_to_string(HmasLayer layer) {
   switch (layer) {
@@ -197,4 +197,4 @@ std::string mesh_dispatch_subject(const std::string& domain, const std::string& 
   return "hi.myrmidon." + domain + "." + role + ".task." + task_id;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

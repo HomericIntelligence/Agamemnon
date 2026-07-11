@@ -42,11 +42,11 @@ COPY test/ test/
 RUN cmake -B build -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE=build/conan_toolchain.cmake \
     -DCMAKE_BUILD_TYPE=Release \
-    -DProjectAgamemnon_BUILD_TESTING=OFF \
-    -DProjectAgamemnon_ENABLE_CLANG_TIDY=OFF \
-    -DProjectAgamemnon_ENABLE_CPPCHECK=OFF \
-    -DProjectAgamemnon_WARNINGS_AS_ERRORS=OFF \
-    && cmake --build build --target ProjectAgamemnon_server ProjectAgamemnon_healthcheck
+    -DAgamemnon_BUILD_TESTING=OFF \
+    -DAgamemnon_ENABLE_CLANG_TIDY=OFF \
+    -DAgamemnon_ENABLE_CPPCHECK=OFF \
+    -DAgamemnon_WARNINGS_AS_ERRORS=OFF \
+    && cmake --build build --target Agamemnon_server Agamemnon_healthcheck
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
 FROM debian:12-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
@@ -57,8 +57,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /src/build/ProjectAgamemnon_server /usr/local/bin/ProjectAgamemnon_server
-COPY --from=builder /src/build/ProjectAgamemnon_healthcheck /usr/local/bin/ProjectAgamemnon_healthcheck
+COPY --from=builder /src/build/Agamemnon_server /usr/local/bin/Agamemnon_server
+COPY --from=builder /src/build/Agamemnon_healthcheck /usr/local/bin/Agamemnon_healthcheck
 
 EXPOSE 8080
 
@@ -72,9 +72,9 @@ ENV NATS_STREAM_MAX_BYTES_MB=50
 ENV NATS_STREAM_MAX_AGE_SEC=3600
 
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-    CMD ["/usr/local/bin/ProjectAgamemnon_healthcheck"]
+    CMD ["/usr/local/bin/Agamemnon_healthcheck"]
 
 RUN useradd -r -s /usr/sbin/nologin agamemnon
 USER agamemnon
 
-CMD ["ProjectAgamemnon_server"]
+CMD ["Agamemnon_server"]

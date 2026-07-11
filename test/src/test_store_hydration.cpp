@@ -1,5 +1,5 @@
-#include "projectagamemnon/github_client.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/github_client.hpp"
+#include "agamemnon/store.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -578,4 +578,4 @@ TEST(GitHub162Test, RehydrateOnStartupPopulatesFromPaginatedList) {
   EXPECT_NE(std::find(names.begin(), names.end(), json("agent-three")), names.end());
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

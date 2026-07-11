@@ -1,7 +1,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "route_test_fixture.hpp"
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -179,4 +179,4 @@ TEST_F(RoutesLimitsTest, TeamNameTooLong) {
   EXPECT_NE(res->body.find("name"), std::string::npos);
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

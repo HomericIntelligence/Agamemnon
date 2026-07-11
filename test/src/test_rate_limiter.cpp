@@ -1,11 +1,11 @@
-#include "projectagamemnon/rate_limiter.hpp"
+#include "agamemnon/rate_limiter.hpp"
 
 #include <chrono>
 #include <thread>
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // Use high burst/rps so tests don't need long sleeps.
 static constexpr double kRps = 10.0;
@@ -76,4 +76,4 @@ TEST(RateLimiterTest, NewClientHasFullBurst) {
   EXPECT_EQ(allowed, static_cast<int>(kBurst));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

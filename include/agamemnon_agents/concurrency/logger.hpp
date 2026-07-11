@@ -1,7 +1,7 @@
 #pragma once
 
 // ── ADR-015 PORT NOTE ────────────────────────────────────────────────────────
-// This is the ProjectAgamemnon port of Keystone's concurrency Logger. The
+// This is the Agamemnon port of Keystone's concurrency Logger. The
 // original Keystone implementation was a thin wrapper over spdlog/fmt. To keep
 // Agamemnon's HMAS agent runtime *standalone* (no new spdlog/fmt dependency,
 // per the ADR-015 extraction constraints) this port replaces the spdlog

@@ -226,13 +226,13 @@ jobs:
         run: |
           conan install . --build=missing -s build_type=Debug --output-folder build/debug
           cmake --preset debug
-          cmake --build --preset debug --target ProjectAgamemnon_server
+          cmake --build --preset debug --target Agamemnon_server
 
       - name: Negative PORT parsing smoke test
         env:
           AGAMEMNON_API_KEY: ${{ secrets.AGAMEMNON_API_KEY }}
         run: |
-          SERVER=./build/debug/ProjectAgamemnon_server
+          SERVER=./build/debug/Agamemnon_server
           # PORT=abc must warn and fall back to 8080
           output=$(PORT=abc timeout 2s "$SERVER" 2>&1 || true)
           if echo "$output" | grep -qi "invalid\|warn\|8080\|fallback"; then
@@ -322,7 +322,7 @@ jobs:
         run: cmake --preset debug
 
       - name: Build integration tests
-        run: cmake --build --preset debug --target ProjectAgamemnon_integration_tests
+        run: cmake --build --preset debug --target Agamemnon_integration_tests
 
       - name: Run peer-discovery integration tests
         env:

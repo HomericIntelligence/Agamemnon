@@ -1,10 +1,10 @@
-#include "projectagamemnon/auth.hpp"
+#include "agamemnon/auth.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "httplib.h"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 namespace {
 
@@ -113,4 +113,4 @@ TEST_F(AuthMiddlewareTest, ValidateChaosWithCorrectKey) {
   EXPECT_TRUE(auth_.validate(req));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

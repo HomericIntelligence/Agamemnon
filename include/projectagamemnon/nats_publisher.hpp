@@ -4,7 +4,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 class CircuitBreaker;
 class DeadLetterQueue;
@@ -31,4 +31,4 @@ class NatsPublisher {
   virtual CircuitBreaker* circuit_breaker() { return nullptr; }
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

@@ -1,4 +1,4 @@
-#include "projectagamemnon/github_webhook.hpp"
+#include "agamemnon/github_webhook.hpp"
 
 #include <iomanip>
 #include <openssl/evp.h>
@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 namespace {
 
@@ -182,4 +182,4 @@ TEST_F(GitHubWebhookTest, NormalizeAllowedActions) {
   }
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

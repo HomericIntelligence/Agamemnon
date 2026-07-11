@@ -29,7 +29,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/HomericIntelligence/ProjectAgamemnon"
+Repository = "https://github.com/HomericIntelligence/Agamemnon"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agamemnon_client"]

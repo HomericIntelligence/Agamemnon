@@ -1,6 +1,6 @@
-#include "projectagamemnon/nats_client.hpp"
+#include "agamemnon/nats_client.hpp"
 
-#include "projectagamemnon/metrics.hpp"
+#include "agamemnon/metrics.hpp"
 
 // NOLINTNEXTLINE(misc-include-cleaner) — nats.h brings in its own transitive includes
 #include <chrono>
@@ -13,7 +13,7 @@
 #include "nats.h"
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -340,4 +340,4 @@ bool NatsClient::subscribe(const std::string& subject, MessageCallback cb) {
   return true;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

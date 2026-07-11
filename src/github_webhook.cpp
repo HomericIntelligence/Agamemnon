@@ -1,4 +1,4 @@
-#include "projectagamemnon/github_webhook.hpp"
+#include "agamemnon/github_webhook.hpp"
 
 #include <algorithm>
 #include <array>
@@ -9,7 +9,7 @@
 #include <openssl/hmac.h>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 namespace {
 
@@ -137,4 +137,4 @@ std::optional<NormalizedEvent> normalize_issues_event(const nlohmann::json& payl
   };
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

@@ -1,10 +1,10 @@
-# ProjectAgamemnon
+# Agamemnon
 
-[![Build & Test](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/build-test.yml/badge.svg)](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/build-test.yml)
-[![Code Coverage](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/code-coverage.yml/badge.svg)](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/code-coverage.yml)
-[![Static Analysis](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/static-analysis.yml)
-[![Python Client](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/python-client.yml/badge.svg)](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/python-client.yml)
-[![Python Client Release](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/python-client-release.yml/badge.svg)](https://github.com/HomericIntelligence/ProjectAgamemnon/actions/workflows/python-client-release.yml)
+[![Build & Test](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/build-test.yml/badge.svg)](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/build-test.yml)
+[![Code Coverage](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/code-coverage.yml/badge.svg)](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/code-coverage.yml)
+[![Static Analysis](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/static-analysis.yml/badge.svg)](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/static-analysis.yml)
+[![Python Client](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/python-client.yml/badge.svg)](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/python-client.yml)
+[![Python Client Release](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/python-client-release.yml/badge.svg)](https://github.com/HomericIntelligence/Agamemnon/actions/workflows/python-client-release.yml)
 
 Planning, coordination, and agentic orchestration for the HomericIntelligence distributed agent mesh.
 
@@ -76,8 +76,8 @@ just docs-validate
 ## Building
 
 ```bash
-git clone https://github.com/HomericIntelligence/ProjectAgamemnon.git
-cd ProjectAgamemnon
+git clone https://github.com/HomericIntelligence/Agamemnon.git
+cd Agamemnon
 
 # Recommended: use pixi for a reproducible environment
 pixi install
@@ -92,7 +92,7 @@ just build
 just test
 
 # Run the server
-NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
+NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/Agamemnon_server
 ```
 
 ## Environment Variables
@@ -126,7 +126,7 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/health` | Liveness check (returns `{status: ok, service: ProjectAgamemnon}`) |
+| `GET` | `/health` | Liveness check (returns `{status: ok, service: Agamemnon}`) |
 | `GET` | `/v1/health` | Versioned health check (returns `{status: ok}`) |
 | `GET` | `/v1/version` | Service version (returns `{version, name}`) |
 
@@ -176,12 +176,12 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/ProjectAgamemnon_server
 
 ```bash
 # Build the image
-docker build -t projectagamemnon .
+docker build -t agamemnon .
 
 # Run the server
 docker run -p 8080:8080 \
   -e NATS_URL=nats://your-nats-host:4222 \
-  projectagamemnon
+  agamemnon
 ```
 
 The image uses a non-root `agamemnon` user and includes a health check against `GET /v1/health`
@@ -213,7 +213,7 @@ Run `pixi run pre-commit install` once after cloning to activate them. Never byp
 ```
 .
 ├── src/          C++ source (server_main.cpp, routes.cpp, store.cpp, nats_client.cpp, …)
-├── include/      Public headers (projectagamemnon/)
+├── include/      Public headers (agamemnon/)
 ├── test/         GoogleTest unit and integration tests
 ├── clients/      Client libraries (python/)
 ├── cmake/        CMake modules and profiles
@@ -251,6 +251,6 @@ MIT
 
 ## Data & Privacy
 
-ProjectAgamemnon processes infrastructure metadata only (agent IDs, Tailscale host
+Agamemnon processes infrastructure metadata only (agent IDs, Tailscale host
 identifiers, task state). It does not collect personal data. See
 [SECURITY.md](SECURITY.md) for the full data and privacy policy.

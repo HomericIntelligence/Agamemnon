@@ -2,8 +2,8 @@ from conan import ConanFile
 from conan.tools.cmake import CMakeToolchain, CMakeDeps
 
 
-class ProjectAgamemnonConan(ConanFile):
-    name = "projectagamemnon"
+class AgamemnonConan(ConanFile):
+    name = "agamemnon"
     version = "0.1.0"
     settings = "os", "compiler", "build_type", "arch"
 

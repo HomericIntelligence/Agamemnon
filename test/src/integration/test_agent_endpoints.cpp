@@ -2,7 +2,7 @@
 #include "server_fixture.hpp"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -156,4 +156,4 @@ TEST_F(AgentEndpointTest, CreateDockerAgentReturns201) {
   EXPECT_TRUE(nats().has_subject_prefix("hi.agents.docker.docker-agent.created"));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

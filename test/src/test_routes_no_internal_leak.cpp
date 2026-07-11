@@ -6,19 +6,19 @@
 #include <gtest/gtest.h>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/github_client.hpp"  // MockGitHubClient
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/auth.hpp"
+#include "agamemnon/github_client.hpp"  // MockGitHubClient
+#include "agamemnon/metrics.hpp"
+#include "agamemnon/nats_client.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/routes.hpp"
+#include "agamemnon/store.hpp"
 
 #include "httplib.h"
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 using json = nlohmann::json;
 
 // Recursive walk: returns true if `node` (or anything reachable from it)
@@ -145,4 +145,4 @@ TEST_F(RoutesNoInternalLeakTest, ChaosResponsesNeverLeakGithubIssue) {
   EXPECT_FALSE(contains_github_issue(json::parse(client_->Get("/v1/chaos")->body)));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

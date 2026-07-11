@@ -1,4 +1,4 @@
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/store.hpp"
 
 #include <regex>
 #include <string>
@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -497,4 +497,4 @@ TEST_F(StoreHmasTest, UpdateHmasTaskMovesBetweenBriefBuckets) {
   EXPECT_EQ(store.list_hmas_tasks_by_brief("brief-Y")[0].id, "t1");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

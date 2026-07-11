@@ -1,8 +1,8 @@
-#include "projectagamemnon/state_machine.hpp"
+#include "agamemnon/state_machine.hpp"
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 namespace {
 HmasTask make_task(HmasLayer layer = HmasLayer::L0_ChiefArchitect,
@@ -110,4 +110,4 @@ TEST(StateMachineTest, ValidTargetsEmptyForUnknownPair) {
   EXPECT_TRUE(targets.empty());
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

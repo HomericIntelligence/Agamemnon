@@ -1,8 +1,8 @@
-#include "projectagamemnon/dead_letter_queue.hpp"
+#include "agamemnon/dead_letter_queue.hpp"
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 TEST(DeadLetterQueueTest, InitiallyEmpty) {
   DeadLetterQueue dlq;
@@ -114,4 +114,4 @@ TEST(DeadLetterQueueTest, LevelAndServicePreservedAcrossMultipleEntries) {
   EXPECT_EQ(entries[2].service, "agamemnon");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

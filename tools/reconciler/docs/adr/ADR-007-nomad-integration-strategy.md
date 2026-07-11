@@ -14,7 +14,7 @@
 and includes a diagram showing Myrmidons driving a Nomad cluster.
 
 However, no Nomad integration code exists in Myrmidons. The `apply.sh` script
-calls only the ProjectAgamemnon REST API. The `spec.deployment.type` field
+calls only the Agamemnon REST API. The `spec.deployment.type` field
 supports `local` (tmux on a single host) and `docker` (container on a single
 host). There is no Nomad job submission, no HCL generation, and no Nomad API
 client anywhere in this repository.
@@ -33,7 +33,7 @@ Treat Nomad integration as a **deferred future phase**, not a current capability
 - Do **not** remove Nomad from the roadmap entirely. The multi-host scheduling
   gap is real and worth tracking.
 - **Update documentation** to accurately reflect current scope: Myrmidons drives
-  a single host via the ProjectAgamemnon REST API. Multi-host scheduling via
+  a single host via the Agamemnon REST API. Multi-host scheduling via
   Nomad is planned for a future phase.
 - Add a **drift-detection test** (`tests/detect-doc-drift.sh`) that fails CI if
   any documentation file in this repo re-introduces overclaiming language that
