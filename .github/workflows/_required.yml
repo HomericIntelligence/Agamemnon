@@ -31,11 +31,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
-          key: fetchcontent-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          key: fetchcontent-r2-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
-            fetchcontent-${{ runner.os }}-clang-debug-
-            fetchcontent-${{ runner.os }}-clang-
-            fetchcontent-${{ runner.os }}-
+            fetchcontent-r2-${{ runner.os }}-clang-debug-
+            fetchcontent-r2-${{ runner.os }}-clang-
+            fetchcontent-r2-${{ runner.os }}-
 
       - name: Install clang-format
         run: sudo apt-get update && sudo apt-get install -y clang-format
@@ -288,11 +288,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
-          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
-            fetchcontent-${{ runner.os }}-gcc-release-
-            fetchcontent-${{ runner.os }}-gcc-
-            fetchcontent-${{ runner.os }}-
+            fetchcontent-r2-${{ runner.os }}-gcc-release-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+            fetchcontent-r2-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -337,11 +337,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
-          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
-            fetchcontent-${{ runner.os }}-gcc-release-
-            fetchcontent-${{ runner.os }}-gcc-
-            fetchcontent-${{ runner.os }}-
+            fetchcontent-r2-${{ runner.os }}-gcc-release-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+            fetchcontent-r2-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -531,11 +531,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
-          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
-            fetchcontent-${{ runner.os }}-gcc-release-
-            fetchcontent-${{ runner.os }}-gcc-
-            fetchcontent-${{ runner.os }}-
+            fetchcontent-r2-${{ runner.os }}-gcc-release-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+            fetchcontent-r2-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -663,11 +663,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
-          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
-            fetchcontent-${{ runner.os }}-gcc-release-
-            fetchcontent-${{ runner.os }}-gcc-
-            fetchcontent-${{ runner.os }}-
+            fetchcontent-r2-${{ runner.os }}-gcc-release-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+            fetchcontent-r2-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
@@ -758,11 +758,11 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: build/**/_deps
-          key: fetchcontent-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
           restore-keys: |
-            fetchcontent-${{ runner.os }}-gcc-release-
-            fetchcontent-${{ runner.os }}-gcc-
-            fetchcontent-${{ runner.os }}-
+            fetchcontent-r2-${{ runner.os }}-gcc-release-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+            fetchcontent-r2-${{ runner.os }}-
 
       - name: Install system dependencies
         run: |
