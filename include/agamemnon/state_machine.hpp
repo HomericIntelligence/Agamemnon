@@ -1,13 +1,13 @@
 #pragma once
 
-#include "projectagamemnon/hmas_types.hpp"
+#include "agamemnon/hmas_types.hpp"
 
 #include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 // Events that drive TaskState transitions.
 enum class TaskEvent : int {
@@ -58,4 +58,4 @@ class TaskStateMachine {
   std::unordered_map<Key, std::vector<Transition>, KeyHash> table_;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

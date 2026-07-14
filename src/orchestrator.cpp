@@ -1,13 +1,13 @@
-#include "projectagamemnon/orchestrator.hpp"
+#include "agamemnon/orchestrator.hpp"
 
-#include "projectagamemnon/nats_publisher.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/nats_publisher.hpp"
+#include "agamemnon/store.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <iostream>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 Orchestrator::Orchestrator(Store& store, NatsPublisher& nats) : store_(store), nats_(nats) {}
 
@@ -460,4 +460,4 @@ void Orchestrator::delegate_unblocked_children(const std::string& completed_task
   }
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

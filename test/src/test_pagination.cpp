@@ -1,4 +1,4 @@
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/store.hpp"
 
 #include <set>
 #include <string>
@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -210,4 +210,4 @@ TEST(PaginationDeterminism, TaskPagesNoDuplicatesFullCoverage) {
   EXPECT_EQ(total_seen, static_cast<std::size_t>(N));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

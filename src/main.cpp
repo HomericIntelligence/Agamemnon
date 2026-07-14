@@ -1,8 +1,8 @@
-#include "projectagamemnon/version.hpp"
+#include "agamemnon/version.hpp"
 
 #include <iostream>
 
 int main() {
-  std::cout << projectagamemnon::kProjectName << " v" << projectagamemnon::kVersion << "\n";
+  std::cout << agamemnon::kProjectName << " v" << agamemnon::kVersion << "\n";
   return 0;
 }

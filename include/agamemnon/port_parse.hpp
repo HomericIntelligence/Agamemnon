@@ -3,7 +3,7 @@
 #include <cstring>
 #include <optional>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 struct PortParseResult {
   std::optional<int> port;
@@ -20,4 +20,4 @@ inline PortParseResult parse_port(const char* str) {
   return {parsed, nullptr};
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

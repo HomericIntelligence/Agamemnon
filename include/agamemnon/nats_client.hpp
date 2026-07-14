@@ -1,15 +1,15 @@
 #pragma once
 
-#include "projectagamemnon/circuit_breaker.hpp"
-#include "projectagamemnon/dead_letter_queue.hpp"
-#include "projectagamemnon/nats_publisher.hpp"
+#include "agamemnon/circuit_breaker.hpp"
+#include "agamemnon/dead_letter_queue.hpp"
+#include "agamemnon/nats_publisher.hpp"
 
 #include <functional>
 #include <string>
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 class MetricsRegistry;
 
@@ -93,4 +93,4 @@ class NatsClient : public NatsPublisher {
   int do_publish_once(const std::string& subject, const std::string& payload);
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

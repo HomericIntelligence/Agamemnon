@@ -6,7 +6,7 @@
 #include "httplib.h"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // Find a free port by binding to port 0 and reading back the assigned port.
 static int find_free_port() {
@@ -108,4 +108,4 @@ TEST(ShutdownTest, HandlerGuardPreventsDoubleStop) {
   SUCCEED();
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

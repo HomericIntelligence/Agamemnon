@@ -5,7 +5,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Token-bucket rate limiter with per-client-IP tracking.
 ///
@@ -47,4 +47,4 @@ class RateLimiter {
   int request_count_since_evict_{0};
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

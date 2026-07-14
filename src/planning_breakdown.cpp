@@ -1,12 +1,12 @@
-#include "projectagamemnon/planning_breakdown.hpp"
+#include "agamemnon/planning_breakdown.hpp"
 
-#include "projectagamemnon/store.hpp"  // generate_uuid, now_iso8601
+#include "agamemnon/store.hpp"  // generate_uuid, now_iso8601
 
 #include <algorithm>
 #include <cctype>
 #include <unordered_map>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 ImplRef parse_impl_ref(const std::string& impl_desc) {
   ImplRef ref;
@@ -182,4 +182,4 @@ std::vector<HmasTask> PlanningBreakdown::decompose(const TaskBrief& brief) const
   return tasks;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

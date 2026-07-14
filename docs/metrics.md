@@ -1,6 +1,6 @@
 # Prometheus metrics — `GET /metrics`
 
-ProjectAgamemnon exposes Prometheus-format metrics on the unauthenticated
+Agamemnon exposes Prometheus-format metrics on the unauthenticated
 `GET /metrics` endpoint. The response is plain `text/plain; version=0.0.4`
 suitable for scraping by Prometheus, VictoriaMetrics, or compatible TSDBs.
 

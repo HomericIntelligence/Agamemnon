@@ -1,5 +1,5 @@
-#include "projectagamemnon/github_client.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/github_client.hpp"
+#include "agamemnon/store.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -395,4 +395,4 @@ TEST(IsolationTest, HydratedEntitiesVisibleToSubsequentReads) {
   EXPECT_EQ(result["name"], "seeded-agent");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

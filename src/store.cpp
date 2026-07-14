@@ -1,6 +1,6 @@
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/store.hpp"
 
-#include "projectagamemnon/metrics.hpp"
+#include "agamemnon/metrics.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -14,7 +14,7 @@
 #include <sstream>
 #include <utility>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -940,4 +940,4 @@ std::vector<TaskBrief> Store::list_task_briefs() {
   return out;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

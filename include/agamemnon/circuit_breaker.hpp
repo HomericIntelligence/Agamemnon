@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <string>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Three-state circuit breaker guarding NATS publish operations.
 ///
@@ -57,4 +57,4 @@ class CircuitBreaker {
   static int64_t now_ms() noexcept;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

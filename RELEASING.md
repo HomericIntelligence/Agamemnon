@@ -48,7 +48,7 @@ Register OIDC publishers at <https://pypi.org/manage/account/publishing/>
 | --- | --- |
 | PyPI Project Name | `HomericIntelligence-Agamemnon` |
 | Owner | `HomericIntelligence` |
-| Repository name | `ProjectAgamemnon` |
+| Repository name | `Agamemnon` |
 | Workflow name | `python-client-release.yml` |
 | Environment name | `pypi` |
 
@@ -58,7 +58,7 @@ Register OIDC publishers at <https://pypi.org/manage/account/publishing/>
 | --- | --- |
 | PyPI Project Name | `HomericIntelligence-Agamemnon-Orchestration` |
 | Owner | `HomericIntelligence` |
-| Repository name | `ProjectAgamemnon` |
+| Repository name | `Agamemnon` |
 | Workflow name | `python-client-release.yml` |
 | Environment name | `pypi` |
 
@@ -185,7 +185,7 @@ docker inspect --format '{{index .RepoDigests 0}}' ubuntu:24.04
 ```
 
 Update the `FROM` lines in `Dockerfile` to use the new digest, rebuild locally
-(`docker build -t projectagamemnon .`), and verify Trivy passes
-(`trivy image projectagamemnon`). Open a PR titled
+(`docker build -t agamemnon .`), and verify Trivy passes
+(`trivy image agamemnon`). Open a PR titled
 `chore(docker): refresh base image digests` and reference the upstream Debian/
 Ubuntu security advisory that prompted the refresh.

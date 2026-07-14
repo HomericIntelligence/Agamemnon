@@ -11,7 +11,7 @@
 
 The `compute_drift` function (`scripts/lib/reconcile.sh:350-427`) compares the
 desired state of an agent (from its YAML file) against its live state (from the
-ProjectAgamemnon REST API JSON). To perform the comparison it needs:
+Agamemnon REST API JSON). To perform the comparison it needs:
 
 - The agent name (for context / error messages)
 - The desired `desiredState` (`active` or `hibernated`)

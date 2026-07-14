@@ -1,12 +1,12 @@
 #pragma once
 
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/auth.hpp"
+#include "agamemnon/metrics.hpp"
+#include "agamemnon/nats_client.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/routes.hpp"
+#include "agamemnon/store.hpp"
 
 #include <memory>
 #include <string>
@@ -16,7 +16,7 @@
 #include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // Shared lifecycle for any GTest fixture that needs a live httplib::Server
 // wired through the production register_routes() with a Store/NatsClient/etc.
@@ -119,4 +119,4 @@ class RouteTestFixture : public ::testing::Test {
   int port_{0};
 };
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

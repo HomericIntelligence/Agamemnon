@@ -52,7 +52,7 @@ jobs:
           conan install . --build=missing -s build_type=Debug \
             --output-folder build/debug
       - name: Configure
-        run: cmake --preset debug -DProjectAgamemnon_ENABLE_CLANG_TIDY=ON
+        run: cmake --preset debug -DAgamemnon_ENABLE_CLANG_TIDY=ON
       - name: Build (triggers clang-tidy)
         run: cmake --build --preset debug
 

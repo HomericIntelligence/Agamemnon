@@ -2,14 +2,14 @@
 
 #include <string>
 
-namespace projectagamemnon {
+namespace agamemnon {
 namespace agents {
 
 /**
  * @brief Agent-layer action types for HMAS orchestration
  *
  * These action types belong to the agent / orchestration layer
- * (ProjectAgamemnon) rather than to the transport layer.  They were moved out
+ * (Agamemnon) rather than to the transport layer.  They were moved out
  * of ProjectKeystone's transport struct per ADR-015 / Keystone Issue #515
  * (SOLID/SRP: a transport message must not carry orchestration semantics).
  *
@@ -39,4 +39,4 @@ inline std::string agentActionTypeToString(AgentActionType type) {
 }
 
 }  // namespace agents
-}  // namespace projectagamemnon
+}  // namespace agamemnon

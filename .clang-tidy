@@ -13,6 +13,6 @@ Checks: >
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -hicpp-no-array-decay
 WarningsAsErrors: ''
-HeaderFilterRegex: '/ProjectAgamemnon/(include|src|test)/'
+HeaderFilterRegex: '/Agamemnon/(include|src|test)/'
 FormatStyle: file
 ...

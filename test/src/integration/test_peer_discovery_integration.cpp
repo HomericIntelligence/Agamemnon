@@ -1,4 +1,4 @@
-#include "projectagamemnon/peer_discovery.hpp"
+#include "agamemnon/peer_discovery.hpp"
 
 #include <arpa/inet.h>
 #include <chrono>
@@ -16,7 +16,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 namespace {
 
@@ -200,4 +200,4 @@ TEST_F(NatsServerFixture, DiscoverReturnsEmptyWhenPeerIpIsNonTailscale) {
   EXPECT_EQ(discover_nats_url("", non_tailscale_json), "");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

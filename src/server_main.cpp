@@ -1,13 +1,13 @@
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/peer_discovery.hpp"
-#include "projectagamemnon/port_parse.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
-#include "projectagamemnon/version.hpp"
+#include "agamemnon/auth.hpp"
+#include "agamemnon/metrics.hpp"
+#include "agamemnon/nats_client.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/peer_discovery.hpp"
+#include "agamemnon/port_parse.hpp"
+#include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/routes.hpp"
+#include "agamemnon/store.hpp"
+#include "agamemnon/version.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <atomic>
@@ -47,28 +47,27 @@ int main() {
   std::cout.setf(std::ios::unitbuf);
   std::cerr.setf(std::ios::unitbuf);
 
-  std::cout << projectagamemnon::kProjectName << " v" << projectagamemnon::kVersion
-            << " starting...\n";
+  std::cout << agamemnon::kProjectName << " v" << agamemnon::kVersion << " starting...\n";
 
   // ── Metrics registry ─────────────────────────────────────────────────────
-  projectagamemnon::MetricsRegistry metrics;
+  agamemnon::MetricsRegistry metrics;
 
   // ── GitHub-backed store ──────────────────────────────────────────────────
-  std::shared_ptr<projectagamemnon::IGitHubClient> gh_client;
+  std::shared_ptr<agamemnon::IGitHubClient> gh_client;
 
   const char* gh_token = std::getenv("GITHUB_TOKEN");
   const char* gh_repo_env = std::getenv("GITHUB_REPO");
-  std::string gh_repo = gh_repo_env ? gh_repo_env : "HomericIntelligence/ProjectAgamemnon";
+  std::string gh_repo = gh_repo_env ? gh_repo_env : "HomericIntelligence/Agamemnon";
 
   if (gh_token && gh_token[0] != '\0') {
     std::cout << "[agamemnon] GitHub persistence enabled (repo: " << gh_repo << ")\n";
-    gh_client = std::make_shared<projectagamemnon::CurlGitHubClient>(gh_repo, gh_token);
+    gh_client = std::make_shared<agamemnon::CurlGitHubClient>(gh_repo, gh_token);
   } else {
     std::cerr << "[agamemnon] WARNING: GITHUB_TOKEN not set — running in pure in-memory mode (no "
                  "persistence)\n";
   }
 
-  projectagamemnon::Store store(gh_client);
+  agamemnon::Store store(gh_client);
   store.set_metrics(&metrics);
 
   // ── GitHub reconciliation (#165) ─────────────────────────────────────────
@@ -97,7 +96,7 @@ int main() {
     nats_url = nats_url_env;
   } else {
     std::cout << "[agamemnon] NATS_URL not set — attempting Tailscale peer discovery\n";
-    nats_url = projectagamemnon::discover_nats_url();
+    nats_url = agamemnon::discover_nats_url();
     if (nats_url.empty()) {
       nats_url = "nats://localhost:4222";
       std::cout << "[agamemnon] no Tailscale NATS peer found, falling back to " << nats_url << "\n";
@@ -106,11 +105,11 @@ int main() {
     }
   }
 
-  projectagamemnon::NatsClient nats(nats_url);
+  agamemnon::NatsClient nats(nats_url);
   nats.set_metrics(&metrics);
 
   // ── HMAS Orchestrator ────────────────────────────────────────────────────
-  projectagamemnon::Orchestrator orchestrator(store, nats);
+  agamemnon::Orchestrator orchestrator(store, nats);
 
   if (nats.connect()) {
     std::cout << "[agamemnon] connected to NATS at " << nats_url << "\n";
@@ -148,7 +147,7 @@ int main() {
   const char* burst_env = std::getenv("RATE_LIMIT_BURST");
   double rate_limit_rps = rps_env ? std::stod(rps_env) : 60.0;
   double rate_limit_burst = burst_env ? std::stod(burst_env) : 120.0;
-  projectagamemnon::RateLimiter rate_limiter(rate_limit_rps, rate_limit_burst);
+  agamemnon::RateLimiter rate_limiter(rate_limit_rps, rate_limit_burst);
   std::cout << "[agamemnon] rate limiting: " << rate_limit_rps << " req/s, burst "
             << rate_limit_burst << "\n";
 
@@ -158,7 +157,7 @@ int main() {
     std::cerr << "[agamemnon] FATAL: AGAMEMNON_API_KEY is not set. Refusing to start.\n";
     return 1;
   }
-  projectagamemnon::AuthMiddleware auth(api_key_env);
+  agamemnon::AuthMiddleware auth(api_key_env);
 
   // ── HTTP server ───────────────────────────────────────────────────────────
   auto env_int = [](const char* name, int def) -> int {
@@ -175,12 +174,12 @@ int main() {
   server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
                                 1024UL * 1024UL);
 
-  projectagamemnon::register_routes(server, store, nats, rate_limiter, auth, metrics, orchestrator);
+  agamemnon::register_routes(server, store, nats, rate_limiter, auth, metrics, orchestrator);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;
   if (port_env) {
-    auto result = projectagamemnon::parse_port(port_env);
+    auto result = agamemnon::parse_port(port_env);
     if (!result.port.has_value()) {
       std::cerr << "[agamemnon] WARNING: PORT=\"" << port_env << "\" is invalid (" << result.error
                 << "), defaulting to " << port << "\n";

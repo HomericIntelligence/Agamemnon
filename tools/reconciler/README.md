@@ -1,6 +1,6 @@
 # Reconciler
 
-GitOps reconciler that drives ProjectAgamemnon's REST API from the agent
+GitOps reconciler that drives Agamemnon's REST API from the agent
 definitions in `HomericIntelligence/Myrmidons`.
 
 ## Why this lives here (not in Myrmidons)
@@ -14,7 +14,7 @@ state is consumer-side and lives here, where Agamemnon already runs.
 
 This directory was ported from `HomericIntelligence/Myrmidons:scripts/` and
 `HomericIntelligence/Myrmidons:tests/` on 2026-05-17. See the migration
-manifest in ProjectAgamemnon#403 and the matching deletion PR in Myrmidons.
+manifest in Agamemnon#403 and the matching deletion PR in Myrmidons.
 
 ## Contents
 
@@ -49,7 +49,7 @@ checked-out dataset.
 
 ## Open work
 
-See ProjectAgamemnon#403 for the migration manifest. ~83 reconciler-related
+See Agamemnon#403 for the migration manifest. ~83 reconciler-related
 issues were closed in Myrmidons during the narrow-to-charter pass; triage
 them and refile here as needed if they describe live bugs.
 
@@ -57,7 +57,7 @@ them and refile here as needed if they describe live bugs.
 
 | Variable | Default | Description |
 | -------- | ------- | ----------- |
-| `AGAMEMNON_URL` | `http://localhost:8080` | ProjectAgamemnon base URL |
+| `AGAMEMNON_URL` | `http://localhost:8080` | Agamemnon base URL |
 | `AGAMEMNON_API_KEY` | *(unset)* | Bearer token / API key |
 | `AGAMEMNON_TIMEOUT` | `10` | HTTP timeout (s) |
 | `AGAMEMNON_CA_CERT` | *(unset)* | PEM CA cert path |

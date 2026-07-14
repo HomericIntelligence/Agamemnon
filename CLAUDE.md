@@ -1,8 +1,8 @@
-# CLAUDE.md — ProjectAgamemnon
+# CLAUDE.md — Agamemnon
 
 ## Project Overview
 
-ProjectAgamemnon is the planning, coordination, and agentic orchestration service for the
+Agamemnon is the planning, coordination, and agentic orchestration service for the
 HomericIntelligence distributed agent mesh. It replaces ai-maestro's task coordination role
 (per ADR-006 in Odysseus).
 

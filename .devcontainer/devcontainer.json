@@ -1,5 +1,5 @@
 {
-  "name": "ProjectAgamemnon",
+  "name": "Agamemnon",
   "build": {
     "dockerfile": "Dockerfile"
   },

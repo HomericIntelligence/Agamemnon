@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(
-  ProjectAgamemnon
+  Agamemnon
   VERSION 0.1.0
   DESCRIPTION "Planning, coordination, and agentic orchestration for HomericIntelligence"
   LANGUAGES CXX)
@@ -79,9 +79,9 @@ target_compile_options(agamemnon_peer_discovery PRIVATE
   -Wno-sign-conversion
 )
 
-# ── ProjectAgamemnon_core — shared by server executable and tests ─────────────
+# ── Agamemnon_core — shared by server executable and tests ─────────────
 # Excludes server_main.cpp so gtest_main does not conflict with main().
-add_library(ProjectAgamemnon_core STATIC
+add_library(Agamemnon_core STATIC
   src/routes.cpp
   src/store.cpp
   src/nats_client.cpp
@@ -99,15 +99,15 @@ add_library(ProjectAgamemnon_core STATIC
   src/agents/agent_envelope.cpp
 )
 
-target_compile_features(ProjectAgamemnon_core PUBLIC cxx_std_20)
-set_target_properties(ProjectAgamemnon_core PROPERTIES CXX_EXTENSIONS OFF)
+target_compile_features(Agamemnon_core PUBLIC cxx_std_20)
+set_target_properties(Agamemnon_core PROPERTIES CXX_EXTENSIONS OFF)
 
-target_include_directories(ProjectAgamemnon_core
+target_include_directories(Agamemnon_core
   PUBLIC  ${PROJECT_SOURCE_DIR}/include
   PRIVATE ${PROJECT_SOURCE_DIR}/src
 )
 
-target_link_libraries(ProjectAgamemnon_core
+target_link_libraries(Agamemnon_core
   PUBLIC
     httplib::httplib
     nlohmann_json::nlohmann_json
@@ -118,7 +118,7 @@ target_link_libraries(ProjectAgamemnon_core
     prometheus-cpp::core
 )
 
-target_compile_options(ProjectAgamemnon_core PRIVATE
+target_compile_options(Agamemnon_core PRIVATE
   -Wno-old-style-cast
   -Wno-useless-cast
   -Wno-conversion
@@ -132,7 +132,7 @@ target_compile_options(ProjectAgamemnon_core PRIVATE
 # ── agamemnon_agents — ported HMAS C++ agent executors + work-stealing ───────
 # ADR-015 (HomericIntelligence/Odysseus#143): the L0→L3 HMAS agent hierarchy,
 # coordination/strategy types, and the work-stealing scheduler were extracted
-# from ProjectKeystone into ProjectAgamemnon. These are the runtime *executors*
+# from ProjectKeystone into Agamemnon. These are the runtime *executors*
 # that complement Agamemnon's task-as-data Orchestrator/PlanningBreakdown.
 #
 # Standalone build: agent-to-agent transport depends only on the abstract
@@ -211,7 +211,7 @@ target_include_directories(
     ${PROJECT_SOURCE_DIR}/src
 )
 
-target_link_libraries(${PROJECT_NAME}_server PRIVATE ProjectAgamemnon_core agamemnon_peer_discovery agamemnon_agents)
+target_link_libraries(${PROJECT_NAME}_server PRIVATE Agamemnon_core agamemnon_peer_discovery agamemnon_agents)
 
 # Suppress warnings from external headers on the server target
 target_compile_options(${PROJECT_NAME}_server PRIVATE

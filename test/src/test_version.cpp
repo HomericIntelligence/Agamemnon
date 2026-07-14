@@ -1,21 +1,21 @@
-#include "projectagamemnon/version.hpp"
+#include "agamemnon/version.hpp"
 
 #include <algorithm>
 
 #include <gtest/gtest.h>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/nats_client.hpp"
+#include "agamemnon/routes.hpp"
+#include "agamemnon/store.hpp"
 
 #include <thread>
 
 #include "httplib.h"
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
-TEST(VersionTest, ProjectNameIsCorrect) { EXPECT_EQ(kProjectName, "ProjectAgamemnon"); }
+TEST(VersionTest, ProjectNameIsCorrect) { EXPECT_EQ(kProjectName, "Agamemnon"); }
 
 TEST(VersionTest, VersionIsSet) { EXPECT_FALSE(kVersion.empty()); }
 
@@ -37,4 +37,4 @@ TEST(VersionTest, VersionIsSemver) {
   EXPECT_EQ(std::count(v.begin(), v.end(), '.'), 2);
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

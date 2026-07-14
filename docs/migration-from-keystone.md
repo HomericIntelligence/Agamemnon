@@ -1,6 +1,6 @@
 # Migration Guide: `KEYSTONE_*` → `AGAMEMNON_*` Environment Variables
 
-ProjectAgamemnon was originally developed under the name **ProjectKeystone**.
+Agamemnon was originally developed under the name **ProjectKeystone**.
 During the rename, the orchestration daemon's runtime configuration variables
 were renamed from `KEYSTONE_*` to `AGAMEMNON_*`. Deployments or `.env` files
 that still set the old names will **silently fall back to defaults** in the
@@ -25,7 +25,7 @@ different fallback behaviour for the legacy names — operators must update
 
 ### 1. Server-side daemon (`agamemnon.orchestration.config`)
 
-The orchestration daemon shipped inside ProjectAgamemnon **only** reads the
+The orchestration daemon shipped inside Agamemnon **only** reads the
 new `AGAMEMNON_*` names. Setting `KEYSTONE_LOG_LEVEL=DEBUG` against this
 daemon is a no-op — the daemon will silently use the `INFO` default.
 
@@ -133,7 +133,7 @@ silently revert to defaults — a classic silent-failure regression.
 
 ## See Also
 
-- Issue [#118](https://github.com/HomericIntelligence/ProjectAgamemnon/issues/118) — the tracking issue for this guide
-- Issue [#26](https://github.com/HomericIntelligence/ProjectAgamemnon/issues/26) — the original Keystone → Agamemnon rename
+- Issue [#118](https://github.com/HomericIntelligence/Agamemnon/issues/118) — the tracking issue for this guide
+- Issue [#26](https://github.com/HomericIntelligence/Agamemnon/issues/26) — the original Keystone → Agamemnon rename
 - [README.md](../README.md#environment-variables) — full environment variable reference
 - [RELEASING.md](../RELEASING.md) — release cadence for the Python client (where the shim lives)

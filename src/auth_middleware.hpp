@@ -6,7 +6,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "httplib.h"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 // Returns true when the request carries a valid API key, or when auth is
 // disabled (AGAMEMNON_API_KEY env var is unset or empty).
@@ -17,4 +17,4 @@ inline bool validate_api_key(const httplib::Request& req) {
   return it != req.headers.end() && it->second == std::string(key);
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

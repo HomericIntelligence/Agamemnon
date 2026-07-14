@@ -2,7 +2,7 @@
 
 [![PyPI version](https://badge.fury.io/py/HomericIntelligence-Agamemnon.svg)](https://pypi.org/project/HomericIntelligence-Agamemnon/)
 
-Async Python client for the [Agamemnon](https://github.com/HomericIntelligence/ProjectAgamemnon) REST API.
+Async Python client for the [Agamemnon](https://github.com/HomericIntelligence/Agamemnon) REST API.
 
 ## Installation
 

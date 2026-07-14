@@ -1,13 +1,13 @@
-#include "projectagamemnon/fake_nats_publisher.hpp"
-#include "projectagamemnon/github_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/fake_nats_publisher.hpp"
+#include "agamemnon/github_client.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/store.hpp"
 
 #include <memory>
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // Build an issue list from a mock's created_issues, then re-seed seed_issues
 // so a fresh Store(mock) hydrates those issues. This mirrors a server restart:
@@ -92,4 +92,4 @@ TEST(OrchestratorPersistence, CompletionPublishesHiTasksCompleted) {
   EXPECT_TRUE(nats.has_subject("hi.tasks.completed"));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

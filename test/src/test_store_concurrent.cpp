@@ -1,4 +1,4 @@
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/store.hpp"
 
 #include <atomic>
 #include <barrier>
@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 class StoreConcurrent : public ::testing::Test {
  protected:
@@ -247,4 +247,4 @@ TEST_F(StoreConcurrent, ConcurrentMixedOperations) {
   // No crash, no data race (verified by TSan in CI)
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

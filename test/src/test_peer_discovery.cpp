@@ -1,8 +1,8 @@
-#include "projectagamemnon/peer_discovery.hpp"
+#include "agamemnon/peer_discovery.hpp"
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── enumerate_tailscale_peers ────────────────────────────────────────────────
 
@@ -286,4 +286,4 @@ TEST(PeerDiscoveryTest, DiscoverClampsMaxWorkersToUpperBound) {
   EXPECT_LT(elapsed.count(), 2000) << "max_workers clamp must not regress throughput";
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

@@ -5,8 +5,8 @@ name: Docker Image Publish
 # v0.1.0, v0.1.1, ... release flow same as the Python client release.
 #
 # Tags pushed:
-#   ghcr.io/<owner>/projectagamemnon:<version>       (e.g. v0.1.0)
-#   ghcr.io/<owner>/projectagamemnon:latest
+#   ghcr.io/<owner>/agamemnon:<version>       (e.g. v0.1.0)
+#   ghcr.io/<owner>/agamemnon:latest
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@8e5442c4ef9f78752691e2d8f8d19755c6f78e81  # v5.5.1
         with:
-          images: ghcr.io/${{ github.repository_owner }}/projectagamemnon
+          images: ghcr.io/${{ github.repository_owner }}/agamemnon
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}

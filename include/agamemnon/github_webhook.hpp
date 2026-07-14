@@ -5,7 +5,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Constant-time HMAC-SHA-256 verification of GitHub's X-Hub-Signature-256 header.
 /// header_value example: "sha256=ab12...". Empty secret -> always false.
@@ -24,4 +24,4 @@ struct NormalizedEvent {
 /// lacking required fields / an agamemnon-* label.
 std::optional<NormalizedEvent> normalize_issues_event(const nlohmann::json& payload);
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

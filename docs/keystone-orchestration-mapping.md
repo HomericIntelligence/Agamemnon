@@ -4,7 +4,7 @@ ProjectKeystone historically carried an HMAS *orchestration* layer under
 `src/network/` + `include/network/` (a gRPC coordinator, service registry,
 task router, result aggregator, hierarchical-task YAML parser, and task-phase
 utilities). Per **ADR-015 / ADR-016**, orchestration belongs to
-**ProjectAgamemnon**; Keystone is a pure C++20 transport library
+**Agamemnon**; Keystone is a pure C++20 transport library
 (`keystone_transport`: `MessageBus`, `NATSListener`, `NatsConnection`,
 `TransparentBridge`, serializer, concurrency).
 

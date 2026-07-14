@@ -1,9 +1,9 @@
-#include "projectagamemnon/auth.hpp"
+#include "agamemnon/auth.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "httplib.h"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 AuthMiddleware::AuthMiddleware(std::string api_key) : api_key_(std::move(api_key)) {}
 
@@ -38,4 +38,4 @@ bool AuthMiddleware::validate(const httplib::Request& req) const {
   return false;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

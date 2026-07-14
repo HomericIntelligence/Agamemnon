@@ -5,19 +5,19 @@
 #include <thread>
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/fake_nats_publisher.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/auth.hpp"
+#include "agamemnon/fake_nats_publisher.hpp"
+#include "agamemnon/metrics.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/routes.hpp"
+#include "agamemnon/store.hpp"
 
 #include "httplib.h"
 #include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 /// Test fixture that starts a real httplib::Server on a free port.
 /// All test classes in the integration binary share a single server instance
@@ -100,4 +100,4 @@ class AgamemnonServerFixture : public ::testing::Test {
   inline static Orchestrator* orchestrator_ = nullptr;
 };
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

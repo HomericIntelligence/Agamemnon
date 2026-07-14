@@ -7,7 +7,7 @@ namespace httplib {
 struct Request;
 }
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Validates API key authentication for incoming HTTP requests.
 ///
@@ -28,4 +28,4 @@ class AuthMiddleware {
   std::string api_key_;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon
