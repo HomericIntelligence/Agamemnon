@@ -23,8 +23,17 @@ WORKDIR /src
 # Copy Conan files first for dependency caching.
 COPY conanfile.py ./
 COPY conan/ conan/
-RUN --mount=type=cache,target=/root/.conan2/p,sharing=locked \
-    conan install . \
+# NOTE: do NOT put the conan package store (/root/.conan2) on a
+# --mount=type=cache. That mount is ephemeral per build, but `conan install`
+# also writes build/*.cmake (e.g. OpenSSL-Target-release.cmake) into the image
+# layer with absolute package-lib paths baked in (/root/.conan2/p/<hash>/lib/
+# libssl.a). When buildx cache-hits this layer on a fresh runner, the build/
+# cmake files come back from the layer cache but the mounted package store is
+# empty, so cmake configure aborts: "Library 'ssl' not found in package".
+# Baking the resolved packages into the layer keeps them consistent with the
+# generated cmake files. (conanfile.py is COPYed just above, so this layer is
+# still cache-invalidated only when dependencies actually change.)
+RUN conan install . \
     --output-folder=build \
     --profile=conan/profiles/default \
     --build=missing
