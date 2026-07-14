@@ -35,14 +35,14 @@ by repo CI and the org-wide pre-commit guard.
 The embedded `nats.c` client currently communicates in cleartext, relying
 on the Tailscale WireGuard tunnel for inter-host protection. Tracking
 work to enable `natsOptions_SetSecure` with a CA + (optional) mTLS is
-filed as [#412](https://github.com/HomericIntelligence/ProjectAgamemnon/issues/412)
+filed as [#412](https://github.com/HomericIntelligence/Agamemnon/issues/412)
 with a 2-week deadline. Until that lands, do not run Agamemnon on hosts
 that share their Tailscale network with untrusted workloads.
 
 ### Audit trail (planned)
 
 Structured audit events on `hi.audit.agamemnon.*` are tracked under
-[#413](https://github.com/HomericIntelligence/ProjectAgamemnon/issues/413).
+[#413](https://github.com/HomericIntelligence/Agamemnon/issues/413).
 Until shipped, reconstructing actor history requires correlating the
 GitHub Issues timeline with operational `hi.tasks.>` events.
 
@@ -84,7 +84,7 @@ An attacker could disrupt agent coordination by injecting arbitrary
 faults via the chaos testing API.
 
 Steps to Reproduce:
-1. Start ProjectAgamemnon server
+1. Start Agamemnon server
 2. curl -X POST http://<host>:8080/v1/chaos/inject -d '{"type":"kill"}'
 3. Observe fault injected without any authentication
 
@@ -167,7 +167,7 @@ When you report a vulnerability:
 
 ### GDPR Applicability
 
-As an internal mesh service operating on infrastructure metadata, ProjectAgamemnon does not
+As an internal mesh service operating on infrastructure metadata, Agamemnon does not
 process personal data of natural persons in the GDPR sense under normal deployment conditions.
 
 If deployed in a context where agent IDs or host records could be linked to a natural person
@@ -201,7 +201,7 @@ To remove records:
 
 ## Security Best Practices
 
-When contributing to ProjectAgamemnon:
+When contributing to Agamemnon:
 
 - Validate all HTTP request input before processing
 - Avoid buffer overflows and undefined behavior

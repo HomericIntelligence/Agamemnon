@@ -7,7 +7,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 using json = nlohmann::json;
 
@@ -92,4 +92,4 @@ std::string mesh_role_name(HmasLayer layer);
 std::string mesh_dispatch_subject(const std::string& domain, const std::string& role,
                                   const std::string& task_id);
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

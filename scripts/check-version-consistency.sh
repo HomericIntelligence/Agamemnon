@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Verify that the version string in include/projectagamemnon/version.hpp
+# Verify that the version string in include/agamemnon/version.hpp
 # matches the VERSION argument in CMakeLists.txt's project() call.
 # Exits 0 on match, 1 on mismatch, 2 on parse failure.
 set -euo pipefail
 
-HEADER_PATH="${HEADER_PATH:-include/projectagamemnon/version.hpp}"
+HEADER_PATH="${HEADER_PATH:-include/agamemnon/version.hpp}"
 CMAKE_PATH="${CMAKE_PATH:-CMakeLists.txt}"
 
 if [[ ! -f "$HEADER_PATH" ]]; then

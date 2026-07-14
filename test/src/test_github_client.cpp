@@ -1,4 +1,4 @@
-#include "projectagamemnon/github_client.hpp"
+#include "agamemnon/github_client.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -11,7 +11,7 @@
 // All tests inject a no-op sleep function so the suite runs in milliseconds
 // without requiring a live network connection or GitHub token.
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using Response = CurlGitHubClient::Response;
 
@@ -243,4 +243,4 @@ TEST(GitHubClientRetryTest, ExponentialBackoffScheduleIsDoubling) {
   }
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

@@ -1,8 +1,8 @@
-#include "projectagamemnon/agents/agent_envelope.hpp"
+#include "agamemnon/agents/agent_envelope.hpp"
 
 #include <string_view>
 
-namespace projectagamemnon {
+namespace agamemnon {
 namespace agents {
 
 namespace {
@@ -104,4 +104,4 @@ AgentEnvelope AgentEnvelope::createFailure(const std::string& sender, const std:
 }
 
 }  // namespace agents
-}  // namespace projectagamemnon
+}  // namespace agamemnon

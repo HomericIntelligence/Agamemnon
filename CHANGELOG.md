@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `feat(agamemnon)`: complete API surface — all consumer endpoints implemented
 - `feat(agamemnon)`: implement in-memory CRUD REST API with nats.c
 - `feat(server)`: add C++20 HTTP server skeleton with cpp-httplib and nlohmann-json
-- `feat(scaffold)`: initial SGSG C++20 scaffold for ProjectAgamemnon
+- `feat(scaffold)`: initial SGSG C++20 scaffold for Agamemnon
 - `feat`: add hybrid Conan 2.x packaging for turnkey builds
 
 ### Fixed

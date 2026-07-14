@@ -70,5 +70,5 @@ latest scan results without running locally.
 
 - [Gitleaks documentation](https://github.com/gitleaks/gitleaks)
 - Current allowlist configuration: `.gitleaks.toml`
-- Origin issue: HomericIntelligence/ProjectAgamemnon#268
-- Follow-up from: HomericIntelligence/ProjectAgamemnon#66
+- Origin issue: HomericIntelligence/Agamemnon#268
+- Follow-up from: HomericIntelligence/Agamemnon#66

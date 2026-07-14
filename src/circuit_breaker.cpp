@@ -1,4 +1,4 @@
-#include "projectagamemnon/circuit_breaker.hpp"
+#include "agamemnon/circuit_breaker.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -6,7 +6,7 @@
 #include <iostream>
 #include <string>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 int64_t CircuitBreaker::now_ms() noexcept {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -76,4 +76,4 @@ std::string CircuitBreaker::state_label() const noexcept {
   return "unknown";
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

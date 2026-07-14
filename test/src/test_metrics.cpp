@@ -1,10 +1,10 @@
-#include "projectagamemnon/metrics.hpp"
+#include "agamemnon/metrics.hpp"
 
 #include <string>
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── Serialize helper ──────────────────────────────────────────────────────────
 
@@ -215,4 +215,4 @@ TEST(RequestTimerTest, TimerRecordsErrorForStatus4xx) {
   EXPECT_TRUE(contains(output, "status=\"404\""));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

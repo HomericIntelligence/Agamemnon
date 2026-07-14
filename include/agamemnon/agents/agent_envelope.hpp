@@ -1,12 +1,12 @@
 #pragma once
 
-#include "projectagamemnon/agents/agent_action_type.hpp"
+#include "agamemnon/agents/agent_action_type.hpp"
 
 #include <map>
 #include <optional>
 #include <string>
 
-namespace projectagamemnon {
+namespace agamemnon {
 namespace agents {
 
 /**
@@ -80,7 +80,7 @@ struct TransportMessage {
  * metadata that does not belong on a transport message (a pure transport
  * struct).  It was introduced for Keystone Issue #515 (SOLID/SRP: remove
  * orchestration concerns from the transport struct) and, per ADR-015, the
- * orchestration half lives in ProjectAgamemnon — agent-orchestration types
+ * orchestration half lives in Agamemnon — agent-orchestration types
  * belong here, not in Keystone's pure transport layer.
  *
  * The transport layer (MessageBus, NATS bridge) never sees this type; it only
@@ -170,4 +170,4 @@ struct AgentEnvelope {
 };
 
 }  // namespace agents
-}  // namespace projectagamemnon
+}  // namespace agamemnon

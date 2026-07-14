@@ -1,4 +1,4 @@
-#include "projectagamemnon/peer_discovery.hpp"
+#include "agamemnon/peer_discovery.hpp"
 
 #include <algorithm>
 #include <arpa/inet.h>
@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 namespace {
 
@@ -329,4 +329,4 @@ std::string discover_nats_url(const std::string& hostname_pattern, const std::st
   return discover_nats_url_impl(hostname_pattern, enumerate_tailscale_peers(status_json));
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

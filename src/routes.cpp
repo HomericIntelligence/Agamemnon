@@ -1,16 +1,16 @@
-#include "projectagamemnon/routes.hpp"
+#include "agamemnon/routes.hpp"
 
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/circuit_breaker.hpp"
-#include "projectagamemnon/dead_letter_queue.hpp"
-#include "projectagamemnon/github_webhook.hpp"
-#include "projectagamemnon/hmas_types.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_publisher.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/store.hpp"
-#include "projectagamemnon/version.hpp"
+#include "agamemnon/auth.hpp"
+#include "agamemnon/circuit_breaker.hpp"
+#include "agamemnon/dead_letter_queue.hpp"
+#include "agamemnon/github_webhook.hpp"
+#include "agamemnon/hmas_types.hpp"
+#include "agamemnon/metrics.hpp"
+#include "agamemnon/nats_publisher.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/store.hpp"
+#include "agamemnon/version.hpp"
 
 // cpp-httplib — single-header, no SSL needed for internal mesh traffic
 #define CPPHTTPLIB_NO_EXCEPTIONS
@@ -25,7 +25,7 @@
 #include "httplib.h"
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 using json = nlohmann::json;
 
@@ -269,7 +269,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
-    reply_json(res, 200, {{"status", "ok"}, {"service", "ProjectAgamemnon"}});
+    reply_json(res, 200, {{"status", "ok"}, {"service", "Agamemnon"}});
   });
 
   server.Get("/v1/health", [breaker, dlq](const httplib::Request&, httplib::Response& res) {
@@ -876,4 +876,4 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   std::cout << "[agamemnon] routes registered\n";
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

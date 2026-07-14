@@ -1,7 +1,7 @@
 #pragma once
 
-#include "projectagamemnon/github_client.hpp"
-#include "projectagamemnon/hmas_types.hpp"
+#include "agamemnon/github_client.hpp"
+#include "agamemnon/hmas_types.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -16,7 +16,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 using json = nlohmann::json;
 
@@ -147,4 +147,4 @@ class Store {
   std::unordered_map<std::string, json>* pick_map_(std::string_view entity_label);
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

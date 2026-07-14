@@ -1,6 +1,6 @@
 # Third-Party SLAs and Outage Playbook
 
-ProjectAgamemnon depends on four external services whose availability
+Agamemnon depends on four external services whose availability
 directly bounds the availability of the orchestration mesh. This document
 records the expected SLA for each, the failure mode Agamemnon sees, and
 the recovery procedure operators should follow.
@@ -68,7 +68,7 @@ receiving work.
    Inspect with `nats stream view <STREAM> --dlq`.
 3. If the NATS server itself is gone, restart the Keystone-managed
    server (`systemctl restart keystone-nats` on the broker host). All
-   ProjectAgamemnon-side reconnects then succeed automatically.
+   Agamemnon-side reconnects then succeed automatically.
 
 ### 3. Tailscale outage
 

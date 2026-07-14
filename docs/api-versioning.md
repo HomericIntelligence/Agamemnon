@@ -21,7 +21,7 @@ The value always matches the server's release version (i.e., the `version` field
 `GET /v1/version` returns:
 
 ```json
-{"version": "<semver>", "name": "ProjectAgamemnon"}
+{"version": "<semver>", "name": "Agamemnon"}
 ```
 
 The `version` field is always identical to `X-API-Version`.
@@ -73,6 +73,6 @@ When `/v2` is introduced:
 
 ## Version Consistency
 
-The version string in `include/projectagamemnon/version.hpp` (`kVersion`) and the `VERSION`
+The version string in `include/agamemnon/version.hpp` (`kVersion`) and the `VERSION`
 field in `CMakeLists.txt` must be kept in sync manually. A CI check in
 `scripts/check-version-consistency.sh` enforces this.

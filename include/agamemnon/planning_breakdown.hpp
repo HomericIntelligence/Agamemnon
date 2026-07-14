@@ -1,11 +1,11 @@
 #pragma once
 
-#include "projectagamemnon/hmas_types.hpp"
+#include "agamemnon/hmas_types.hpp"
 
 #include <string>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Decomposes a TaskBrief into a flat list of HmasTasks arranged in the
 /// L0 → L1 → L2 → L3 hierarchy.
@@ -38,4 +38,4 @@ struct ImplRef {
 /// "(depends on: #A, #B)" annotation. Exposed for unit testing.
 ImplRef parse_impl_ref(const std::string& impl_desc);
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

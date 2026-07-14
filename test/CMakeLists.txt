@@ -60,7 +60,7 @@ target_compile_options(${PROJECT_NAME}_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    ProjectAgamemnon_core
+    Agamemnon_core
     agamemnon_peer_discovery
     GTest::gtest_main
     GTest::gmock
@@ -99,7 +99,7 @@ target_include_directories(${PROJECT_NAME}_routes_tests
 
 target_link_libraries(${PROJECT_NAME}_routes_tests
   PRIVATE
-    ProjectAgamemnon_core
+    Agamemnon_core
     GTest::gtest_main
     httplib::httplib
     nats_static
@@ -138,7 +138,7 @@ target_compile_options(${PROJECT_NAME}_integration_tests PRIVATE
 target_link_libraries(${PROJECT_NAME}_integration_tests
   PRIVATE
     ${PROJECT_NAME}::${PROJECT_NAME}
-    ProjectAgamemnon_core
+    Agamemnon_core
     agamemnon_peer_discovery
     GTest::gtest_main
     httplib::httplib)

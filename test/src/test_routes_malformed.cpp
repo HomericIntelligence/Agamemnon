@@ -1,7 +1,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "route_test_fixture.hpp"
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -257,4 +257,4 @@ TEST_F(RoutesTest, StopNonExistentAgentHttp) {
 // ── GET /v1/workflows ─────────────────────────────────────────────────────────
 // Endpoint removed; coverage lives in test_main.cpp::RoutesRemovedTest.WorkflowsEndpointRemoved.
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

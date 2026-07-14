@@ -1,10 +1,10 @@
-#include "projectagamemnon/auth.hpp"
-#include "projectagamemnon/metrics.hpp"
-#include "projectagamemnon/nats_client.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/rate_limiter.hpp"
-#include "projectagamemnon/routes.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/auth.hpp"
+#include "agamemnon/metrics.hpp"
+#include "agamemnon/nats_client.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/routes.hpp"
+#include "agamemnon/store.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <chrono>
@@ -16,7 +16,7 @@
 #include "nlohmann/json.hpp"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -414,4 +414,4 @@ TEST_F(ValidationTest, ChaosAcceptsAllValidTypes) {
   }
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

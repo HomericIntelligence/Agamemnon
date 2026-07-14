@@ -44,9 +44,9 @@ class TestHealthResponse:
 
 class TestVersionResponse:
     def test_parse(self) -> None:
-        v = VersionResponse.model_validate({"version": "0.1.0", "name": "ProjectAgamemnon"})
+        v = VersionResponse.model_validate({"version": "0.1.0", "name": "Agamemnon"})
         assert v.version == "0.1.0"
-        assert v.name == "ProjectAgamemnon"
+        assert v.name == "Agamemnon"
 
 
 class TestAgent:

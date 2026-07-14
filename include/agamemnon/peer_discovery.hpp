@@ -5,7 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 struct PeerCandidate {
   std::string tailscale_ip;
@@ -51,4 +51,4 @@ std::string discover_nats_url(const std::vector<PeerCandidate>& peers,
 // JSON shape that enumerate_tailscale_peers() accepts.
 std::string discover_nats_url(const std::string& hostname_pattern, const std::string& status_json);
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

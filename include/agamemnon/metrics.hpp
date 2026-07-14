@@ -8,7 +8,7 @@
 #include <prometheus/text_serializer.h>
 #include <string>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Owns all Prometheus metric families and provides a serialize() method that
 /// produces Prometheus text-format output for the /metrics HTTP endpoint.
@@ -120,4 +120,4 @@ class RequestTimer {
   int status_code_ = 200;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

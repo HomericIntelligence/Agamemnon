@@ -2,7 +2,7 @@
 #include "server_fixture.hpp"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -204,4 +204,4 @@ TEST_F(TaskLifecycleTest, DeleteTeam) {
   EXPECT_EQ(get_res->status, 404);
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

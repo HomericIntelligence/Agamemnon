@@ -119,11 +119,11 @@ async def test_health_returns_none_on_500(client: AgamemnonClient) -> None:
 @respx.mock
 async def test_version(client: AgamemnonClient) -> None:
     respx.get(f"{BASE_URL}/v1/version").mock(
-        return_value=httpx.Response(200, json={"version": "0.1.0", "name": "ProjectAgamemnon"})
+        return_value=httpx.Response(200, json={"version": "0.1.0", "name": "Agamemnon"})
     )
     v = await client.version()
     assert v.version == "0.1.0"
-    assert v.name == "ProjectAgamemnon"
+    assert v.name == "Agamemnon"
 
 
 # ── _request error mapping ─────────────────────────────────────────────────────
@@ -496,7 +496,7 @@ async def test_request_sends_bearer_when_api_key_configured() -> None:
     authed = AgamemnonClient(config)
     route = respx.get(f"{BASE_URL}/v1/version").mock(
         return_value=httpx.Response(
-            200, json={"version": "0.1.0", "name": "ProjectAgamemnon"}
+            200, json={"version": "0.1.0", "name": "Agamemnon"}
         )
     )
     try:
@@ -517,7 +517,7 @@ async def test_request_omits_authorization_when_api_key_unset() -> None:
     unauthed = AgamemnonClient(config)
     route = respx.get(f"{BASE_URL}/v1/version").mock(
         return_value=httpx.Response(
-            200, json={"version": "0.1.0", "name": "ProjectAgamemnon"}
+            200, json={"version": "0.1.0", "name": "Agamemnon"}
         )
     )
     try:

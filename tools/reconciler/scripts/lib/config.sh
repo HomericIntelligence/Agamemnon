@@ -78,7 +78,7 @@ _cfg_repo_root() {
 #
 # Exported variables:
 #   MYRM_DEFAULT_HOST       — default agent host (used by scripts as HOST default)
-#   MYRM_AIM_HOST           — ProjectAgamemnon base URL (alias: AGAMEMNON_URL)
+#   MYRM_AIM_HOST           — Agamemnon base URL (alias: AGAMEMNON_URL)
 #   MYRM_LOG_LEVEL          — verbosity: debug | info | warn | error
 #   MYRM_PRUNE_POLICY       — when to prune: manual | auto
 #   MYRM_SNAPSHOT_RETENTION — days to keep snapshots (integer)

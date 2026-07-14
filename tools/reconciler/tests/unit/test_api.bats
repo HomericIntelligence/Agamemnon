@@ -2,7 +2,7 @@
 # tests/unit/test_api.bats — unit tests for scripts/lib/api.sh
 #
 # Uses a Python-based mock HTTP server (tests/helpers/mock_server.py)
-# to simulate ProjectAgamemnon API responses without a live server.
+# to simulate Agamemnon API responses without a live server.
 
 SCRIPT_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 HELPERS_DIR="${SCRIPT_DIR}/tests/helpers"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# scripts/lib/api.sh — ProjectAgamemnon API client
+# scripts/lib/api.sh — Agamemnon API client
 #
-# Thin wrapper around curl calls to the ProjectAgamemnon REST API.
+# Thin wrapper around curl calls to the Agamemnon REST API.
 # All functions print raw JSON to stdout. Callers parse with jq.
 #
 # Usage:
@@ -236,7 +236,7 @@ agamemnon_check_connection() {
     if [[ $_had_xtrace -eq 1 ]]; then set -x; fi
     if [[ $_conn_rc -ne 0 ]]; then
         echo "ERROR: Cannot reach Agamemnon at ${AGAMEMNON_URL}" >&2
-        echo "  Is Agamemnon running? Check your ProjectAgamemnon deployment." >&2
+        echo "  Is Agamemnon running? Check your Agamemnon deployment." >&2
         return 1
     fi
 }

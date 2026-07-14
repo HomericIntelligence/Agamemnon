@@ -1,7 +1,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "route_test_fixture.hpp"
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 class RoutesAuthTest : public RouteTestFixture {
  public:
@@ -153,4 +153,4 @@ TEST_F(RoutesAuthTest, UnauthorizedResponseIsJson) {
   EXPECT_FALSE(res->body.empty());
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

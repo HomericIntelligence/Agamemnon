@@ -3,7 +3,7 @@
  * @brief Unit tests for AgentEnvelope and AgentActionType
  *
  * The AgentEnvelope orchestration wrapper was moved from ProjectKeystone
- * (Issue #515) into ProjectAgamemnon per ADR-015: agent-orchestration types
+ * (Issue #515) into Agamemnon per ADR-015: agent-orchestration types
  * belong in the orchestration service, not in Keystone's pure transport layer.
  *
  * These tests verify that orchestration-level semantics (CANCEL_TASK,
@@ -11,12 +11,12 @@
  * not leak into the (vendored) transport message / TransportActionType.
  */
 
-#include "projectagamemnon/agents/agent_action_type.hpp"
-#include "projectagamemnon/agents/agent_envelope.hpp"
+#include "agamemnon/agents/agent_action_type.hpp"
+#include "agamemnon/agents/agent_envelope.hpp"
 
 #include <gtest/gtest.h>
 
-using namespace projectagamemnon::agents;
+using namespace agamemnon::agents;
 
 // ---------------------------------------------------------------------------
 // AgentActionType string conversion

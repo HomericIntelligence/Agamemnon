@@ -5,7 +5,7 @@ namespace httplib {
 class Server;
 }
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 class Store;
 class NatsPublisher;
@@ -23,4 +23,4 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
                      Orchestrator& orchestrator);
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

@@ -8,7 +8,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 using json = nlohmann::json;
 
@@ -137,4 +137,4 @@ class CurlGitHubClient : public IGitHubClient {
   Response do_patch(const std::string& url, const std::string& payload) const;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

@@ -1,7 +1,7 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "route_test_fixture.hpp"
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using json = nlohmann::json;
 
@@ -15,7 +15,7 @@ TEST_F(RoutesHappyPathTest, HealthRoot) {
   EXPECT_EQ(res->status, 200);
   auto body = json::parse(res->body);
   EXPECT_EQ(body["status"], "ok");
-  EXPECT_EQ(body["service"], "ProjectAgamemnon");
+  EXPECT_EQ(body["service"], "Agamemnon");
 }
 
 TEST_F(RoutesHappyPathTest, HealthV1) {
@@ -31,7 +31,7 @@ TEST_F(RoutesHappyPathTest, Version) {
   EXPECT_EQ(res->status, 200);
   auto body = json::parse(res->body);
   EXPECT_EQ(body["version"], "0.1.0");
-  EXPECT_EQ(body["name"], "ProjectAgamemnon");
+  EXPECT_EQ(body["name"], "Agamemnon");
 }
 
 // ── Agents ────────────────────────────────────────────────────────────────────
@@ -629,4 +629,4 @@ TEST_F(RateLimitedRouteTest, RateLimitExceededReturns429WithRetryAfterHeader) {
   }
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

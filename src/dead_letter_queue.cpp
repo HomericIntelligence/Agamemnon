@@ -1,8 +1,8 @@
-#include "projectagamemnon/dead_letter_queue.hpp"
+#include "agamemnon/dead_letter_queue.hpp"
 
 #include <iostream>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 static int64_t now_ms() noexcept {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -45,4 +45,4 @@ bool DeadLetterQueue::empty() const {
   return queue_.empty();
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

@@ -1,4 +1,4 @@
-#include "projectagamemnon/github_client.hpp"
+#include "agamemnon/github_client.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -10,7 +10,7 @@
 #include <thread>
 #include <vector>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 namespace {
 
@@ -144,7 +144,7 @@ CurlGitHubClient::Response CurlGitHubClient::do_get(const std::string& url) cons
     headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
     headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
     headers = curl_slist_append(headers, auth_header.c_str());
-    headers = curl_slist_append(headers, "User-Agent: ProjectAgamemnon/1.0");
+    headers = curl_slist_append(headers, "User-Agent: Agamemnon/1.0");
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -182,7 +182,7 @@ CurlGitHubClient::Response CurlGitHubClient::do_post(const std::string& url,
     headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
     headers = curl_slist_append(headers, auth_header.c_str());
     headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "User-Agent: ProjectAgamemnon/1.0");
+    headers = curl_slist_append(headers, "User-Agent: Agamemnon/1.0");
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -220,7 +220,7 @@ CurlGitHubClient::Response CurlGitHubClient::do_patch(const std::string& url,
     headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
     headers = curl_slist_append(headers, auth_header.c_str());
     headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "User-Agent: ProjectAgamemnon/1.0");
+    headers = curl_slist_append(headers, "User-Agent: Agamemnon/1.0");
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
@@ -329,4 +329,4 @@ void CurlGitHubClient::close_issue(std::string_view issue_number) {
   }
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

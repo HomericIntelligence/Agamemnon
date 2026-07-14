@@ -1,9 +1,9 @@
-#include "projectagamemnon/metrics.hpp"
+#include "agamemnon/metrics.hpp"
 
 #include <chrono>
 #include <string>
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 namespace {
 
@@ -155,4 +155,4 @@ std::string MetricsRegistry::serialize() const {
   return serializer.Serialize(registry_->Collect());
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

@@ -7,7 +7,7 @@ set -euo pipefail
 
 VERSION="${1:-0.1.0}"
 
-REPO="HomericIntelligence/ProjectAgamemnon"
+REPO="HomericIntelligence/Agamemnon"
 WORKFLOW="python-client-release.yml"
 ENV_NAME="pypi"
 TAG_PATTERN="v*"

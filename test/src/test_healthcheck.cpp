@@ -12,7 +12,7 @@
 #include "httplib.h"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // ── Fixture for healthcheck binary tests ──────────────────────────────────────
 
@@ -163,4 +163,4 @@ TEST_F(HealthcheckTest, HealthcheckUsesDefaultPort8080) {
   EXPECT_EQ(get_port("abc"), 8080) << "should reject non-numeric port";
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

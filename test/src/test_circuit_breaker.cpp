@@ -1,11 +1,11 @@
-#include "projectagamemnon/circuit_breaker.hpp"
+#include "agamemnon/circuit_breaker.hpp"
 
 #include <chrono>
 #include <thread>
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 using State = CircuitBreaker::State;
 
@@ -108,4 +108,4 @@ TEST(CircuitBreakerTest, StateLabelMatchesState) {
   EXPECT_EQ(cb.state_label(), "open");
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

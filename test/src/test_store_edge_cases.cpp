@@ -1,4 +1,4 @@
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/store.hpp"
 
 #include <regex>
 #include <string>
@@ -6,7 +6,7 @@
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 class StoreEdgeCases : public ::testing::Test {
  protected:
@@ -308,4 +308,4 @@ TEST_F(StoreEdgeCases, GetTaskEmptyTeamIdEnforcesScope) {
   EXPECT_TRUE(found.is_null());
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

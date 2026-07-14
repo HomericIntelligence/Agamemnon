@@ -1,8 +1,8 @@
-#include "projectagamemnon/state_machine.hpp"
+#include "agamemnon/state_machine.hpp"
 
-#include "projectagamemnon/store.hpp"  // for now_iso8601
+#include "agamemnon/store.hpp"  // for now_iso8601
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 std::string task_event_to_string(TaskEvent event) {
   switch (event) {
@@ -85,4 +85,4 @@ std::vector<TaskState> TaskStateMachine::valid_targets(TaskState from, TaskEvent
   return out;
 }
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

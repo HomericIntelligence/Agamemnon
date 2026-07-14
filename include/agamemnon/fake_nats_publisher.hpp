@@ -1,6 +1,6 @@
 #pragma once
 
-#include "projectagamemnon/nats_publisher.hpp"
+#include "agamemnon/nats_publisher.hpp"
 
 #include <string>
 #include <utility>
@@ -8,7 +8,7 @@
 
 #include "nlohmann/json.hpp"
 
-namespace projectagamemnon {
+namespace agamemnon {
 
 /// Header-only test double that records every publish() call.
 /// Thread-safety is not required — integration tests run single-threaded
@@ -53,4 +53,4 @@ class FakeNatsPublisher : public NatsPublisher {
   std::vector<std::string> log_calls;
 };
 
-}  // namespace projectagamemnon
+}  // namespace agamemnon

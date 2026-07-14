@@ -1,13 +1,13 @@
-#include "projectagamemnon/fake_nats_publisher.hpp"
-#include "projectagamemnon/orchestrator.hpp"
-#include "projectagamemnon/store.hpp"
+#include "agamemnon/fake_nats_publisher.hpp"
+#include "agamemnon/orchestrator.hpp"
+#include "agamemnon/store.hpp"
 
 #include <algorithm>
 #include <vector>
 
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 namespace {
 
@@ -374,4 +374,4 @@ TEST_F(OrchestratorTest, SplitTaskValidatesInput) {
                   .contains("error"));
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test

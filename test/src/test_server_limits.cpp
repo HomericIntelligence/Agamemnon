@@ -6,7 +6,7 @@
 #include "httplib.h"
 #include <gtest/gtest.h>
 
-namespace projectagamemnon::test {
+namespace agamemnon::test {
 
 // Mirrors the env_int helper in server_main.cpp so limits logic can be tested
 // independently without linking the server binary.
@@ -121,4 +121,4 @@ TEST(HttplibServerLimitsTest, TimeoutSetDoesNotCrash) {
   srv.set_write_timeout(10);
 }
 
-}  // namespace projectagamemnon::test
+}  // namespace agamemnon::test
