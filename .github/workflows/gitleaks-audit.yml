@@ -37,9 +37,22 @@ jobs:
           curl -sSfL -o "$TARBALL" \
             "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${TARBALL}"
           echo "${GITLEAKS_SHA256}  ${TARBALL}" | sha256sum --check
-          sudo tar -xz -C /usr/local/bin -f "$TARBALL" gitleaks
+          tar -xz -C /usr/local/bin -f "$TARBALL" gitleaks
           rm -f "$TARBALL"
           gitleaks version
+
+      - name: Gitleaks enforcement regression guard
+        # Fails the build if a silent gitleaks invocation (exit-code zero) is
+        # ever reintroduced into this workflow file. Mirrors the guard in
+        # _required.yml; see HomericIntelligence/Agamemnon#266.
+        # NOTE: matches only actual `gitleaks ... --exit-code 0` command
+        # invocations, so the guard's own descriptive text does not self-match.
+        run: |
+          if grep -nE '^[[:space:]]*gitleaks[[:space:]].*--exit-code[[:space:]]+0([[:space:]]|$)' \
+               .github/workflows/gitleaks-audit.yml; then
+            echo "::error::silent gitleaks invocation detected; enforcement must remain strict"
+            exit 1
+          fi
 
       - name: Run gitleaks audit
         run: |
