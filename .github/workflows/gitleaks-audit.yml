@@ -22,12 +22,29 @@ jobs:
         with:
           fetch-depth: 0
 
+      # gitleaks-action v3 requires a paid GITLEAKS_LICENSE for org repos, so
+      # this job invokes the gitleaks CLI directly — same pinned version +
+      # checksum as the security/secrets-scan job in _required.yml; bump both
+      # together.
+      - name: Install Gitleaks
+        run: |
+          GITLEAKS_VERSION=8.30.1
+          # SHA256 of gitleaks_${VERSION}_linux_x64.tar.gz from upstream checksums.txt
+          GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+          ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
+          TARBALL="gitleaks_${GITLEAKS_VERSION}_${OS}_${ARCH}.tar.gz"
+          curl -sSfL -o "$TARBALL" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${TARBALL}"
+          echo "${GITLEAKS_SHA256}  ${TARBALL}" | sha256sum --check
+          sudo tar -xz -C /usr/local/bin -f "$TARBALL" gitleaks
+          rm -f "$TARBALL"
+          gitleaks version
+
       - name: Run gitleaks audit
-        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e  # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: detect --config .gitleaks.toml --report-format json --report-path gitleaks-report.json
+        run: |
+          gitleaks detect --source . --config .gitleaks.toml \
+            --report-format json --report-path gitleaks-report.json --exit-code 1
 
       - name: Upload report artifact
         if: always()
