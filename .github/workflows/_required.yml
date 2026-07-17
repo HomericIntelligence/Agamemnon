@@ -87,6 +87,10 @@ jobs:
           manifest-path: clients/python/pixi.toml
           cache: false
 
+      - name: Run merge-queue workflow regression
+        working-directory: clients/python
+        run: pixi run --environment default python -m pytest tests/test_ci_workflows.py -v
+
       - name: Enforce Python client type check
         run: pixi run --manifest-path clients/python/pixi.toml typecheck
 

@@ -73,6 +73,20 @@ def test_live_required_context_names_remain_exact() -> None:
     }
 
 
+def test_merge_queue_regression_runs_in_required_job() -> None:
+    """The required workflow must execute this regression on every queue run."""
+    workflow = _load_workflow()
+    steps = workflow["jobs"]["lint"]["steps"]
+    regression = next(
+        step for step in steps if step.get("name") == "Run merge-queue workflow regression"
+    )
+
+    assert regression["working-directory"] == "clients/python"
+    assert regression["run"] == (
+        "pixi run --environment default python -m pytest tests/test_ci_workflows.py -v"
+    )
+
+
 def _find_gitleaks_scan_step(workflow: dict) -> dict:
     """Return the 'Run Gitleaks' step from the security-secrets-scan job."""
     steps = workflow["jobs"]["security-secrets-scan"]["steps"]
