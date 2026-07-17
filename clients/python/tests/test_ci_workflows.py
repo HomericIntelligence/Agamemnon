@@ -1,15 +1,90 @@
-"""Regression smoke tests for CI workflow hardening — Gitleaks secrets scan gate."""
+"""Regression smoke tests for required CI workflow contracts."""
 
 from pathlib import Path
 
 import yaml
 
-WORKFLOW_PATH = Path(__file__).parents[3] / ".github" / "workflows" / "_required.yml"
+WORKFLOW_DIR = Path(__file__).parents[3] / ".github" / "workflows"
+WORKFLOW_PATH = WORKFLOW_DIR / "_required.yml"
+
+REQUIRED_WORKFLOWS = ("_required.yml", "build-test.yml", "static-analysis.yml")
+REQUIRED_CONTEXT_JOBS = {
+    "lint": ("_required.yml", "lint"),
+    "unit-tests": ("_required.yml", "unit-tests"),
+    "integration-tests": ("_required.yml", "integration-tests"),
+    "security/dependency-scan": ("_required.yml", "security-dependency-scan"),
+    "security/secrets-scan": ("_required.yml", "security-secrets-scan"),
+    "build": ("_required.yml", "build"),
+    "schema-validation": ("_required.yml", "schema-validation"),
+    "deps/version-sync": ("_required.yml", "deps-version-sync"),
+    "test": ("_required.yml", "test"),
+    "package": ("_required.yml", "package"),
+    "install": ("_required.yml", "install"),
+    "release": ("_required.yml", "release"),
+    "All Build/Test Checks": ("build-test.yml", "check-all"),
+    "All Static Analysis Checks": ("static-analysis.yml", "check-all"),
+}
 
 
-def _load_workflow() -> dict:
-    """Load the _required.yml workflow as a parsed YAML dict."""
-    return yaml.safe_load(WORKFLOW_PATH.read_text())
+def _load_workflow(path: Path = WORKFLOW_PATH) -> dict:
+    """Load a workflow as a parsed YAML dict."""
+    return yaml.safe_load(path.read_text())
+
+
+def _workflow_triggers(workflow: dict) -> dict:
+    """Return triggers despite PyYAML 1.1 parsing the unquoted `on` key as true."""
+    return workflow.get("on", workflow.get(True, {}))
+
+
+def test_required_check_workflows_support_merge_groups() -> None:
+    """Every workflow supplying a required context must run for merge queue groups."""
+    for filename in REQUIRED_WORKFLOWS:
+        triggers = _workflow_triggers(_load_workflow(WORKFLOW_DIR / filename))
+        assert triggers["push"]["branches"] == ["main"]
+        assert triggers["pull_request"]["branches"] == ["main"]
+        assert triggers["merge_group"] == {"types": ["checks_requested"]}
+
+
+def test_live_required_context_names_remain_exact() -> None:
+    """Required job names must continue to match the live ruleset contexts exactly."""
+    workflows = {
+        filename: _load_workflow(WORKFLOW_DIR / filename) for filename in REQUIRED_WORKFLOWS
+    }
+    actual_contexts = {
+        workflows[filename]["jobs"][job_id]["name"]
+        for filename, job_id in REQUIRED_CONTEXT_JOBS.values()
+    }
+
+    matrix_job = workflows["build-test.yml"]["jobs"]["build-test"]
+    assert matrix_job["name"] == "${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}"
+    matrix = matrix_job["strategy"]["matrix"]
+    actual_contexts.update(
+        f"{os_name}-{compiler}-{build_type}"
+        for os_name in matrix["os"]
+        for compiler in matrix["compiler"]
+        for build_type in matrix["build_type"]
+    )
+
+    assert actual_contexts == set(REQUIRED_CONTEXT_JOBS) | {
+        "ubuntu-24.04-clang-debug",
+        "ubuntu-24.04-clang-release",
+        "ubuntu-24.04-gcc-debug",
+        "ubuntu-24.04-gcc-release",
+    }
+
+
+def test_merge_queue_regression_runs_in_required_job() -> None:
+    """The required workflow must execute this regression on every queue run."""
+    workflow = _load_workflow()
+    steps = workflow["jobs"]["lint"]["steps"]
+    regression = next(
+        step for step in steps if step.get("name") == "Run merge-queue workflow regression"
+    )
+
+    assert regression["working-directory"] == "clients/python"
+    assert regression["run"] == (
+        "pixi run --environment default python -m pytest tests/test_ci_workflows.py -v"
+    )
 
 
 def _find_gitleaks_scan_step(workflow: dict) -> dict:
