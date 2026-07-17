@@ -1,0 +1,15 @@
+# CodeQL configuration for Agamemnon.
+#
+# Scope CodeQL analysis to first-party source. The C/C++ analysis builds into
+# `build/release` and vendored dependencies are fetched under `build/**/_deps/`
+# (nats.c, …) and `build/release` (Conan). Those trees are third-party code we
+# do not maintain, so their findings — including alerts that surface as
+# "critical" (cpp/use-after-free) and "high" (cpp/world-writable-file-creation)
+# but actually point at upstream nats.c — must not be reported against this repo.
+#
+# See HomericIntelligence/Agamemnon#454.
+name: "Agamemnon CodeQL config"
+
+paths-ignore:
+  - build/**
+  - "**/_deps/**"
