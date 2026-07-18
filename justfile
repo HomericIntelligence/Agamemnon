@@ -5,21 +5,21 @@ default:
 
 # Install Conan dependencies (cpp-httplib, nlohmann_json, gtest)
 deps:
-  pixi run -- conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing
+  uv run -- conan install . --output-folder=build/debug --profile=conan/profiles/debug --build=missing
 
 # Install Conan dependencies for release
 deps-release:
-  pixi run -- conan install . --output-folder=build/release --profile=conan/profiles/default --build=missing
+  uv run -- conan install . --output-folder=build/release --profile=conan/profiles/default --build=missing
 
 # Install Conan dependencies for the coverage build (separate output folder)
 deps-coverage:
-  pixi run -- conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing
+  uv run -- conan install . --output-folder=build/coverage --profile=conan/profiles/debug --build=missing
 
 build: deps
-  pixi run -- cmake --preset debug && pixi run -- cmake --build --preset debug
+  uv run -- cmake --preset debug -DCMAKE_C_COMPILER=/usr/bin/gcc -DCMAKE_CXX_COMPILER=/usr/bin/c++ && uv run -- cmake --build --preset debug
 
 test:
-  pixi run -- ctest --preset debug --output-on-failure
+  uv run -- ctest --preset debug --output-on-failure
 
 check-version:
   ./scripts/check-version-consistency.sh
@@ -37,16 +37,16 @@ actionlint:
   actionlint
 
 agamemnon-test:
-  cd agamemnon && pixi run test
+  cd agamemnon && uv run --group dev pytest tests/ -v
 
 agamemnon-lint:
-  cd agamemnon && pixi run lint
+  cd agamemnon && uv run --group dev ruff check src/ tests/
 
 agamemnon-typecheck:
-  cd agamemnon && pixi run typecheck
+  cd agamemnon && uv run --group dev mypy src/agamemnon/
 
 coverage: deps-coverage
-  pixi run -- cmake --preset coverage && pixi run -- cmake --build --preset coverage && ./scripts/coverage.sh
+  uv run -- cmake --preset coverage && uv run -- cmake --build --preset coverage && ./scripts/coverage.sh
 
 clean:
   rm -rf build install
@@ -55,7 +55,7 @@ docs-validate:
   ./scripts/validate-openapi.sh
 
 ci:
-  pixi run -- cmake --preset ci && pixi run -- cmake --build --preset ci && pixi run -- ctest --preset ci
+  uv run -- cmake --preset ci && uv run -- cmake --build --preset ci && uv run -- ctest --preset ci
 
 # Cut a release: bump version, commit, tag, and push
 release VERSION push='true':

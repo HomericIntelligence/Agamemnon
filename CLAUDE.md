@@ -79,16 +79,15 @@ is treated as a documentation bug.
 
 The `agamemnon/` directory holds the Python orchestration sub-package
 (`HomericIntelligence-Agamemnon-Orchestration`) migrated from ProjectKeystone.
-It is a hatchling-built, mypy-strict, pixi-managed package targeting Python
+It is a hatchling-built, mypy-strict, uv-managed package targeting Python
 3.11+.
 
 ### Layout
 
 ```
 agamemnon/
-├── pyproject.toml          # hatchling build, ruff + mypy(strict) + pytest config
-├── pixi.toml               # pixi env (default + test feature)
-├── pixi.lock               # committed lock file (reproducible builds)
+├── pyproject.toml          # hatchling build + uv dependency-groups, ruff + mypy(strict) + pytest config
+├── uv.lock                 # committed lock file (reproducible builds)
 ├── src/agamemnon/          # canonical src-layout package
 │   ├── __init__.py         # exposes __version__
 │   └── orchestration/      # main Python modules
@@ -118,10 +117,10 @@ agamemnon/
 ### Common commands
 
 ```bash
-cd agamemnon && pixi run test       # pytest (tests/)
-cd agamemnon && pixi run lint       # ruff check
-cd agamemnon && pixi run format     # ruff format
-cd agamemnon && pixi run typecheck  # mypy --strict src/agamemnon/
+cd agamemnon && uv run pytest tests/ -v            # pytest (tests/)
+cd agamemnon && uv run ruff check src/ tests/      # ruff check
+cd agamemnon && uv run ruff format src/ tests/     # ruff format
+cd agamemnon && uv run mypy src/agamemnon/         # mypy --strict src/agamemnon/
 ```
 
 ### Migration context

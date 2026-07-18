@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `feat(build)`: migrate from pixi to uv for the build toolchain (Odysseus ADR-018).
+  CMake/Ninja/Conan/gcovr/pre-commit are now uv-managed locked PyPI wheels; the
+  C++ compiler and OpenSSL/libcurl/clang-tools come from the system (apt). CI
+  jobs swap `prefix-dev/setup-pixi` for `astral-sh/setup-uv` with all required
+  check-run names preserved. The nested `agamemnon/` and `clients/python/`
+  packages move to uv (`uv.lock`), and the Dockerfile builder pulls uv via a
+  pinned `COPY --from` named stage.
+
 ### Added
 
 - `feat(ci)`: add markdownlint/pixi/justfile/symlink CI jobs + fix lint blockers (#34)

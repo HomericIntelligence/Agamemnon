@@ -1,22 +1,40 @@
 # syntax=docker/dockerfile:1
+
+# uv provides the CMake / Ninja / Conan build toolchain as locked wheels
+# (Odysseus ADR-018). Pinned by digest for reproducibility. This is a podman-safe
+# named stage — the `COPY --from=uv` below lifts only the static `uv` binary.
+FROM ghcr.io/astral-sh/uv:0.11.29@sha256:0df5bcf6657fdc6da7cd14e35f2af148c9d10e4e2435ddb97789a89ff45498fb AS uv
+
 FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS builder
 
+# The system compiler (g++) and OpenSSL dev headers come from apt; the
+# CMake / Ninja / Conan toolchain comes from uv (see the `uv` stage above), so
+# they are NOT apt-installed here.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
-    cmake \
-    ninja-build \
     make \
     g++ \
     git \
     ca-certificates \
     libssl-dev \
     python3 \
-    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install --break-system-packages conan && conan profile detect
+# Bring in the uv binary from the pinned named stage (it lives at the image
+# root `/uv` in the distroless astral-sh/uv image).
+COPY --from=uv /uv /usr/local/bin/uv
+
+# Install the build toolchain as uv tools whose entry points land on
+# /usr/local/bin, so the bare `conan` / `cmake` / `ninja` invocations below (and
+# the `cmake` that conan shells out to when building gtest from source) all
+# resolve. Then detect a default conan profile.
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv tool install cmake \
+    && uv tool install ninja \
+    && uv tool install conan \
+    && conan profile detect
 
 WORKDIR /src
 

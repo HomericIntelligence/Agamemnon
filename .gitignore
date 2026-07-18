@@ -13,10 +13,8 @@ CTestTestfile.cmake
 _deps/
 CMakeUserPresets.json
 conan.lock
-pixi.lock
-!clients/python/pixi.lock
-!agamemnon/pixi.lock
-.pixi/
+# uv (ADR-018): uv.lock files ARE committed; only the virtualenv is ignored.
+.venv/
 __pycache__/
 *.py[cod]
 *.egg-info/

@@ -83,7 +83,7 @@ def test_merge_queue_regression_runs_in_required_job() -> None:
 
     assert regression["working-directory"] == "clients/python"
     assert regression["run"] == (
-        "pixi run --environment default python -m pytest tests/test_ci_workflows.py -v"
+        "uv run python -m pytest tests/test_ci_workflows.py -v"
     )
 
 
