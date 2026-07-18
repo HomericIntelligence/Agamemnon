@@ -218,7 +218,8 @@ TEST_F(ValidationTest, TaskAcceptsValidType) {
 
 TEST_F(ValidationTest, TaskAcceptsAllValidTypes) {
   std::string team_id = CreateTeam();
-  for (const std::string& t : {"general", "research", "implementation", "review", "testing"}) {
+  for (const std::string& t :
+       {"general", "research", "implementation", "review", "testing", "hello"}) {
     auto [status, body] =
         Post("/v1/teams/" + team_id + "/tasks", {{"subject", "task-" + t}, {"type", t}});
     EXPECT_EQ(status, 201) << "expected 201 for type=" << t;
