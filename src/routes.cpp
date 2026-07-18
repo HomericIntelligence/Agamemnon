@@ -115,7 +115,7 @@ static const std::unordered_set<std::string> kValidAgentStatuses = {"offline", "
 static const std::unordered_set<std::string> kValidTaskStatuses = {
     "pending", "running", "completed", "failed", "blocked"};
 static const std::unordered_set<std::string> kValidTaskTypes = {
-    "general", "research", "implementation", "review", "testing"};
+    "general", "research", "implementation", "review", "testing", "hello"};
 static const std::unordered_set<std::string> kValidChaosTypes = {"latency", "partition", "crash",
                                                                  "corruption", "throttle"};
 
