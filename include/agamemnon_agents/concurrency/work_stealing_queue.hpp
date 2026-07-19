@@ -63,7 +63,7 @@ struct WorkItem {
  * @brief WorkStealingQueue - Lock-free queue for work-stealing scheduler.
  *
  * Uses moodycamel::ConcurrentQueue for lock-free MPMC operations, which
- * is the mandated backing store per the Keystone architecture (CLAUDE.md).
+ * is the mandated backing store per the Keystone architecture (AGENTS.md).
  *
  * Thread Safety:
  * - push() callable from any thread (MPMC)
