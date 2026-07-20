@@ -28,7 +28,9 @@ jobs:
   # ── CodeQL static analysis (C++) ───────────────────────────────────────────
   codeql:
     name: CodeQL (cpp)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, self-hosted-aeolus]
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 60
     permissions:
       contents: read
@@ -36,6 +38,14 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Bootstrap container toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            sudo build-essential cmake git curl ca-certificates \
+            python3 python3-pip python3-venv pkg-config
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@4e828ff8d448a8a6e532957b1811f387a63867e8  # v3.26.13
@@ -48,7 +58,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
-          pip install conan
+          pip install --user conan
 
       - name: Detect Conan profile
         run: conan profile detect --force
@@ -72,10 +82,20 @@ jobs:
   # ── AddressSanitizer ───────────────────────────────────────────────────────
   asan:
     name: ASAN unit tests
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, self-hosted-aeolus]
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Bootstrap container toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            sudo build-essential cmake git curl ca-certificates \
+            python3 python3-pip python3-venv pkg-config
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Restore Conan cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -90,7 +110,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang
-          pip install conan
+          pip install --user conan
 
       - name: Detect Conan profile
         run: conan profile detect --force
@@ -114,10 +134,20 @@ jobs:
   # ── ThreadSanitizer (advisory) ─────────────────────────────────────────────
   tsan:
     name: TSAN unit tests (advisory)
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, self-hosted-aeolus]
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Bootstrap container toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            sudo build-essential cmake git curl ca-certificates \
+            python3 python3-pip python3-venv pkg-config
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Restore Conan cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -132,7 +162,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang
-          pip install conan
+          pip install --user conan
 
       - name: Detect Conan profile
         run: conan profile detect --force
