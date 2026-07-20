@@ -11,7 +11,9 @@ on:
 jobs:
   build-test:
     name: ${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
-    runs-on: ${{ matrix.os }}
+    runs-on: [self-hosted, self-hosted-aeolus]
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -21,6 +23,14 @@ jobs:
         build_type: [debug, release]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Bootstrap container toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            sudo build-essential cmake git curl ca-certificates \
+            python3 python3-pip python3-venv pkg-config
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Restore Conan cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -48,7 +58,7 @@ jobs:
           if [ "${{ matrix.compiler }}" = "clang" ]; then
             sudo apt-get install -y clang
           fi
-          pip install conan
+          pip install --user conan
           conan profile detect --force
 
       - name: Install Conan dependencies
@@ -83,10 +93,20 @@ jobs:
   # introduced by incorrect lambda captures in routes.cpp (see #220).
   asan:
     name: ubuntu-24.04-clang-asan
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, self-hosted-aeolus]
+    container:
+      image: ubuntu:24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      - name: Bootstrap container toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            sudo build-essential cmake git curl ca-certificates \
+            python3 python3-pip python3-venv pkg-config
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Restore Conan cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -110,7 +130,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build clang
-          pip install conan
+          pip install --user conan
           conan profile detect --force
 
       - name: Install Conan dependencies
