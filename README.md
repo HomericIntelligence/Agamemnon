@@ -62,16 +62,18 @@ just docs-validate
 | CMake | 3.20 | |
 | Ninja | 1.11 | |
 | GCC or Clang | GCC 12+ / Clang 15+ | C++20 support required, no compiler extensions |
-| Conan | 2.0 | Package manager for cpp-httplib, nlohmann_json, gtest |
-| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` (auto-provided by pixi) |
-| pixi | any | Recommended; provides a reproducible dev environment |
+| Conan | 2.0 | Package manager for cpp-httplib, nlohmann_json, gtest — installed via uv (`uv sync`) |
+| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` (apt) |
+| uv | 0.5+ | Manages the build toolchain (CMake, Ninja, Conan, gcovr, pre-commit) as locked PyPI wheels (ADR-018) |
 
-> **OpenSSL note for non-pixi setups.** `cmake --preset debug` calls
-> `find_package(OpenSSL)` before `FetchContent` of `nats.c`. On host systems
-> without the OpenSSL development headers this fails before any build runs.
-> The `pixi shell` environment already includes `openssl >=3` (with headers),
-> so pixi-based setups need no additional steps. For bare-host builds on
-> Debian/Ubuntu, install `libssl-dev` first: `sudo apt-get install -y libssl-dev`.
+> **System dependencies.** The C++ *compiler* is the system GCC/Clang
+> (`/usr/bin/gcc`, `/usr/bin/c++`) — install via apt (`build-essential`) on a
+> bare host. `cmake --preset debug` calls `find_package(OpenSSL)` before
+> `FetchContent` of `nats.c`, so the OpenSSL (and libcurl) development headers
+> must be present first. On Debian/Ubuntu:
+> `sudo apt-get install -y build-essential libssl-dev libcurl4-openssl-dev`.
+> The CMake / Ninja / Conan / gcovr toolchain itself comes from `uv sync` — no
+> apt packages needed for those.
 
 ## Building
 
@@ -79,8 +81,8 @@ just docs-validate
 git clone https://github.com/HomericIntelligence/Agamemnon.git
 cd Agamemnon
 
-# Recommended: use pixi for a reproducible environment
-pixi install
+# Install the build toolchain (CMake, Ninja, Conan, gcovr) as locked wheels
+uv sync
 
 # Install Conan dependencies
 just deps
@@ -205,7 +207,7 @@ exclusive with ASan/UBSan; the `tsan` preset explicitly disables the default san
 ```
 
 Pre-commit hooks enforce formatting and [conventional commits](https://www.conventionalcommits.org/).
-Run `pixi run pre-commit install` once after cloning to activate them. Never bypass hooks with
+Run `uv run pre-commit install` once after cloning to activate them. Never bypass hooks with
 `--no-verify`.
 
 ## Project Structure
@@ -221,7 +223,8 @@ Run `pixi run pre-commit install` once after cloning to activate them. Never byp
 ├── scripts/      lint.sh, format.sh, coverage.sh
 ├── Dockerfile    Multi-stage build (ubuntu:24.04 builder → runtime)
 ├── justfile      Developer task runner
-└── pixi.toml     Reproducible dev environment
+├── pyproject.toml  uv-managed build toolchain (CMake/Ninja/Conan/gcovr)
+└── uv.lock       Locked toolchain versions (reproducible builds)
 ```
 
 ## Dependencies

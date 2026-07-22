@@ -31,6 +31,47 @@ dev = [
 [project.urls]
 Repository = "https://github.com/HomericIntelligence/Agamemnon"
 
+# uv dependency groups (ADR-018: uv replaces pixi).
+#
+# `dev` mirrors the former pixi `dev` feature and adds the sibling
+# orchestration package (installed from source via [tool.uv.sources] below) so
+# the tests under tests/orchestration/ exercise the real implementation.
+# `lint` mirrors the former pixi `lint` feature: pip-audit (`just audit` /
+# security dependency-scan) plus the msgpack security floor.
+[dependency-groups]
+dev = [
+    "HomericIntelligence-Agamemnon-Orchestration",
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<0.26",
+    "pytest-cov>=5.0,<6",
+    "pytest-timeout>=2.3,<3",
+    "respx>=0.21,<1",
+    "mypy>=1.10,<2",
+    "ruff>=0.4,<1",
+    "pyyaml>=6.0,<7",
+]
+lint = [
+    # pip-audit and its transitive msgpack floor only publish wheels for
+    # Python >=3.10; the audit runs on modern CI runners, so the group is
+    # marked accordingly. The client library itself still supports 3.9 — only
+    # this dev/audit tooling group is gated. (Under pixi this was a separate
+    # `lint` solve-group; uv shares the project's requires-python, hence the
+    # explicit markers.)
+    "pip-audit>=2.8; python_version >= '3.10'",
+    "pip>=26.1.2; python_version >= '3.10'",
+    # Transitive dep of pip-audit (via cachecontrol). Pinned to the first
+    # patched release for GHSA-6v7p-g79w-8964 (use-after-free DoS, CVSS 7.5);
+    # msgpack <= 1.2.0 is flagged by security/dependency-scan and blocks all
+    # open PRs.
+    "msgpack>=1.2.1; python_version >= '3.10'",
+]
+
+[tool.uv.sources]
+# Canonical orchestration package pulled in from the repo (audit finding S1):
+# client orchestration tests exercise the real implementation, not a vendored
+# copy. Matches the former pixi `path = "../../agamemnon", editable = true`.
+"HomericIntelligence-Agamemnon-Orchestration" = { path = "../../agamemnon", editable = true }
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/agamemnon_client"]
 
@@ -51,6 +92,17 @@ module = [
     "nats.*",
     "respx.*",
 ]
+ignore_missing_imports = true
+
+# Do not type-check the internals of third-party async runtime libraries.
+# Under uv (ADR-018) the resolver selects a current anyio whose source uses
+# `match` statements; with our `python_version = "3.9"` target mypy would flag
+# that 3.10 syntax inside the installed package. anyio is pulled in only
+# transitively (httpx / respx) and its own type-correctness is not our concern,
+# so skip following imports into it. (pixi's older pinned anyio hid this.)
+[[tool.mypy.overrides]]
+module = ["anyio.*"]
+follow_imports = "skip"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

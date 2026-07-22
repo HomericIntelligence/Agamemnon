@@ -22,9 +22,10 @@ For an overview of the full ecosystem, see the
 
 - [Git](https://git-scm.com/)
 - [GitHub CLI](https://cli.github.com/) (`gh`)
-- [Pixi](https://pixi.sh/) for environment management
+- [uv](https://docs.astral.sh/uv/) for the build toolchain (CMake, Ninja, Conan, gcovr, pre-commit)
 - [Just](https://just.systems/) as the command runner
-- C++20 compiler (GCC 12+ or Clang 15+)
+- A C++20 system compiler (GCC 12+ or Clang 15+) and dev headers, from apt:
+  `sudo apt-get install -y build-essential libssl-dev libcurl4-openssl-dev clang-tidy clang-format`
 
 ### Environment Setup
 
@@ -33,10 +34,10 @@ For an overview of the full ecosystem, see the
 git clone https://github.com/HomericIntelligence/Agamemnon.git
 cd Agamemnon
 
-# Activate the Pixi environment (installs CMake, Ninja, clang-tools, gcovr)
-pixi shell
+# Install the build toolchain (CMake, Ninja, Conan, gcovr) as locked wheels
+uv sync
 
-# Build the project
+# Build the project (uses the system gcc/c++ via the conan profile)
 just build
 
 # Run tests to verify setup
@@ -44,11 +45,12 @@ just test
 ```
 
 > **GTest ABI compatibility (important).** The Conan-managed GoogleTest is built
-> with the pixi environment's GCC 14. If you run `just build` with the system
-> GCC (e.g. GCC 10 on stock Ubuntu) the test binary will silently fail to link
-> against `libstdc++` ABI 14. Always run inside `pixi shell` (preferred) or set
-> `CXX="$(pixi run which g++)"` before invoking CMake. If your system compiler
-> is older than GCC 12 / Clang 15, building outside pixi is unsupported.
+> from source (`--build=missing`) with the compiler declared in
+> `conan/profiles/debug` (`tools.build:compiler_executables` → `/usr/bin/gcc`,
+> `/usr/bin/g++`) — the same system compiler the project itself uses. Keep the
+> conan profile's `compiler.version` in step with your installed GCC so the
+> project and its dependencies share one `libstdc++` ABI. Building with a
+> compiler older than GCC 12 / Clang 15 is unsupported.
 
 ### nats.c version updates
 
@@ -169,12 +171,13 @@ just build
 # The build uses CMake with Ninja generator and CMakePresets.json
 ```
 
-> **GTest ABI compatibility:** Tests must be built with the pixi-managed GCC 14
-> (`CXX=$PIXI_PROJECT_ROOT/.pixi/envs/default/bin/g++`), not the system GCC 10.
-> Conan installs GTest compiled against GCC 14's libstdc++; linking it against
-> a different libstdc++ produces a silent link or runtime ABI failure. Always
-> run `pixi shell` (or `pixi run just build`) before invoking the build so the
-> pixi compiler is on PATH.
+> **GTest ABI compatibility:** Conan builds GTest from source
+> (`--build=missing`) using the compiler declared in `conan/profiles/debug`
+> (`tools.build:compiler_executables` → `/usr/bin/gcc`, `/usr/bin/g++`) — the
+> same system compiler `just build` uses for the project. Linking against a
+> different `libstdc++` produces a silent link or runtime ABI failure, so keep
+> the conan profile's `compiler.version` aligned with your installed system GCC
+> (install a supported one via `apt-get install -y build-essential`).
 
 ### Test
 

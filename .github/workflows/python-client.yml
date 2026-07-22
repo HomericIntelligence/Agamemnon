@@ -28,14 +28,17 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
         with:
-          pixi-version: v0.70.2
-          manifest-path: clients/python/pixi.toml
-          cache: true
+          enable-cache: true
+
+      - name: Sync (uv)
+        working-directory: clients/python
+        run: uv sync --locked
 
       - name: Run ruff
-        run: pixi run --manifest-path clients/python/pixi.toml lint
+        working-directory: clients/python
+        run: uv run ruff check src/ tests/
 
       - name: Track deprecated KEYSTONE_* env var names
         run: |
@@ -75,14 +78,17 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
         with:
-          pixi-version: v0.70.2
-          manifest-path: clients/python/pixi.toml
-          cache: true
+          enable-cache: true
+
+      - name: Sync (uv)
+        working-directory: clients/python
+        run: uv sync --locked
 
       - name: Run mypy
-        run: pixi run --manifest-path clients/python/pixi.toml typecheck
+        working-directory: clients/python
+        run: uv run mypy src/
 
   test:
     name: Test
@@ -90,14 +96,18 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11  # v0.9.6
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
         with:
-          pixi-version: v0.70.2
-          manifest-path: clients/python/pixi.toml
-          cache: true
+          enable-cache: true
+
+      - name: Sync (uv)
+        working-directory: clients/python
+        run: uv sync --locked
 
       - name: Run tests
-        run: pixi run --manifest-path clients/python/pixi.toml test
+        working-directory: clients/python
+        run: uv run pytest tests/ -v --cov=agamemnon_client --cov-report=term-missing --cov-fail-under=96
 
       - name: Run script coverage (bump-version)
-        run: pixi run --manifest-path clients/python/pixi.toml coverage-scripts
+        working-directory: clients/python
+        run: uv run pytest tests/test_bump_version.py -v --cov=../../scripts --cov-report=term-missing --cov-fail-under=95

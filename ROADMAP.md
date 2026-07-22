@@ -16,7 +16,7 @@ The following are genuinely implemented and tested:
   and fault state
 - **Structured logging** — ADR-005 compliant; log events published via `publish_log()`
   to NATS
-- **CI pipeline** — build, test, coverage, static analysis, markdownlint, pixi,
+- **CI pipeline** — build, test, coverage, static analysis, markdownlint, uv-lock,
   justfile, symlink checks
 
 ## Project Board

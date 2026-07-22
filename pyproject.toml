@@ -1,0 +1,35 @@
+# Tooling-only pyproject for Agamemnon.
+#
+# Agamemnon is a C++20 service; it ships no Python package from the repo root.
+# This file exists purely so `uv` can manage the *build toolchain* — cmake,
+# ninja, conan, gcovr, pre-commit — as reproducible, locked PyPI wheels
+# (Odysseus ADR-018: uv ecosystem-wide, C++ toolchains from PyPI wheels + apt).
+#
+# The C++ *compiler* is intentionally NOT sourced here: the build uses the
+# system gcc/g++ (`/usr/bin/gcc`, `/usr/bin/c++`) already present on the Ubuntu
+# runners (and installable via apt on bare hosts). clang-tidy / clang-format and
+# the OpenSSL / libcurl dev headers likewise come from apt — none of them have a
+# maintained, self-contained PyPI wheel that Agamemnon relies on.
+[project]
+name = "agamemnon-toolchain"
+version = "0.1.0"
+description = "Build-toolchain environment for the Agamemnon C++20 service (uv-managed, ADR-018)"
+requires-python = ">=3.11"
+# No runtime dependencies: the repo root ships no importable Python package.
+dependencies = []
+
+[dependency-groups]
+# Installed by `uv sync`. These provide the C++ build/test toolchain as pinned
+# PyPI wheels so every environment (CI, dev, bare host) resolves identically.
+dev = [
+    "cmake>=3.20",
+    "ninja>=1.11",
+    "conan>=2.0,<3",
+    "gcovr>=7",
+    "pre-commit>=3",
+]
+
+[tool.uv]
+# This is a virtual/tooling project — there is nothing to build or install as a
+# package, so uv should not try to build the root as a wheel.
+package = false
