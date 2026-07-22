@@ -1,0 +1,63 @@
+# Fast merge-queue gate.
+#
+# The full required workflows (_required.yml, build-test.yml,
+# static-analysis.yml) no longer trigger on merge_group: they re-ran every
+# job per queue entry, and with each job waiting 8-16+ min for a runner slot
+# the queue took 70-90 min to merge a PR that was already fully green on the
+# PR itself. This workflow is the ONLY merge_group workflow in the repo: one
+# job, one runner slot, real validation, finishing in well under 5 minutes.
+#
+# PR-side CI is completely untouched; the queue is gated solely on the
+# `merge-queue-smoke` context emitted here. Because no other workflow listens
+# to merge_group and this workflow listens ONLY to merge_group, exactly one
+# `merge-queue-smoke` check run exists per event.
+name: Merge Queue Smoke
+
+on:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mq-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  merge-queue-smoke:
+    name: merge-queue-smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+
+      # Borrowed from schema-validation: validate every workflow against the
+      # vendored GitHub Actions schema.
+      - name: Install check-jsonschema
+        run: pip install check-jsonschema
+
+      - name: Validate GitHub Actions workflow schemas
+        run: |
+          find .github/workflows -name "*.yml" | sort | \
+            xargs check-jsonschema \
+              --schemafile .github/schemas/github-workflow.json
+
+      # Borrowed from lint: actionlint (includes shellcheck of run blocks).
+      - name: Install actionlint
+        run: |
+          ACTIONLINT_VERSION=1.7.7
+          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+            -o /tmp/actionlint.tar.gz
+          tar -xz -C /usr/local/bin -f /tmp/actionlint.tar.gz actionlint
+          actionlint --version
+
+      - name: Lint GitHub Actions workflows
+        run: actionlint
+
+      # Borrowed from lint: fast Python client lint.
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Python client lint
+        run: ruff check clients/python/

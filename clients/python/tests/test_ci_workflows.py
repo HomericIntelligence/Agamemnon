@@ -8,6 +8,7 @@ WORKFLOW_DIR = Path(__file__).parents[3] / ".github" / "workflows"
 WORKFLOW_PATH = WORKFLOW_DIR / "_required.yml"
 
 REQUIRED_WORKFLOWS = ("_required.yml", "build-test.yml", "static-analysis.yml")
+SMOKE_WORKFLOW = "merge-queue-smoke.yml"
 REQUIRED_CONTEXT_JOBS = {
     "lint": ("_required.yml", "lint"),
     "unit-tests": ("_required.yml", "unit-tests"),
@@ -36,13 +37,28 @@ def _workflow_triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True, {}))
 
 
-def test_required_check_workflows_support_merge_groups() -> None:
-    """Every workflow supplying a required context must run for merge queue groups."""
+def test_merge_group_runs_only_the_smoke_workflow() -> None:
+    """The merge queue must run exactly one fast smoke job (one runner slot).
+
+    The full workflows must NOT re-run for merge_group — that starved the
+    runner pool and pushed queue merges to 70-90 min. merge-queue-smoke.yml
+    owns the merge_group event and emits the single `merge-queue-smoke`
+    context; PR-side CI is untouched.
+    """
     for filename in REQUIRED_WORKFLOWS:
         triggers = _workflow_triggers(_load_workflow(WORKFLOW_DIR / filename))
         assert triggers["push"]["branches"] == ["main"]
         assert triggers["pull_request"]["branches"] == ["main"]
-        assert triggers["merge_group"] == {"types": ["checks_requested"]}
+        assert "merge_group" not in triggers, (
+            f"{filename} must not trigger on merge_group — merge-queue-smoke.yml "
+            "owns that event"
+        )
+
+    smoke = _load_workflow(WORKFLOW_DIR / SMOKE_WORKFLOW)
+    assert _workflow_triggers(smoke) == {"merge_group": {"types": ["checks_requested"]}}
+    assert list(smoke["jobs"]) == ["merge-queue-smoke"]
+    assert smoke["jobs"]["merge-queue-smoke"]["name"] == "merge-queue-smoke"
+    assert smoke["jobs"]["merge-queue-smoke"]["timeout-minutes"] == 5
 
 
 def test_live_required_context_names_remain_exact() -> None:
