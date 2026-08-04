@@ -14,7 +14,7 @@
 name = "agamemnon-toolchain"
 version = "0.1.0"
 description = "Build-toolchain environment for the Agamemnon C++20 service (uv-managed, ADR-018)"
-requires-python = ">=3.11"
+requires-python = ">=3.13,<3.14"
 # No runtime dependencies: the repo root ships no importable Python package.
 dependencies = []
 
