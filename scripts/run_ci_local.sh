@@ -120,7 +120,7 @@ run_lint() {
     log_step "lint: clang-format + clang-tidy + python lint + actionlint"
     run_in_container bash -c '
         set -euo pipefail
-        conan profile detect --force >/dev/null 2>&1 || true
+        conan profile detect --exist-ok
         ./scripts/format.sh --check
         ruff check clients/python/
         conan install . --build=missing -s build_type=Debug --output-folder build/debug >/dev/null
@@ -136,7 +136,7 @@ run_unit() {
     log_step "unit-tests: build + ctest"
     run_in_container bash -c '
         set -euo pipefail
-        conan profile detect --force >/dev/null 2>&1 || true
+        conan profile detect --exist-ok
         conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
         cmake --preset release
         cmake --build --preset release
@@ -148,7 +148,7 @@ run_integration() {
     log_step "integration-tests: build + integration ctest"
     run_in_container bash -c '
         set -euo pipefail
-        conan profile detect --force >/dev/null 2>&1 || true
+        conan profile detect --exist-ok
         conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
         cmake --preset release
         cmake --build --preset release
@@ -166,7 +166,7 @@ run_build() {
     log_step "build: cmake configure + build"
     run_in_container bash -c '
         set -euo pipefail
-        conan profile detect --force >/dev/null 2>&1 || true
+        conan profile detect --exist-ok
         conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
         cmake --preset release
         cmake --build --preset release
@@ -180,7 +180,7 @@ run_security() {
         cd clients/python && uv run --only-group lint pip-audit --skip-editable
         cd /workspace
         trivy fs --exit-code 1 --severity HIGH,CRITICAL --scanners vuln .
-        conan profile detect --force >/dev/null 2>&1 || true
+        conan profile detect --exist-ok
         conan lock create conanfile.py --lockfile-out=conan.lock --build=missing >/dev/null
         syft . --override-default-catalogers conan -o cyclonedx-json=conan-sbom.cdx.json
         grype sbom:conan-sbom.cdx.json --fail-on high --output table
