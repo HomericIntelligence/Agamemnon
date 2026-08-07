@@ -598,21 +598,22 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
-          podman run --rm \
+          set -euo pipefail
+          podman run --rm -i \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
             -v "$HOME/.conan2:/home/ci/.conan2:Z" \
             -w /workspace agamemnon-ci:local \
-            bash -c '
+            bash -s > /tmp/agamemnon-package.out <<'EOF'
               set -euo pipefail
               conan profile detect --exist-ok >/dev/null 2>&1
               conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
               cmake --preset release
-              cmake --build --preset release
-              cmake --install build/release --prefix "$PWD/stage"
-              echo "── staged install tree ──"
+              cmake --build --preset release >/dev/null
+              cmake --install build/release --prefix "$PWD/stage" >/dev/null
+              echo "staged install tree:"
               find stage -maxdepth 3 -type f | sort
-              VERSION=$(grep -oP '"'"'kVersion\{"\K[^"'"'"']+' include/agamemnon/version.hpp)
+              VERSION=$(grep -oP 'kVersion\{"\\K[^"]+' include/agamemnon/version.hpp)
               echo "Packaging version $VERSION"
               syft dir:stage -o cyclonedx-json=stage-sbom.cdx.json
               ARCHIVE="Agamemnon-${VERSION}-linux-x86_64.tar.gz"
@@ -620,8 +621,15 @@ jobs:
               echo "Created $ARCHIVE"
               ls -lh "$ARCHIVE"
               tar -tzf "$ARCHIVE" | grep -q "bin/Agamemnon_server"
-              echo "ARCHIVE=$ARCHIVE" > "$GITHUB_ENV"
-            '
+              echo "ARCHIVE=$ARCHIVE"
+          EOF
+          ARCHIVE=$(sed -n 's/^ARCHIVE=//p' /tmp/agamemnon-package.out | tail -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "::error::package job did not report ARCHIVE"
+            cat /tmp/agamemnon-package.out
+            exit 1
+          fi
+          echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

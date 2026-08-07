@@ -19,7 +19,7 @@ Agamemnon receives researched briefs from ProjectNestor and manages:
 - HMAS 4-layer agentic hierarchy (L0 ChiefArchitect → L1 ComponentLead → L2 ModuleLead → L3 TaskAgent)
 - State machine coordination for each task
 - Pull-based work queue: enqueues tasks for myrmidons to pull
-- GitHub Issues/Projects as backing store (not SQLite)
+- GitHub Issues/Projects as backing store (no local RDBMS)
 - REST API: `/v1/*` (coordination) and `/v1/chaos/*` (chaos injection for ProjectCharybdis)
 - Peer discovery via Tailscale (100.x.x.x scan)
 
@@ -123,7 +123,7 @@ graph TD
 All inter-component messaging flows through ProjectKeystone as the invisible transport layer.
 Components publish and subscribe to logical NATS subjects; routing is transparent:
 
-- Local (intra-host): BlazingMQ + C++20 MessageBus
+- Local (intra-host): C++20 message-bus transport
 - Cross-host: NATS JetStream via nats.c v3.9.1 over Tailscale
 
 | Subject | Direction | Purpose |
@@ -187,7 +187,7 @@ GitHub Issues and GitHub Projects are the sole backing store for task and pipeli
 
 - Each task maps to a GitHub Issue.
 - Each pipeline corresponds to a GitHub Project.
-- No relational database, no in-memory store, no SQLite.
+- No relational database, no in-memory store.
 - State transitions are durable and auditable via GitHub's event timeline.
 
 ---
@@ -279,7 +279,7 @@ cd agamemnon && pixi run typecheck  # mypy --strict src/agamemnon/
 
 Modules under `agamemnon/src/agamemnon/orchestration/` were lifted from
 ProjectKeystone as part of consolidating orchestration logic into Agamemnon.
-Keystone retains only the invisible transport layer (BlazingMQ + NATS routing);
+Keystone retains only the invisible transport layer (message-bus + NATS routing);
 all task state-machine, DAG walking, and claim-coordination logic now lives
 here.
 
