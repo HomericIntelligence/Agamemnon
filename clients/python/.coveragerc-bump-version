@@ -1,0 +1,7 @@
+[run]
+source = ../../scripts
+omit = ../../scripts/check-release-readiness.py
+      ../../scripts/check-version-sync.py
+
+[report]
+fail_under = 95
