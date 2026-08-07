@@ -110,4 +110,4 @@ jobs:
 
       - name: Run script coverage (bump-version)
         working-directory: clients/python
-        run: uv run pytest tests/test_bump_version.py -v --cov=../../scripts --cov-report=term-missing --cov-fail-under=95
+        run: uv run pytest tests/test_bump_version.py -v --cov=../../scripts/bump-version.py --cov-report=term-missing --cov-fail-under=95
