@@ -36,6 +36,10 @@ jobs:
       packages: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || true
+
+
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@4e828ff8d448a8a6e532957b1811f387a63867e8  # v3.26.13
@@ -76,6 +80,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || true
+
+
 
       - name: Cache podman container storage
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -118,6 +126,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || true
+
+
 
       - name: Cache podman container storage
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
