@@ -11,7 +11,12 @@ Checks: >
   -altera-*,
   -cert-err58-cpp,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -hicpp-no-array-decay
+  -hicpp-no-array-decay,
+  # Noisy on newer clang-tidy (self-hosted runner) for test code
+  -readability-function-cognitive-complexity,
+  -misc-const-correctness,
+  -readability-identifier-length,
+  -misc-include-cleaner
 WarningsAsErrors: ''
 HeaderFilterRegex: '/Agamemnon/(include|src|test)/'
 FormatStyle: file
