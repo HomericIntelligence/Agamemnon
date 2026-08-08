@@ -8,8 +8,411 @@ on:
   # merge_group is intentionally absent: the merge queue runs only the fast
   # merge-queue-smoke.yml workflow (single merge-queue-smoke job, <5 min).
 
-
 concurrency:
   group: ci-container-${{ github.ref }}
   cancel-in-progress: false
+
 jobs:
+  build-test:
+    name: ${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
+    runs-on: [self-hosted, self-hosted-aeolus]
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-24.04]
+        compiler: [gcc, clang]
+        build_type: [debug, release]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
+
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Configure + build + test (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
+          COMPILER: ${{ matrix.compiler }}
+          BUILD_TYPE: ${{ matrix.build_type }}
+        run: |
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -e "BUILD_TYPE=$BUILD_TYPE" \
+            -e "COMPILER=$COMPILER" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              BUILD_TYPE_CAP="${BUILD_TYPE^}"
+              if [ "$COMPILER" = "clang" ]; then
+                export CC=clang CXX=clang++
+                CONAN_CC="-s compiler=clang -s compiler.version=18"
+              else
+                CONAN_CC="-s compiler=gcc -s compiler.version=13"
+              fi
+              conan install . --build=missing -s build_type="$BUILD_TYPE_CAP" \
+                $CONAN_CC -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder "build/$BUILD_TYPE" >/dev/null
+              cmake --preset "$BUILD_TYPE"
+              cmake --build --preset "$BUILD_TYPE"
+              ctest --preset "$BUILD_TYPE" --timeout 120 --parallel 4
+            '
+
+  # AddressSanitizer job -- catches dangling-reference / use-after-free regressions
+  # introduced by incorrect lambda captures in routes.cpp (see #220).
+  asan:
+    name: ubuntu-24.04-clang-asan
+    runs-on: [self-hosted, self-hosted-aeolus]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
+
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Configure + build + test under ASAN (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
+        run: |
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              export CC=clang CXX=clang++
+              conan install . --build=missing -s build_type=Debug \
+                -s compiler=clang -s compiler.version=18 \
+                -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder build/asan >/dev/null
+              cmake --preset asan
+              cmake --build --preset asan
+              ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+                ctest --preset asan --timeout 120 --parallel 4
+            '
+
+  python-orchestration:
+    name: python-orchestration
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+        with:
+          enable-cache: true
+
+      - name: Sync agamemnon/ (uv)
+        working-directory: agamemnon
+        run: uv sync --locked
+
+      - name: Lint agamemnon/
+        working-directory: agamemnon
+        run: uv run ruff check src/ tests/
+
+      - name: Type check agamemnon/
+        working-directory: agamemnon
+        run: uv run mypy src/agamemnon/
+
+      - name: Test agamemnon/
+        working-directory: agamemnon
+        run: uv run pytest tests/ -v
+
+  schema-validation:
+    name: schema-validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Install check-jsonschema
+        run: pip install check-jsonschema
+
+      - name: Validate GitHub Actions workflow files
+        run: |
+          check-jsonschema \
+            --builtin-schema vendor.github-workflows \
+            .github/workflows/*.yml
+
+      - name: Validate CMakePresets.json
+        run: |
+          check-jsonschema \
+            --schemafile https://raw.githubusercontent.com/Kitware/CMake/master/Help/manual/presets/schema.json \
+            CMakePresets.json
+
+      - name: Validate .markdownlint.yaml
+        run: |
+          check-jsonschema \
+            --schemafile https://raw.githubusercontent.com/DavidAnson/markdownlint/main/schema/markdownlint-config-schema.json \
+            .markdownlint.yaml
+
+  cyclonedx-validate:
+    name: cyclonedx-validate
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Install check-jsonschema
+        run: pip install check-jsonschema
+
+      - name: Validate cpp-fetchcontent-deps.cdx.json
+        run: |
+          check-jsonschema \
+            --schemafile https://raw.githubusercontent.com/CycloneDX/specification/refs/heads/master/schema/bom-1.4.schema.json \
+            .github/cpp-fetchcontent-deps.cdx.json
+
+  port-smoke-test:
+    name: port-smoke-test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Restore Conan cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        with:
+          path: build/_deps
+          key: fetchcontent-r2-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-r2-${{ runner.os }}-gcc-debug-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          pip install conan
+          conan profile detect --force
+
+      - name: Build server binary
+        run: |
+          conan install . --build=missing -s build_type=Debug --output-folder build/debug
+          cmake --preset debug
+          cmake --build --preset debug --target Agamemnon_server
+
+      - name: Negative PORT parsing smoke test
+        env:
+          AGAMEMNON_API_KEY: ${{ secrets.AGAMEMNON_API_KEY }}
+        run: |
+          SERVER=./build/debug/Agamemnon_server
+          # PORT=abc must warn and fall back to 8080
+          output=$(PORT=abc timeout 2s "$SERVER" 2>&1 || true)
+          if echo "$output" | grep -qi "invalid\|warn\|8080\|fallback"; then
+            echo "PORT=abc: warning emitted as expected"
+          else
+            echo "PORT=abc: expected warning not found in output:"
+            echo "$output"
+            exit 1
+          fi
+          # PORT=99999 must warn and fall back to 8080
+          output=$(PORT=99999 timeout 2s "$SERVER" 2>&1 || true)
+          if echo "$output" | grep -qi "invalid\|warn\|8080\|fallback\|out.*range\|range"; then
+            echo "PORT=99999: warning emitted as expected"
+          else
+            echo "PORT=99999: expected warning not found in output:"
+            echo "$output"
+            exit 1
+          fi
+
+  peer-discovery-integration:
+    name: peer-discovery-integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Restore Conan cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-debug-
+            conan-${{ runner.os }}-
+
+      - name: Restore FetchContent cache
+        uses: actions/cache@v4
+        with:
+          path: build/debug/_deps
+          key: fetchcontent-r2-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          restore-keys: |
+            fetchcontent-r2-${{ runner.os }}-gcc-debug-
+            fetchcontent-r2-${{ runner.os }}-gcc-
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          pip install conan
+          conan profile detect --force
+
+      - name: Download nats-server tarball (pinned)
+        env:
+          NATS_VERSION: v2.10.20
+        run: |
+          curl -fsSL --retry 3 -o "/tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz" \
+            "https://github.com/nats-io/nats-server/releases/download/${NATS_VERSION}/nats-server-${NATS_VERSION}-linux-amd64.tar.gz"
+
+      - name: Verify nats-server tarball SHA256
+        env:
+          NATS_VERSION: v2.10.20
+        run: |
+          # Fail loud and early if the downloaded bytes do not match the pinned
+          # digest committed in the repo. The verification happens BEFORE
+          # extraction and BEFORE the binary is ever executed.
+          cd /tmp
+          sha256sum -c "$GITHUB_WORKSPACE/.github/checksums/nats-server-${NATS_VERSION}-linux-amd64.tar.gz.sha256"
+
+      - name: Install nats-server
+        env:
+          NATS_VERSION: v2.10.20
+        run: |
+          tar -xzf "/tmp/nats-server-${NATS_VERSION}-linux-amd64.tar.gz" -C /tmp
+          sudo install -m 0755 \
+            "/tmp/nats-server-${NATS_VERSION}-linux-amd64/nats-server" \
+            /usr/local/bin/nats-server
+          nats-server --version
+          # Sanity-check the CLI flag the fixture depends on.
+          nats-server -h 2>&1 | grep -q '\-a'
+
+      - name: Install Conan dependencies
+        run: |
+          conan install . --build=missing -s build_type=Debug \
+            --output-folder build/debug
+
+      - name: Configure
+        run: cmake --preset debug
+
+      - name: Build integration tests
+        run: cmake --build --preset debug --target Agamemnon_integration_tests
+
+      - name: Run peer-discovery integration tests
+        env:
+          AGAMEMNON_PEER_DISCOVERY_INTEGRATION: required
+        working-directory: build/debug
+        run: ctest -L integration -R PeerDiscovery --output-on-failure --timeout 60
+
+  docs:
+    name: docs-validate
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: podman system prune -af --volumes=false || exit 0
+
+
+
+      - name: Install just
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
+        with:
+          just-version: "1.36.0"
+
+      - name: Validate OpenAPI spec
+        run: just docs-validate
+
+  check-all:
+    name: All Build/Test Checks
+    runs-on: ubuntu-24.04
+    needs: [build-test, asan, python-orchestration, schema-validation, cyclonedx-validate, port-smoke-test, peer-discovery-integration, docs]
+    if: always()
+    steps:
+      - name: Check all jobs passed
+        env:
+          BUILD_TEST_RESULT: ${{ needs.build-test.result }}
+          ASAN_RESULT: ${{ needs.asan.result }}
+          PYTHON_ORCHESTRATION_RESULT: ${{ needs.python-orchestration.result }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          SCHEMA_VALIDATION_RESULT: ${{ needs.schema-validation.result }}
+          CYCLONEDX_RESULT: ${{ needs.cyclonedx-validate.result }}
+          PORT_SMOKE_RESULT: ${{ needs.port-smoke-test.result }}
+          PEER_DISCOVERY_INTEGRATION_RESULT: ${{ needs.peer-discovery-integration.result }}
+        run: |
+          if [ "$BUILD_TEST_RESULT" != "success" ]; then
+            echo "build-test failed"
+            exit 1
+          fi
+          if [ "$ASAN_RESULT" != "success" ]; then
+            echo "asan failed"
+            exit 1
+          fi
+          if [ "$PYTHON_ORCHESTRATION_RESULT" != "success" ]; then
+            echo "python-orchestration failed"
+            exit 1
+          fi
+          if [ "$DOCS_RESULT" != "success" ] && [ "$DOCS_RESULT" != "skipped" ]; then
+            echo "docs-validate failed"
+            exit 1
+          fi
+          if [ "$SCHEMA_VALIDATION_RESULT" != "success" ]; then
+            echo "schema-validation failed"
+            exit 1
+          fi
+          if [ "$CYCLONEDX_RESULT" != "success" ]; then
+            echo "cyclonedx-validate failed"
+            exit 1
+          fi
+          if [ "$PORT_SMOKE_RESULT" != "success" ]; then
+            echo "port-smoke-test failed"
+            exit 1
+          fi
+          if [ "$PEER_DISCOVERY_INTEGRATION_RESULT" != "success" ]; then
+            echo "peer-discovery-integration failed"
+            exit 1
+          fi
+          echo "All checks passed"

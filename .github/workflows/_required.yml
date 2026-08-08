@@ -11,7 +11,7 @@ on:
   # pushed queue merges to 70-90 min.
 
 concurrency:
-  group: required-${{ github.ref }}
+  group: ci-container-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
