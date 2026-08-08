@@ -4,6 +4,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: ci-container-${{ github.ref }}
+  cancel-in-progress: false
+
 on:
   push:
     branches: [main]
@@ -43,7 +47,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -95,7 +101,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -135,7 +143,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -165,7 +175,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -196,7 +208,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -215,7 +229,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -281,7 +297,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
@@ -363,7 +381,9 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
       - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || exit 0
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
 
 
