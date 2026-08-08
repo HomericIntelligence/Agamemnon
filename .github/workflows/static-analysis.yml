@@ -12,9 +12,6 @@ on:
   # merge_group is intentionally absent: the merge queue runs only the fast
   # merge-queue-smoke.yml workflow (single merge-queue-smoke job, <5 min).
 
-concurrency:
-  group: ci-container-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   prepare-ci-image:

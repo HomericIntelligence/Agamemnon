@@ -10,9 +10,6 @@ on:
   pull_request:
     branches: [main]
 
-concurrency:
-  group: ci-container-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   prepare-ci-image:
