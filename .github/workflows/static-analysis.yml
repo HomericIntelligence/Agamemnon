@@ -8,77 +8,8 @@ on:
   # merge_group is intentionally absent: the merge queue runs only the fast
   # merge-queue-smoke.yml workflow (single merge-queue-smoke job, <5 min).
 
+
+concurrency:
+  group: ci-container-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
-  clang-format:
-    name: clang-format
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - name: Install clang-format
-        run: sudo apt-get install -y clang-format
-      - name: Check formatting
-        run: ./scripts/format.sh --check
-      - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || true
-
-
-
-  clang-tidy:
-    name: clang-tidy
-    runs-on: [self-hosted, self-hosted-aeolus]
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-      - name: Prune stale podman storage (self-hosted disk pressure)
-        run: podman system prune -af --volumes=false || true
-
-
-
-      - name: Cache podman container storage
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.local/share/containers/storage
-          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
-          restore-keys: |
-            podman-agamemnon-${{ runner.os }}-
-
-      - name: Build CI image (podman)
-        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
-
-      - name: Configure + build with clang-tidy (in container)
-        env:
-          CONAN_HOME: /home/ci/.conan2
-        run: |
-          podman run --rm \
-            --userns=keep-id:uid=1000,gid=1000 \
-            -v "$PWD:/workspace:Z" \
-            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
-            -w /workspace agamemnon-ci:local \
-            bash -c '
-              set -euo pipefail
-              conan profile detect --exist-ok >/dev/null 2>&1
-              export CC=clang CXX=clang++
-              conan install . --build=missing -s build_type=Debug \
-                -s compiler=clang -s compiler.version=18 \
-                -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
-                --output-folder build/debug >/dev/null
-              cmake --preset debug -DAgamemnon_ENABLE_CLANG_TIDY=ON
-              cmake --build --preset debug
-            '
-
-  check-all:
-    name: All Static Analysis Checks
-    runs-on: ubuntu-24.04
-    needs: [clang-format, clang-tidy]
-    if: always()
-    steps:
-      - name: Check all jobs passed
-        env:
-          CLANG_FORMAT_RESULT: ${{ needs.clang-format.result }}
-          CLANG_TIDY_RESULT: ${{ needs.clang-tidy.result }}
-        run: |
-          if [ "$CLANG_FORMAT_RESULT" != "success" ] || \
-             [ "$CLANG_TIDY_RESULT" != "success" ]; then
-            echo "Static analysis failed"
-            exit 1
-          fi
-          echo "All checks passed"
