@@ -21,13 +21,6 @@ jobs:
 
 
 
-      - name: Cache podman container storage
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ~/.local/share/containers/storage
-          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
-          restore-keys: |
-            podman-agamemnon-${{ runner.os }}-
 
       - name: Build CI image (podman)
         run: podman build -f ci/Containerfile -t agamemnon-ci:local .
