@@ -13,59 +13,44 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - name: Bootstrap container toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            sudo build-essential cmake git curl ca-certificates \
-            python3 python3-pip python3-venv pkg-config
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            conan-${{ runner.os }}-debug-
-            conan-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
-          restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-gcc-debug-
-            fetchcontent-r2-${{ runner.os }}-gcc-
-            fetchcontent-r2-${{ runner.os }}-
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
-      - name: Install dependencies
+      - name: Configure + build + test + coverage (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcovr libgtest-dev libgmock-dev
-          pip install --user conan
-          conan profile detect --force
-      - name: Install Conan dependencies
-        run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/coverage
-      - name: Configure
-        run: cmake --preset coverage
-      - name: Build
-        run: cmake --build --preset coverage
-      - name: Test
-        run: ctest --preset coverage
-      - name: Generate coverage report
-        run: ./scripts/coverage.sh
-      - name: Check threshold
-        run: |
-          # TODO: Raise threshold back to 80% once additional C++ tests land.
-          # Current actual line coverage is ~77.2% (run 25640957315, 2026-05-10).
-          # Target: 80% line coverage. Tracking ratchet upward as tests are added.
-          LINE_COV=$(python3 -c "import xml.etree.ElementTree as ET; root = ET.parse('build/coverage-report/coverage.xml').getroot(); print(f\"{float(root.attrib.get('line-rate', 0)) * 100:.1f}\")")
-          echo "Line coverage: ${LINE_COV}%"
-          python3 -c "import sys; cov=float('${LINE_COV}'); sys.exit(0 if cov >= 75 else 1)"
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan install . --build=missing -s build_type=Debug \
+                -s compiler=gcc -s compiler.version=13 \
+                -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder build/coverage >/dev/null
+              cmake --preset coverage
+              cmake --build --preset coverage
+              ctest --preset coverage
+              ./scripts/coverage.sh
+              # TODO: Raise threshold back to 80% once additional C++ tests land.
+              # Current actual line coverage is ~77.2% (run 25640957315, 2026-05-10).
+              # Target: 80% line coverage. Tracking ratchet upward as tests are added.
+              LINE_COV=$(python3 -c "import xml.etree.ElementTree as ET; root = ET.parse("build/coverage-report/coverage.xml").getroot(); print(f\"{float(root.attrib.get("line-rate", 0)) * 100:.1f}\")")
+              echo "Line coverage: ${LINE_COV}%"
+              python3 -c "import sys; cov=float("${LINE_COV}"); sys.exit(0 if cov >= 75 else 1)"
+            '
 
   check-all:
     name: All Coverage Checks

@@ -22,70 +22,47 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - name: Bootstrap container toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            sudo build-essential cmake git curl ca-certificates \
-            python3 python3-pip python3-venv pkg-config
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('conanfile.py') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            conan-${{ runner.os }}-${{ matrix.build_type }}-
-            conan-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
-          restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-
-            fetchcontent-r2-${{ runner.os }}-${{ matrix.compiler }}-
-            fetchcontent-r2-${{ runner.os }}-
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            sudo apt-get install -y clang
-          fi
-          pip install --user conan
-          conan profile detect --force
-
-      - name: Install Conan dependencies
+      - name: Configure + build + test (in container)
         env:
-          BUILD_TYPE: ${{ matrix.build_type }}
-        run: |
-          BUILD_TYPE_CAP="${BUILD_TYPE^}"
-          conan install . --build=missing -s build_type="$BUILD_TYPE_CAP" \
-            --output-folder "build/$BUILD_TYPE"
-
-      - name: Configure (${{ matrix.compiler }}, ${{ matrix.build_type }})
-        env:
+          CONAN_HOME: /home/ci/.conan2
           COMPILER: ${{ matrix.compiler }}
           BUILD_TYPE: ${{ matrix.build_type }}
         run: |
-          if [ "$COMPILER" = "clang" ]; then
-            export CC=clang CXX=clang++
-          fi
-          cmake --preset "$BUILD_TYPE"
-
-      - name: Build
-        env:
-          BUILD_TYPE: ${{ matrix.build_type }}
-        run: cmake --build --preset "$BUILD_TYPE"
-
-      - name: Test
-        env:
-          BUILD_TYPE: ${{ matrix.build_type }}
-        run: ctest --preset "$BUILD_TYPE" --timeout 120 --parallel 4
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -e "BUILD_TYPE=$BUILD_TYPE" \
+            -e "COMPILER=$COMPILER" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              BUILD_TYPE_CAP="${BUILD_TYPE^}"
+              if [ "$COMPILER" = "clang" ]; then
+                export CC=clang CXX=clang++
+                CONAN_CC="-s compiler=clang -s compiler.version=18"
+              else
+                CONAN_CC="-s compiler=gcc -s compiler.version=13"
+              fi
+              conan install . --build=missing -s build_type="$BUILD_TYPE_CAP" \
+                $CONAN_CC -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder "build/$BUILD_TYPE" >/dev/null
+              cmake --preset "$BUILD_TYPE"
+              cmake --build --preset "$BUILD_TYPE"
+              ctest --preset "$BUILD_TYPE" --timeout 120 --parallel 4
+            '
 
   # AddressSanitizer job -- catches dangling-reference / use-after-free regressions
   # introduced by incorrect lambda captures in routes.cpp (see #220).
@@ -96,56 +73,39 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - name: Bootstrap container toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            sudo build-essential cmake git curl ca-certificates \
-            python3 python3-pip python3-venv pkg-config
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-asan-${{ hashFiles('conanfile.py') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            conan-${{ runner.os }}-asan-
-            conan-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: build/_deps
-          key: fetchcontent-r2-${{ runner.os }}-clang-asan-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
-          restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-clang-asan-
-            fetchcontent-r2-${{ runner.os }}-clang-
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build clang
-          pip install --user conan
-          conan profile detect --force
-
-      - name: Install Conan dependencies
-        run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/asan
-
-      - name: Configure (clang, asan)
-        run: |
-          export CC=clang CXX=clang++
-          cmake --preset asan
-
-      - name: Build
-        run: cmake --build --preset asan
-
-      - name: Test
+      - name: Configure + build + test under ASAN (in container)
         env:
-          ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
-        run: ctest --preset asan --timeout 120 --parallel 4
+          CONAN_HOME: /home/ci/.conan2
+        run: |
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              export CC=clang CXX=clang++
+              conan install . --build=missing -s build_type=Debug \
+                -s compiler=clang -s compiler.version=18 \
+                -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder build/asan >/dev/null
+              cmake --preset asan
+              cmake --build --preset asan
+              ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+                ctest --preset asan --timeout 120 --parallel 4
+            '
 
   python-orchestration:
     name: python-orchestration
