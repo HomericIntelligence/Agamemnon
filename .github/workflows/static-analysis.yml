@@ -1,5 +1,9 @@
 name: Static Analysis
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: [main]
@@ -13,6 +17,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare-ci-image:
+    name: Prepare CI image (GHCR)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+      - name: Push CI image to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
+          podman tag agamemnon-ci:local ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman push ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+
   clang-format:
     name: clang-format
     runs-on: ubuntu-24.04
@@ -29,6 +47,7 @@ jobs:
 
   clang-tidy:
     name: clang-tidy
+    needs: prepare-ci-image
     runs-on: [self-hosted, self-hosted-aeolus]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
@@ -38,8 +57,10 @@ jobs:
 
 
 
-      - name: Build CI image (podman)
-        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+      - name: Pull CI image from GHCR
+        run: |
+          podman pull ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman tag ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }} agamemnon-ci:local
 
       - name: Configure + build with clang-tidy (in container)
         env:
