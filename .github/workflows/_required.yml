@@ -307,7 +307,7 @@ jobs:
             bash -c '
               set -euo pipefail
               conan profile detect --exist-ok >/dev/null 2>&1
-              conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release >/dev/null
               cmake --preset release
               cmake --build --preset release
               cd build/release
@@ -570,7 +570,7 @@ jobs:
   package:
     name: package
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
