@@ -56,6 +56,7 @@ jobs:
 
       - name: Pull CI image from GHCR
         run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
           podman pull ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
           podman tag ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }} agamemnon-ci:local
 
