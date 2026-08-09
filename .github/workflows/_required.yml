@@ -10,10 +10,6 @@ on:
   # Re-running every job here per queue entry starved the runner pool and
   # pushed queue merges to 70-90 min.
 
-concurrency:
-  group: ci-container-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   # ── 1. lint ────────────────────────────────────────────────────────────────
   lint:
