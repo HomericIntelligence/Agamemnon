@@ -651,6 +651,7 @@ jobs:
           CONAN_HOME: /home/ci/.conan2
         run: |
           set -euo pipefail
+          set +e
           podman run --rm -i \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -675,6 +676,13 @@ jobs:
               tar -tzf "$ARCHIVE" | grep -q "bin/Agamemnon_server"
               echo "ARCHIVE=$ARCHIVE"
           EOF
+          pkg_rc=$?
+          set -e
+          if [ "$pkg_rc" -ne 0 ]; then
+            echo "::error::package job failed inside container (exit $pkg_rc)"
+            cat /tmp/agamemnon-package.out
+            exit "$pkg_rc"
+          fi
           ARCHIVE=$(sed -n 's/^ARCHIVE=//p' /tmp/agamemnon-package.out | tail -1)
           if [ -z "$ARCHIVE" ]; then
             echo "::error::package job did not report ARCHIVE"
@@ -733,6 +741,7 @@ jobs:
           CONAN_HOME: /home/ci/.conan2
         run: |
           podman run --rm \
+          set +e
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
             -v "$HOME/.conan2:/home/ci/.conan2:Z" \
@@ -791,3 +800,11 @@ jobs:
           podman run --rm --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" -w /workspace agamemnon-ci:local \
             python3 scripts/check-release-readiness.py
+
+          pkg_rc=$?
+          set -e
+          if [ "$pkg_rc" -ne 0 ]; then
+            echo "::error::package job failed inside container (exit $pkg_rc)"
+            cat /tmp/agamemnon-package.out
+            exit "$pkg_rc"
+          fi
