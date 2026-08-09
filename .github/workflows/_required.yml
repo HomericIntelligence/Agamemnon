@@ -262,7 +262,7 @@ jobs:
             bash -c '
               set -euo pipefail
               conan profile detect --exist-ok >/dev/null 2>&1
-              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release >/dev/null
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release
               cmake --preset release
               cmake --build --preset release
               ctest --preset release --output-on-failure --timeout 120
@@ -307,7 +307,7 @@ jobs:
             bash -c '
               set -euo pipefail
               conan profile detect --exist-ok >/dev/null 2>&1
-              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release >/dev/null
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release
               cmake --preset release
               cmake --build --preset release
               cd build/release
@@ -607,10 +607,10 @@ jobs:
             bash -s > /tmp/agamemnon-package.out <<'EOF'
               set -euo pipefail
               conan profile detect --exist-ok >/dev/null 2>&1
-              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release >/dev/null
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release
               cmake --preset release
-              cmake --build --preset release >/dev/null
-              cmake --install build/release --prefix "$PWD/stage" >/dev/null
+              cmake --build --preset release
+              cmake --install build/release --prefix "$PWD/stage"
               echo "staged install tree:"
               find stage -maxdepth 3 -type f | sort
               VERSION=$(grep -oP 'kVersion\{"\\K[^"]+' include/agamemnon/version.hpp)
