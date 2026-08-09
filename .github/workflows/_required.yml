@@ -614,7 +614,7 @@ jobs:
               cmake --install build/release --prefix "$PWD/stage"
               echo "staged install tree:"
               find stage -maxdepth 3 -type f | sort
-              VERSION=$(grep -oP 'kVersion\{"\\K[^"]+' include/agamemnon/version.hpp)
+              VERSION=$(grep -oP 'kVersion\{"\K[^"]+' include/agamemnon/version.hpp)
               if [ -z "$VERSION" ]; then echo "ERROR: version not extracted from version.hpp"; grep -o 'kVersion{[^}]*}' include/agamemnon/version.hpp; exit 1; fi
               echo "Packaging version $VERSION"
               syft dir:stage -o cyclonedx-json=stage-sbom.cdx.json
@@ -685,8 +685,9 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
-          podman run --rm \
+          set -euo pipefail
           set +e
+          podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
             -v "$HOME/.conan2:/home/ci/.conan2:Z" \
