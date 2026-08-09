@@ -20,11 +20,11 @@ on:
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 concurrency:
   group: ci-container-${{ github.ref }}
   cancel-in-progress: false
-  security-events: write
 
 jobs:
   prepare-ci-image:
