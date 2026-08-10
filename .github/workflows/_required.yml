@@ -622,7 +622,8 @@ jobs:
               tar -czf "$ARCHIVE" -C stage .
               echo "Created $ARCHIVE"
               ls -lh "$ARCHIVE"
-              tar -tzf "$ARCHIVE" | grep -q "bin/Agamemnon_server" || { echo "ERROR: bin/Agamemnon_server missing from archive"; tar -tzf "$ARCHIVE" | head -20; exit 1; }
+              tar -tzf "$ARCHIVE" > /tmp/archive-listing.txt
+              grep -q "bin/Agamemnon_server" /tmp/archive-listing.txt || { echo "ERROR: bin/Agamemnon_server missing from archive"; head -20 /tmp/archive-listing.txt; exit 1; }
               echo "ARCHIVE=$ARCHIVE"
           EOF
           pkg_rc=$?
