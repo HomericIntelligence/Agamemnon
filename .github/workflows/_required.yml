@@ -31,86 +31,53 @@ jobs:
             conan-${{ runner.os }}-debug-
             conan-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-clang-debug-
-            fetchcontent-r2-${{ runner.os }}-clang-
-            fetchcontent-r2-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install clang-format
-        run: sudo apt-get update && sudo apt-get install -y clang-format
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
-      - name: C++ format check
-        run: ./scripts/format.sh --check
-
-      - name: Install ruff
-        run: pip install ruff
-
-      - name: Python client lint
-        run: ruff check clients/python/
-
-      - name: Install system dependencies
+      # Runs clang-format, clang-tidy (via debug build), ruff, mypy, and
+      # actionlint inside the CI container with the workspace + conan cache
+      # mounted.
+      - name: Lint (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build clang clang-tidy
-          pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies (debug, for compile_commands.json)
-        run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/debug
-
-      - name: Configure with clang-tidy enabled
-        run: cmake --preset debug -DAgamemnon_ENABLE_CLANG_TIDY=ON
-
-      - name: Build (runs clang-tidy)
-        run: cmake --build --preset debug
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
-        with:
-          enable-cache: true
-
-      - name: Sync Python client (uv)
-        working-directory: clients/python
-        run: uv sync --locked
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              ./scripts/format.sh --check
+              ruff check clients/python/
+              conan install . --build=missing -s build_type=Debug --output-folder build/debug >/dev/null
+              cmake --preset debug -DAgamemnon_ENABLE_CLANG_TIDY=ON
+              cmake --build --preset debug
+              cd clients/python && uv sync --locked && uv run mypy src/
+              cd /workspace
+              actionlint
+            '
 
       - name: Run merge-queue workflow regression
-        working-directory: clients/python
-        run: uv run python -m pytest tests/test_ci_workflows.py -v
-
-      - name: Enforce Python client type check
-        working-directory: clients/python
-        run: uv run mypy src/
-
-      - name: Install actionlint
         run: |
-          ACTIONLINT_VERSION=1.7.7
-          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            -o /tmp/actionlint.tar.gz
-          tar -xz -C /usr/local/bin -f /tmp/actionlint.tar.gz actionlint
-          actionlint --version
-
-      - name: Check GitHub Actions workflow schemas
-        run: actionlint
-
-      - name: Install actionlint
-        run: |
-          ACTIONLINT_VERSION=1.7.7
-          curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
-            -o /tmp/actionlint.tar.gz
-          tar -xz -C /usr/local/bin -f /tmp/actionlint.tar.gz actionlint
-          actionlint --version
-
-      - name: Check GitHub Actions workflow schemas
-        run: actionlint
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              cd clients/python && uv sync --locked
+              uv run python -m pytest tests/test_ci_workflows.py -v
+            '
 
   markdownlint:
     name: markdownlint
@@ -141,21 +108,26 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          enable-cache: true
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
+
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
       # Assert every committed uv.lock is in sync with its pyproject.toml
       # (ADR-018: uv replaces pixi). `uv lock --check` fails if the lockfile
       # would change, i.e. it was not regenerated after a manifest edit.
-      - name: Check root toolchain lock
-        run: uv lock --check
-      - name: Check orchestration lock
-        working-directory: agamemnon
-        run: uv lock --check
-      - name: Check Python client lock
-        working-directory: clients/python
-        run: uv lock --check
+      - name: Check all lockfiles (in container)
+        run: |
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" -w /workspace agamemnon-ci:local \
+            bash -c 'set -euo pipefail; uv lock --check; cd agamemnon && uv lock --check; cd ../clients/python && uv lock --check'
 
   justfile-check:
     name: justfile-check
@@ -267,38 +239,34 @@ jobs:
             conan-${{ runner.os }}-release-
             conan-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-gcc-release-
-            fetchcontent-r2-${{ runner.os }}-gcc-
-            fetchcontent-r2-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install system dependencies
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Build + run unit tests (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies
-        run: |
-          conan install . --build=missing -s build_type=Release \
-            --output-folder build/release
-
-      - name: Configure
-        run: cmake --preset release
-
-      - name: Build
-        run: cmake --build --preset release
-
-      - name: Run unit tests
-        run: ctest --preset release --output-on-failure --timeout 120
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release
+              cmake --preset release
+              cmake --build --preset release
+              ctest --preset release --output-on-failure --timeout 120
+            '
 
   # ── 3. integration-tests ───────────────────────────────────────────────────
   integration-tests:
@@ -316,45 +284,40 @@ jobs:
             conan-${{ runner.os }}-release-
             conan-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-gcc-release-
-            fetchcontent-r2-${{ runner.os }}-gcc-
-            fetchcontent-r2-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install system dependencies
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Build + run integration tests (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies
-        run: |
-          conan install . --build=missing -s build_type=Release \
-            --output-folder build/release
-
-      - name: Configure
-        run: cmake --preset release
-
-      - name: Build
-        run: cmake --build --preset release
-
-      - name: Run integration tests (label filter, fallback to full suite)
-        run: |
-          cd build/release
-          if ctest -L integration --output-on-failure --dry-run 2>&1 | grep -q "No tests were found"; then
-            echo "No 'integration' label found — running full test suite"
-            ctest --output-on-failure
-          else
-            ctest -L integration --output-on-failure
-          fi
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release
+              cmake --preset release
+              cmake --build --preset release
+              cd build/release
+              if ctest -L integration --output-on-failure --dry-run 2>&1 | grep -q "No tests were found"; then
+                echo "No '"'"'integration'"'"' label found — running full test suite"
+                ctest --output-on-failure
+              else
+                ctest -L integration --output-on-failure
+              fi
+            '
 
   # ── 4. security/dependency-scan ────────────────────────────────────────────
   security-dependency-scan:
@@ -366,64 +329,48 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      - name: Restore Conan cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
-          enable-cache: true
+          path: ~/.conan2
+          key: conan-${{ runner.os }}-release-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-${{ runner.os }}-release-
+            conan-${{ runner.os }}-
 
-      - name: Python client dependency audit
-        working-directory: clients/python
-        # `--only-group lint` isolates the audit env (project runtime deps +
-        # pip-audit/pip/msgpack) with no test/dev tooling, matching the former
-        # pixi `lint` solve-group. `--skip-editable` skips the in-repo editable
-        # packages (client + orchestration).
-        run: uv run --only-group lint pip-audit --skip-editable
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install Trivy
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      # pip-audit + trivy + conan SBOM + grype scans, all inside the container.
+      # Security scanners (trivy/syft/grype) are pinned in ci/Containerfile.
+      - name: Dependency + SBOM scans (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          # v0.58.1 has been removed from upstream releases (404 from the
-          # binary URL and from the install.sh tag lookup, which is why CI
-          # was failing). Bump to v0.69.3 — current at time of fix — and use
-          # a direct binary download to keep the install deterministic.
-          TRIVY_VERSION=0.69.3
-          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
-            -o /tmp/trivy.tar.gz
-          tar -xz -C /usr/local/bin -f /tmp/trivy.tar.gz trivy
-          trivy --version
-
-      - name: Trivy filesystem scan
-        run: trivy fs --exit-code 1 --severity HIGH,CRITICAL --scanners vuln .
-
-      - name: Install Conan
-        run: pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Generate Conan lock file
-        run: conan lock create conanfile.py --lockfile-out=conan.lock --build=missing
-
-      - name: Install Syft
-        run: |
-          SYFT_VERSION=1.4.1
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-            | sh -s -- -b /usr/local/bin "v${SYFT_VERSION}"
-          syft version
-
-      - name: Install Grype
-        run: |
-          GRYPE_VERSION=0.87.0
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
-            | sh -s -- -b /usr/local/bin "v${GRYPE_VERSION}"
-          grype version
-
-      - name: Generate SBOM from Conan lock
-        run: syft . --override-default-catalogers conan -o cyclonedx-json=conan-sbom.cdx.json
-
-      - name: Scan Conan SBOM for CVEs
-        run: grype sbom:conan-sbom.cdx.json --fail-on high --output table
-
-      - name: Scan FetchContent deps (nats.c) for CVEs
-        run: grype sbom:.github/cpp-fetchcontent-deps.cdx.json --fail-on high --output table
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              cd clients/python && uv run --only-group lint pip-audit --skip-editable
+              cd /workspace
+              trivy fs --exit-code 1 --severity HIGH,CRITICAL --scanners vuln .
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan lock create conanfile.py --lockfile-out=conan.lock --build=missing >/dev/null
+              syft . --override-default-catalogers conan -o cyclonedx-json=conan-sbom.cdx.json
+              grype sbom:conan-sbom.cdx.json --fail-on high --output table
+              grype sbom:.github/cpp-fetchcontent-deps.cdx.json --fail-on high --output table
+            '
 
       - name: Upload C++ SBOMs
         if: always()
@@ -444,20 +391,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Gitleaks
-        run: |
-          GITLEAKS_VERSION=8.30.1
-          # SHA256 of gitleaks_${VERSION}_linux_x64.tar.gz from upstream checksums.txt
-          GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
-          OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
-          TARBALL="gitleaks_${GITLEAKS_VERSION}_${OS}_${ARCH}.tar.gz"
-          curl -sSfL -o "$TARBALL" \
-            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${TARBALL}"
-          echo "${GITLEAKS_SHA256}  ${TARBALL}" | sha256sum --check
-          tar -xz -C /usr/local/bin -f "$TARBALL" gitleaks
-          rm -f "$TARBALL"
-          gitleaks version
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
+
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
       - name: Gitleaks enforcement regression guard
         # Fails the build if a silent gitleaks invocation (exit-code zero) is
@@ -474,13 +417,20 @@ jobs:
 
       - name: Run Gitleaks
         run: |
-          if [ -f .gitleaks.toml ]; then
-            gitleaks detect --source . --config .gitleaks.toml \
-              --report-format sarif --report-path gitleaks.sarif --exit-code 1
-          else
-            gitleaks detect --source . \
-              --report-format sarif --report-path gitleaks.sarif --exit-code 1
-          fi
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              if [ -f .gitleaks.toml ]; then
+                gitleaks detect --source . --config .gitleaks.toml \
+                  --report-format sarif --report-path gitleaks.sarif --exit-code 1
+              else
+                gitleaks detect --source . \
+                  --report-format sarif --report-path gitleaks.sarif --exit-code 1
+              fi
+            '
 
       - name: Upload Gitleaks SARIF
         if: always() && hashFiles('gitleaks.sarif') != ''
@@ -506,35 +456,33 @@ jobs:
             conan-${{ runner.os }}-release-
             conan-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-gcc-release-
-            fetchcontent-r2-${{ runner.os }}-gcc-
-            fetchcontent-r2-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install system dependencies
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Configure + build (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          pip install conan
-
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies (release)
-        run: |
-          conan install . --build=missing -s build_type=Release \
-            --output-folder build/release
-
-      - name: Configure (release, warnings-as-errors)
-        run: cmake --preset release
-
-      - name: Build
-        run: cmake --build --preset release
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
+              cmake --preset release
+              cmake --build --preset release
+            '
 
   # ── 7. schema-validation ───────────────────────────────────────────────────
   schema-validation:
@@ -543,14 +491,22 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
 
-      - name: Install check-jsonschema
-        run: pip install check-jsonschema
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Validate GitHub Actions workflow schemas
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Validate GitHub Actions workflow schemas (in container)
         run: |
-          find .github/workflows -name "*.yml" | sort | \
-            xargs check-jsonschema \
-              --schemafile .github/schemas/github-workflow.json
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" -w /workspace agamemnon-ci:local \
+            bash -c 'find .github/workflows -name "*.yml" | sort | xargs check-jsonschema --schemafile .github/schemas/github-workflow.json'
 
   # ── 8. deps/version-sync ───────────────────────────────────────────────────
   deps-version-sync:
@@ -559,33 +515,22 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - name: Check CMakeLists.txt vs conanfile.py version consistency
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
+
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Check CMakeLists.txt vs conanfile.py version consistency (in container)
         run: |
-          python3 - <<'EOF'
-          import re, sys
-
-          cmake_text = open("CMakeLists.txt").read()
-          cmake_match = re.search(r"project\s*\([^)]*VERSION\s+(\S+)", cmake_text)
-          if not cmake_match:
-              print("ERROR: could not find VERSION in CMakeLists.txt", file=sys.stderr)
-              sys.exit(1)
-          cmake_ver = cmake_match.group(1)
-          print(f"CMake version:  {cmake_ver}")
-
-          conan_text = open("conanfile.py").read()
-          conan_match = re.search(r'version\s*=\s*["\']([^"\']+)["\']', conan_text)
-          if not conan_match:
-              print("ERROR: could not find version in conanfile.py", file=sys.stderr)
-              sys.exit(1)
-          conan_ver = conan_match.group(1)
-          print(f"Conan version:  {conan_ver}")
-
-          if cmake_ver != conan_ver:
-              print(f"ERROR: version mismatch — CMakeLists.txt={cmake_ver}, conanfile.py={conan_ver}", file=sys.stderr)
-              sys.exit(1)
-
-          print("OK: versions match")
-          EOF
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" -w /workspace agamemnon-ci:local \
+            python3 scripts/check-version-sync.py
 
   # ── 9. test (aggregate) ────────────────────────────────────────────────────
   # Canonical aggregate for the Ecosystem CI Status board. Surfaces a single
@@ -625,7 +570,7 @@ jobs:
   package:
     name: package
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
@@ -638,69 +583,62 @@ jobs:
             conan-${{ runner.os }}-release-
             conan-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-gcc-release-
-            fetchcontent-r2-${{ runner.os }}-gcc-
-            fetchcontent-r2-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          pip install conan
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies (release)
-        run: |
-          conan install . --build=missing -s build_type=Release \
-            --output-folder build/release
-
-      - name: Configure (release)
-        run: cmake --preset release
-
-      - name: Build
-        run: cmake --build --preset release
-
-      - name: Stage install tree
-        run: |
-          cmake --install build/release --prefix "$PWD/stage"
-          echo "── staged install tree ──"
-          find stage -maxdepth 3 -type f | sort
-
-      - name: Read project version
-        id: ver
-        run: |
-          VERSION=$(grep -oP 'kVersion\{"\K[^"]+' include/agamemnon/version.hpp)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Packaging version $VERSION"
-
-      - name: Install Syft (SBOM generator)
-        run: |
-          SYFT_VERSION=1.4.1
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-            | sh -s -- -b /usr/local/bin "v${SYFT_VERSION}"
-          syft version
-
-      - name: Generate package SBOM
-        run: syft dir:stage -o cyclonedx-json=stage-sbom.cdx.json
-
-      - name: Create release archive
+      - name: Build + stage install tree (in container)
         env:
-          VERSION: ${{ steps.ver.outputs.version }}
+          CONAN_HOME: /home/ci/.conan2
         run: |
-          ARCHIVE="Agamemnon-${VERSION}-linux-x86_64.tar.gz"
-          tar -czf "$ARCHIVE" -C stage .
-          echo "Created $ARCHIVE"
-          ls -lh "$ARCHIVE"
-          # Verify the archive is non-empty and contains the server binary.
-          tar -tzf "$ARCHIVE" | grep -q 'bin/Agamemnon_server'
+          set -euo pipefail
+          set +e
+          podman run --rm -i \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -s > /tmp/agamemnon-package.out <<'EOF'
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan install . --build=missing -s build_type=Release -s compiler=gcc -s compiler.version=13 -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 --output-folder build/release
+              cmake --preset release
+              cmake --build --preset release
+              cmake --install build/release --prefix "$PWD/stage"
+              echo "staged install tree:"
+              find stage -maxdepth 3 -type f | sort
+              VERSION=$(grep -oP 'kVersion\{"\K[^"]+' include/agamemnon/version.hpp)
+              if [ -z "$VERSION" ]; then echo "ERROR: version not extracted from version.hpp"; grep -o 'kVersion{[^}]*}' include/agamemnon/version.hpp; exit 1; fi
+              echo "Packaging version $VERSION"
+              syft dir:stage -o cyclonedx-json=stage-sbom.cdx.json
+              ARCHIVE="Agamemnon-${VERSION}-linux-x86_64.tar.gz"
+              tar -czf "$ARCHIVE" -C stage .
+              echo "Created $ARCHIVE"
+              ls -lh "$ARCHIVE"
+              tar -tzf "$ARCHIVE" > /tmp/archive-listing.txt
+              grep -q "bin/Agamemnon_server" /tmp/archive-listing.txt || { echo "ERROR: bin/Agamemnon_server missing from archive"; head -20 /tmp/archive-listing.txt; exit 1; }
+              echo "ARCHIVE=$ARCHIVE"
+          EOF
+          pkg_rc=$?
+          set -e
+          if [ "$pkg_rc" -ne 0 ]; then
+            echo "::error::package job failed inside container (exit $pkg_rc)"
+            cat /tmp/agamemnon-package.out
+            exit "$pkg_rc"
+          fi
+          ARCHIVE=$(sed -n 's/^ARCHIVE=//p' /tmp/agamemnon-package.out | tail -1)
+          if [ -z "$ARCHIVE" ]; then
+            echo "::error::package job did not report ARCHIVE"
+            cat /tmp/agamemnon-package.out
+            exit 1
+          fi
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload package artifact
@@ -733,62 +671,48 @@ jobs:
             conan-${{ runner.os }}-release-
             conan-${{ runner.os }}-
 
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-gcc-release-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
           restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-gcc-release-
-            fetchcontent-r2-${{ runner.os }}-gcc-
-            fetchcontent-r2-${{ runner.os }}-
+            podman-agamemnon-${{ runner.os }}-
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          pip install conan
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
 
-      - name: Detect Conan profile
-        run: conan profile detect --force
-
-      - name: Install Conan dependencies (release)
-        run: |
-          conan install . --build=missing -s build_type=Release \
-            --output-folder build/release
-
-      - name: Configure (release)
-        run: cmake --preset release
-
-      - name: Build
-        run: cmake --build --preset release
-
-      - name: Clean install into prefix
-        run: cmake --install build/release --prefix "$PWD/prefix"
-
-      - name: Verify installed artifacts
+      - name: Build + clean install + verify (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
         run: |
           set -euo pipefail
-          PREFIX="$PWD/prefix"
-          echo "── installed tree ──"
-          find "$PREFIX" -maxdepth 3 | sort
-
-          SERVER="$PREFIX/bin/Agamemnon_server"
-          HEALTH="$PREFIX/bin/Agamemnon_healthcheck"
-
-          # 1. Binaries are present and executable.
-          test -x "$SERVER" || { echo "::error::missing installed binary: $SERVER"; exit 1; }
-          test -x "$HEALTH" || { echo "::error::missing installed binary: $HEALTH"; exit 1; }
-
-          # 2. CMake package export config is installed for downstream consumers.
-          test -f "$PREFIX/lib/cmake/Agamemnon/AgamemnonTargets.cmake" \
-            || { echo "::error::missing installed CMake export targets"; exit 1; }
-
-          # 3. The static/shared library is installed.
-          ls "$PREFIX"/lib/libAgamemnon.* >/dev/null 2>&1 \
-            || { echo "::error::missing installed Agamemnon library"; exit 1; }
-
-          echo "OK: clean install smoke test passed"
+          set +e
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              conan install . --build=missing -s build_type=Release --output-folder build/release >/dev/null
+              cmake --preset release
+              cmake --build --preset release
+              cmake --install build/release --prefix "$PWD/prefix"
+              PREFIX="$PWD/prefix"
+              echo "── installed tree ──"
+              find "$PREFIX" -maxdepth 3 | sort
+              SERVER="$PREFIX/bin/Agamemnon_server"
+              HEALTH="$PREFIX/bin/Agamemnon_healthcheck"
+              test -x "$SERVER" || { echo "::error::missing installed binary: $SERVER"; exit 1; }
+              test -x "$HEALTH" || { echo "::error::missing installed binary: $HEALTH"; exit 1; }
+              test -f "$PREFIX/lib/cmake/Agamemnon/AgamemnonTargets.cmake" \
+                || { echo "::error::missing installed CMake export targets"; exit 1; }
+              ls "$PREFIX"/lib/libAgamemnon.* >/dev/null 2>&1 \
+                || { echo "::error::missing installed Agamemnon library"; exit 1; }
+              echo "OK: clean install smoke test passed"
+            '
 
   # ── 12. release (dry-run) ──────────────────────────────────────────────────
   # Release-readiness validation that runs on every push/PR to main WITHOUT
@@ -803,64 +727,27 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
-      - name: Validate release readiness (dry-run, no publish)
+      - name: Cache podman container storage
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-agamemnon-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: |
+            podman-agamemnon-${{ runner.os }}-
+
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+      - name: Validate release readiness (dry-run, no publish) (in container)
         run: |
-          python3 - <<'EOF'
-          import re, sys
+          podman run --rm --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" -w /workspace agamemnon-ci:local \
+            python3 scripts/check-release-readiness.py
 
-          errors = []
-
-          def read(path):
-              with open(path) as f:
-                  return f.read()
-
-          # Version from CMakeLists.txt
-          cmake = read("CMakeLists.txt")
-          m = re.search(r"project\s*\([^)]*VERSION\s+(\S+)", cmake)
-          cmake_ver = m.group(1) if m else None
-          if not cmake_ver:
-              errors.append("could not find VERSION in CMakeLists.txt")
-
-          # Version from conanfile.py
-          conan = read("conanfile.py")
-          m = re.search(r'version\s*=\s*["\']([^"\']+)["\']', conan)
-          conan_ver = m.group(1) if m else None
-          if not conan_ver:
-              errors.append("could not find version in conanfile.py")
-
-          # Version from the C++ header
-          header = read("include/agamemnon/version.hpp")
-          m = re.search(r'kVersion\{"([^"]+)"\}', header)
-          hdr_ver = m.group(1) if m else None
-          if not hdr_ver:
-              errors.append("could not find kVersion in version.hpp")
-
-          versions = {
-              "CMakeLists.txt": cmake_ver,
-              "conanfile.py": conan_ver,
-              "version.hpp": hdr_ver,
-          }
-          print("Release version sources:")
-          for k, v in versions.items():
-              print(f"  {k:18} {v}")
-
-          uniq = {v for v in versions.values() if v}
-          if len(uniq) > 1:
-              errors.append(f"version mismatch across release sources: {versions}")
-
-          # Validate semver shape.
-          if cmake_ver and not re.fullmatch(r"\d+\.\d+\.\d+", cmake_ver):
-              errors.append(f"version '{cmake_ver}' is not semver MAJOR.MINOR.PATCH")
-
-          # CHANGELOG must have an Unreleased section ready to promote.
-          changelog = read("CHANGELOG.md")
-          if "## [Unreleased]" not in changelog:
-              errors.append("CHANGELOG.md has no '## [Unreleased]' section")
-
-          if errors:
-              for e in errors:
-                  print(f"::error::{e}", file=sys.stderr)
-              sys.exit(1)
-
-          print(f"\nOK: release dry-run validated version {cmake_ver}")
-          EOF
+          pkg_rc=$?
+          set -e
+          if [ "$pkg_rc" -ne 0 ]; then
+            echo "::error::package job failed inside container (exit $pkg_rc)"
+            cat /tmp/agamemnon-package.out
+            exit "$pkg_rc"
+          fi

@@ -97,10 +97,11 @@ def test_merge_queue_regression_runs_in_required_job() -> None:
         step for step in steps if step.get("name") == "Run merge-queue workflow regression"
     )
 
-    assert regression["working-directory"] == "clients/python"
-    assert regression["run"] == (
-        "uv run python -m pytest tests/test_ci_workflows.py -v"
-    )
+    # Runs podman-by-default inside the CI container, mounting the workspace.
+    assert regression["run"].startswith("podman run")
+    assert "--userns=keep-id" in regression["run"]
+    assert "-w /workspace agamemnon-ci:local" in regression["run"]
+    assert "uv run python -m pytest tests/test_ci_workflows.py -v" in regression["run"]
 
 
 def _find_gitleaks_scan_step(workflow: dict) -> dict:

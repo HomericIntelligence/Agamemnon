@@ -1,0 +1,142 @@
+# Containerfile for agamemnon-ci — CI image for the Agamemnon C++20 service.
+#
+# This image provides the complete CI toolchain:
+# - Ubuntu 24.04 base with the system compiler (gcc/g++), clang, clang-format,
+#   clang-tidy, ninja, OpenSSL + libcurl dev headers (same apt sources as the
+#   ubuntu-24.04 runner image)
+# - uv with the locked root toolchain environment pre-installed (cmake, conan,
+#   ninja, gcovr, pre-commit — Odysseus ADR-018)
+# - Security scanners pinned: gitleaks, trivy, syft, grype, actionlint
+# - Non-root user 'ci' for rootless Podman compatibility
+#
+# Build (OCI-compliant — works with both podman and docker):
+#   podman build -f ci/Containerfile -t agamemnon-ci:local .
+#   docker build -f ci/Containerfile -t agamemnon-ci:local .
+#
+# Run:
+#   podman run --rm -v .:/workspace:Z agamemnon-ci:local just lint
+#   podman run --rm -v .:/workspace:Z agamemnon-ci:local cmake --preset release
+
+# ============================================================================
+# Stage 0: uv binary — installed from a pinned GitHub release so the checksum
+# is reproducible and the build resolves identically under both podman/buildah
+# and docker. (The ghcr.io astral-sh/uv image's tag scheme does not track uv
+# CLI versions, so we pin the release tarball instead.)
+# ============================================================================
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS uv
+
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSL --retry 5 --retry-all-errors https://github.com/astral-sh/uv/releases/download/0.12.1/uv-x86_64-unknown-linux-gnu.tar.gz -o /tmp/uv.tar.gz \
+    && echo "90b2f223fb69d19db49e117da601f64978593417988530aa733d456141b4bcbb  /tmp/uv.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 \
+    && rm /tmp/uv.tar.gz
+
+# ============================================================================
+# Stage 1: Runtime — full toolchain in one image
+# ============================================================================
+FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b
+
+LABEL org.opencontainers.image.title="agamemnon-ci"
+LABEL org.opencontainers.image.description="CI container for Agamemnon — build, lint, test, security scans"
+LABEL org.opencontainers.image.vendor="Agamemnon"
+LABEL org.opencontainers.image.source="https://github.com/HomericIntelligence/Agamemnon"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    UV_PROJECT_ENVIRONMENT=/opt/agamemnon-venv \
+    UV_LINK_MODE=copy \
+    # uv manages its own Python interpreter + tool envs; keep them under /opt
+    # (not /root) so the non-root ci user can read them at runtime.
+    UV_PYTHON_INSTALL_DIR=/opt/uv-python \
+    UV_TOOL_DIR=/opt/uv-tools \
+    UV_TOOL_BIN_DIR=/usr/local/bin \
+    PATH="/opt/agamemnon-venv/bin:$PATH"
+
+# System packages: compiler toolchain + dev headers (mirrors the CI job apt
+# installs — same ubuntu-24.04 apt sources). apt-get upgrade picks up any
+# security patches released after the base image was pinned.
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+    build-essential \
+    git \
+    curl \
+    ca-certificates \
+    clang \
+    clang-format \
+    clang-tidy \
+    ninja-build \
+    libssl-dev \
+    libcurl4-openssl-dev \
+    python3 \
+    python3-pip \
+    jq \
+    openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv — pinned release (keep in sync with astral-sh/setup-uv in workflows)
+COPY --from=uv /usr/local/bin/uv /usr/local/bin/uvx /usr/local/bin/
+
+# Layer: Dependency files — cache layer invalidated only when deps change.
+WORKDIR /opt/agamemnon-build
+COPY pyproject.toml uv.lock ./
+
+# Install the locked root toolchain environment (cmake, conan, ninja, gcovr,
+# pre-commit — ADR-018). The root project is tooling-only (package = false).
+RUN uv sync --locked
+
+# actionlint — pinned release binary (workflow lint)
+RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o /tmp/actionlint.tar.gz \
+    && echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  /tmp/actionlint.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint \
+    && rm /tmp/actionlint.tar.gz
+
+# gitleaks — pinned release binary (secrets scan)
+RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o /tmp/gitleaks.tar.gz \
+    && echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks \
+    && rm /tmp/gitleaks.tar.gz
+
+# trivy — pinned release binary (filesystem vuln scan)
+RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/aquasecurity/trivy/releases/download/v0.69.3/trivy_0.69.3_Linux-64bit.tar.gz -o /tmp/trivy.tar.gz \
+    && echo "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75  /tmp/trivy.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy \
+    && rm /tmp/trivy.tar.gz
+
+# syft — pinned release binary (SBOM generation)
+RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/anchore/syft/releases/download/v1.4.1/syft_1.4.1_linux_amd64.tar.gz -o /tmp/syft.tar.gz \
+    && echo "5e4c6a0d1ca28d25e060a29c7cca0aedc50d951bfb270b45bc9a71e86ac6fbe2  /tmp/syft.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/syft.tar.gz -C /usr/local/bin syft \
+    && rm /tmp/syft.tar.gz
+
+# grype — pinned release binary (SBOM CVE scan)
+RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/anchore/grype/releases/download/v0.87.0/grype_0.87.0_linux_amd64.tar.gz -o /tmp/grype.tar.gz \
+    && echo "be710d15f5477e5c77ce03d14e480263415d7ab135e04b8483663f688823087d  /tmp/grype.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/grype.tar.gz -C /usr/local/bin grype \
+    && rm /tmp/grype.tar.gz
+
+# ruff + mypy + check-jsonschema for the Python client lint/typecheck jobs
+# (installed as uv tools so bare invocations resolve on PATH, matching CI's
+# `pip install ruff`). UV_TOOL_INSTALL_DIR points at /opt (not /root) so the
+# installed venvs stay readable by the non-root ci user; UV_TOOL_BIN_DIR puts
+# the entry-point symlinks on PATH.
+RUN mkdir -p /opt/uv-tools && \
+    uv tool install ruff \
+    && uv tool install mypy \
+    && uv tool install check-jsonschema \
+    && uv tool install pip-audit \
+    && chmod -R a+rX /opt/uv-tools /opt/uv-python
+
+# Create non-root user for rootless Podman compatibility.
+# UID 1000 is the default first user on most Linux systems, matching typical
+# developer UIDs for smooth volume mount permissions without --userns=keep-id.
+# Ubuntu 24.04 ships a default 'ubuntu' user at UID 1000 — replace it with 'ci'.
+RUN userdel -r ubuntu 2>/dev/null || true; \
+    groupadd -r ci && useradd -r -g ci -u 1000 -m -s /bin/bash ci && \
+    chown -R ci:ci /opt/agamemnon-venv
+
+# Working directory is the mounted repo root at runtime
+WORKDIR /workspace
+
+# No ENTRYPOINT — commands are provided externally by CI or run_ci_local.sh
+
+USER ci

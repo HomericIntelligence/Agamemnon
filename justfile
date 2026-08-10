@@ -73,3 +73,63 @@ release VERSION push='true':
   if [ "{{push}}" = "true" ]; then
     git push --follow-tags
   fi
+
+# =============================================================================
+# Containerized CI (podman-by-default)
+# =============================================================================
+# These recipes run the same checks as the GitHub Actions workflows, but inside
+# the CI container image (ci/Containerfile) instead of on the native host.
+# Engine: podman (rootless, preferred) or docker — auto-detected by
+# scripts/run_ci_local.sh. Override with CONTAINER_ENGINE=docker.
+
+# Build the CI container image (ci/Containerfile)
+ci-build:
+    podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+# Run the full required-check suite in the container
+ci-check:
+    ./scripts/run_ci_local.sh all
+
+# Run lint (clang-format + clang-tidy + python lint + actionlint) in the container
+ci-lint:
+    ./scripts/run_ci_local.sh lint
+
+# Run unit tests in the container
+ci-unit:
+    ./scripts/run_ci_local.sh unit
+
+# Run integration tests in the container
+ci-integration:
+    ./scripts/run_ci_local.sh integration
+
+# Run the cmake build in the container
+ci-build-cpp:
+    ./scripts/run_ci_local.sh build
+
+# Run security scans (pip-audit + trivy + conan SBOM) in the container
+ci-security:
+    ./scripts/run_ci_local.sh security
+
+# Run the gitleaks secrets scan in the container
+ci-secrets:
+    ./scripts/run_ci_local.sh secrets
+
+# Run workflow schema validation in the container
+ci-schema:
+    ./scripts/run_ci_local.sh schema
+
+# Run deps/version-sync in the container
+ci-version-sync:
+    ./scripts/run_ci_local.sh version-sync
+
+# Run the release dry-run in the container
+ci-release:
+    ./scripts/run_ci_local.sh release
+
+# Run uv lockfile checks in the container
+ci-uv-check:
+    ./scripts/run_ci_local.sh uv-check
+
+# Run actionlint in the container
+ci-actionlint:
+    ./scripts/run_ci_local.sh actionlint
