@@ -64,6 +64,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     clang \
     clang-format \
     clang-tidy \
+    libclang-rt-18-dev \
     ninja-build \
     libssl-dev \
     libcurl4-openssl-dev \
