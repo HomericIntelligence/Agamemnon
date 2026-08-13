@@ -5,7 +5,7 @@
 # named stage — the `COPY --from=uv` below lifts only the static `uv` binary.
 FROM ghcr.io/astral-sh/uv:0.11.29@sha256:0df5bcf6657fdc6da7cd14e35f2af148c9d10e4e2435ddb97789a89ff45498fb AS uv
 
-FROM ubuntu:24.04@sha256:c4a8d5503dfb2a3eb8ab5f807da5bc69a85730fb49b5cfca2330194ebcc41c7b AS builder
+FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS builder
 
 # The system compiler (g++) and OpenSSL dev headers come from apt; the
 # CMake / Ninja / Conan toolchain comes from uv (see the `uv` stage above), so
@@ -76,7 +76,7 @@ RUN cmake -B build -G Ninja \
     && cmake --build build --target Agamemnon_server Agamemnon_healthcheck
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
-FROM debian:12-slim@sha256:f9c6a2fd2ddbc23e336b6257a5245e31f996953ef06cd13a59fa0a1df2d5c252
+FROM debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
