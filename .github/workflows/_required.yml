@@ -673,7 +673,14 @@ jobs:
               tar -czf "$ARCHIVE" -C stage .
               echo "Created $ARCHIVE"
               ls -lh "$ARCHIVE"
-              tar -tzf "$ARCHIVE" | grep -q "bin/Agamemnon_server"
+              # Verify the server binary is inside (Bucket D: never pipe tar into
+              # grep -q — grep -q exits on first match, tar gets SIGPIPE (141),
+              # and pipefail turns that into a job failure). Capture first, then grep.
+              ARCHIVE_LIST=$(tar -tzf "$ARCHIVE")
+              if ! grep -q "bin/Agamemnon_server" <<< "$ARCHIVE_LIST"; then
+                echo "error: archive is missing bin/Agamemnon_server" >&2
+                exit 1
+              fi
               echo "ARCHIVE=$ARCHIVE"
           EOF
           pkg_rc=$?
