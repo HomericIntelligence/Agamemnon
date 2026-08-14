@@ -1,0 +1,7 @@
+# actionlint configuration (https://github.com/rhysd/actionlint)
+#
+# The heavy build/sanitizer/coverage jobs run on the org's self-hosted
+# runner (aeolus). Declare its custom label so `actionlint` accepts it.
+self-hosted-runner:
+  labels:
+    - self-hosted-aeolus

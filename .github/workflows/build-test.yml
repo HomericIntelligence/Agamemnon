@@ -1,5 +1,9 @@
 name: Build and Test
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: [main]
@@ -8,134 +12,140 @@ on:
   # merge_group is intentionally absent: the merge queue runs only the fast
   # merge-queue-smoke.yml workflow (single merge-queue-smoke job, <5 min).
 
+
 jobs:
+  prepare-ci-image:
+    name: Prepare CI image (GHCR)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+      - name: Push CI image to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
+          podman tag agamemnon-ci:local ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman push ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+
   build-test:
     name: ${{ matrix.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}
-    runs-on: ${{ matrix.os }}
+    needs: prepare-ci-image
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         os: [ubuntu-24.04]
         compiler: [gcc, clang]
         build_type: [debug, release]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-
-      - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-${{ matrix.build_type }}-${{ hashFiles('conanfile.py') }}
-          restore-keys: |
-            conan-${{ runner.os }}-${{ matrix.build_type }}-
-            conan-${{ runner.os }}-
-
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
-          restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-${{ matrix.compiler }}-${{ matrix.build_type }}-
-            fetchcontent-r2-${{ runner.os }}-${{ matrix.compiler }}-
-            fetchcontent-r2-${{ runner.os }}-
-
-      - name: Install dependencies
+      - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
-          if [ "${{ matrix.compiler }}" = "clang" ]; then
-            sudo apt-get install -y clang
-          fi
-          pip install conan
-          conan profile detect --force
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
-      - name: Install Conan dependencies
-        env:
-          BUILD_TYPE: ${{ matrix.build_type }}
+
+
+
+      - name: Pull CI image from GHCR
         run: |
-          BUILD_TYPE_CAP="${BUILD_TYPE^}"
-          conan install . --build=missing -s build_type="$BUILD_TYPE_CAP" \
-            --output-folder "build/$BUILD_TYPE"
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
+          podman pull ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman tag ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }} agamemnon-ci:local
 
-      - name: Configure (${{ matrix.compiler }}, ${{ matrix.build_type }})
+      - name: Configure + build + test (in container)
         env:
+          CONAN_HOME: /home/ci/.conan2
           COMPILER: ${{ matrix.compiler }}
           BUILD_TYPE: ${{ matrix.build_type }}
         run: |
-          if [ "$COMPILER" = "clang" ]; then
-            export CC=clang CXX=clang++
-          fi
-          cmake --preset "$BUILD_TYPE"
-
-      - name: Build
-        env:
-          BUILD_TYPE: ${{ matrix.build_type }}
-        run: cmake --build --preset "$BUILD_TYPE"
-
-      - name: Test
-        env:
-          BUILD_TYPE: ${{ matrix.build_type }}
-        run: ctest --preset "$BUILD_TYPE" --timeout 120 --parallel 4
+          mkdir -p "$HOME/.conan2"
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -e "BUILD_TYPE=$BUILD_TYPE" \
+            -e "COMPILER=$COMPILER" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              BUILD_TYPE_CAP="${BUILD_TYPE^}"
+              if [ "$COMPILER" = "clang" ]; then
+                export CC=clang CXX=clang++
+                CONAN_CC="-s compiler=clang -s compiler.version=18"
+              else
+                CONAN_CC="-s compiler=gcc -s compiler.version=13"
+              fi
+              conan install . --build=missing -s build_type="$BUILD_TYPE_CAP" \
+                $CONAN_CC -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder "build/$BUILD_TYPE" >/dev/null
+              cmake --preset "$BUILD_TYPE"
+              cmake --build --preset "$BUILD_TYPE"
+              ctest --preset "$BUILD_TYPE" --timeout 120 --parallel 4
+            '
 
   # AddressSanitizer job -- catches dangling-reference / use-after-free regressions
   # introduced by incorrect lambda captures in routes.cpp (see #220).
   asan:
     name: ubuntu-24.04-clang-asan
+    needs: prepare-ci-image
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-
-      - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-asan-${{ hashFiles('conanfile.py') }}
-          restore-keys: |
-            conan-${{ runner.os }}-asan-
-            conan-${{ runner.os }}-
-
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: build/_deps
-          key: fetchcontent-r2-${{ runner.os }}-clang-asan-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
-          restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-clang-asan-
-            fetchcontent-r2-${{ runner.os }}-clang-
-
-      - name: Install dependencies
+      - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build clang
-          pip install conan
-          conan profile detect --force
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
 
-      - name: Install Conan dependencies
+
+
+
+      - name: Pull CI image from GHCR
         run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/asan
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
+          podman pull ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman tag ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }} agamemnon-ci:local
 
-      - name: Configure (clang, asan)
-        run: |
-          export CC=clang CXX=clang++
-          cmake --preset asan
-
-      - name: Build
-        run: cmake --build --preset asan
-
-      - name: Test
+      - name: Configure + build + test under ASAN (in container)
         env:
-          ASAN_OPTIONS: halt_on_error=1:detect_leaks=1
-        run: ctest --preset asan --timeout 120 --parallel 4
+          CONAN_HOME: /home/ci/.conan2
+        run: |
+          mkdir -p "$HOME/.conan2"
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              export CC=clang CXX=clang++
+              conan install . --build=missing -s build_type=Debug \
+                -s compiler=clang -s compiler.version=18 \
+                -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder build/asan >/dev/null
+              cmake --preset asan
+              cmake --build --preset asan
+              ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
+                ctest --preset asan --timeout 120 --parallel 4
+            '
 
   python-orchestration:
     name: python-orchestration
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
       - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
         with:
@@ -162,6 +172,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
       - name: Install check-jsonschema
         run: pip install check-jsonschema
@@ -189,6 +205,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
       - name: Install check-jsonschema
         run: pip install check-jsonschema
@@ -204,6 +226,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
       - name: Restore Conan cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
@@ -266,6 +294,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
       - name: Restore Conan cache
         uses: actions/cache@v4
@@ -344,6 +378,12 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
       - name: Install just
         uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0

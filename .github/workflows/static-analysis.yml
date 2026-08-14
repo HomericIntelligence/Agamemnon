@@ -1,5 +1,9 @@
 name: Static Analysis
 
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches: [main]
@@ -8,7 +12,22 @@ on:
   # merge_group is intentionally absent: the merge queue runs only the fast
   # merge-queue-smoke.yml workflow (single merge-queue-smoke job, <5 min).
 
+
 jobs:
+  prepare-ci-image:
+    name: Prepare CI image (GHCR)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - name: Build CI image (podman)
+        run: podman build -f ci/Containerfile -t agamemnon-ci:local .
+      - name: Push CI image to GHCR
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
+          podman tag agamemnon-ci:local ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman push ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+
   clang-format:
     name: clang-format
     runs-on: ubuntu-24.04
@@ -18,45 +37,54 @@ jobs:
         run: sudo apt-get install -y clang-format
       - name: Check formatting
         run: ./scripts/format.sh --check
+      - name: Prune stale podman storage (self-hosted disk pressure)
+        run: |
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
 
   clang-tidy:
     name: clang-tidy
+    needs: prepare-ci-image
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-
-      - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: ~/.conan2
-          key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
-          restore-keys: |
-            conan-${{ runner.os }}-debug-
-            conan-${{ runner.os }}-
-
-      - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
-        with:
-          path: build/**/_deps
-          key: fetchcontent-r2-${{ runner.os }}-clang-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
-          restore-keys: |
-            fetchcontent-r2-${{ runner.os }}-clang-debug-
-            fetchcontent-r2-${{ runner.os }}-clang-
-            fetchcontent-r2-${{ runner.os }}-
-
-      - name: Install dependencies
+      - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
-          sudo apt-get install -y ninja-build clang clang-tidy
-          pip install conan
-          conan profile detect --force
-      - name: Install Conan dependencies
+          podman container prune -af --volumes=false 2>/dev/null || exit 0
+          podman system prune -af --volumes=false || exit 0
+
+
+
+
+      - name: Pull CI image from GHCR
         run: |
-          conan install . --build=missing -s build_type=Debug \
-            --output-folder build/debug
-      - name: Configure
-        run: cmake --preset debug -DAgamemnon_ENABLE_CLANG_TIDY=ON
-      - name: Build (triggers clang-tidy)
-        run: cmake --build --preset debug
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io --username "${{ github.actor }}" --password-stdin
+          podman pull ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }}
+          podman tag ghcr.io/homericintelligence/agamemnon-ci:${{ github.sha }} agamemnon-ci:local
+
+      - name: Configure + build with clang-tidy (in container)
+        env:
+          CONAN_HOME: /home/ci/.conan2
+        run: |
+          mkdir -p "$HOME/.conan2"
+          podman run --rm \
+            --userns=keep-id:uid=1000,gid=1000 \
+            -v "$PWD:/workspace:Z" \
+            -v "$HOME/.conan2:/home/ci/.conan2:Z" \
+            -w /workspace agamemnon-ci:local \
+            bash -c '
+              set -euo pipefail
+              conan profile detect --exist-ok >/dev/null 2>&1
+              export CC=clang CXX=clang++
+              conan install . --build=missing -s build_type=Debug \
+                -s compiler=clang -s compiler.version=18 \
+                -s compiler.libcxx=libstdc++11 -s compiler.cppstd=20 \
+                --output-folder build/debug >/dev/null
+              cmake --preset debug -DAgamemnon_ENABLE_CLANG_TIDY=ON
+              cmake --build --preset debug
+            '
 
   check-all:
     name: All Static Analysis Checks
