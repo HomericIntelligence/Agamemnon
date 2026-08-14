@@ -70,6 +70,9 @@ jobs:
               # TODO: Raise threshold back to 80% once additional C++ tests land.
               # Current actual line coverage is ~77.2% (run 25640957315, 2026-05-10).
               # Target: 80% line coverage. Tracking ratchet upward as tests are added.
+              # NOTE: use str.format() here, NOT an f-string — the nested-quote f-string
+              # (f"{...get("line-rate")...}") is a SyntaxError before Python 3.12 (PEP 701),
+              # and this runs inside bash -c '...' so the inner quotes must stay escaped.
               LINE_COV=$(python3 -c "import xml.etree.ElementTree as ET; root = ET.parse(\"build/coverage-report/coverage.xml\").getroot(); print(\"{:.1f}\".format(float(root.attrib.get(\"line-rate\", 0)) * 100))")
               echo "Line coverage: ${LINE_COV}%"
               python3 -c "import sys; cov=float("${LINE_COV}"); sys.exit(0 if cov >= 75 else 1)"
