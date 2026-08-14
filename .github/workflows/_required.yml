@@ -666,7 +666,7 @@ jobs:
               cmake --install build/release --prefix "$PWD/stage"
               echo "staged install tree:"
               find stage -maxdepth 3 -type f | sort
-              VERSION=$(grep -oP 'kVersion\{"\\K[^"]+' include/agamemnon/version.hpp)
+              VERSION=$(grep -oP 'kVersion\{"\K[^"]+' include/agamemnon/version.hpp)
               echo "Packaging version $VERSION"
               syft dir:stage -o cyclonedx-json=stage-sbom.cdx.json
               ARCHIVE="Agamemnon-${VERSION}-linux-x86_64.tar.gz"
