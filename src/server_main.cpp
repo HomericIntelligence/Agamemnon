@@ -73,9 +73,11 @@ int main() {
   // ── GitHub reconciliation (#165) ─────────────────────────────────────────
   auto reconcile_env = std::getenv("GITHUB_RECONCILE_INTERVAL_SEC");
   int reconcile_sec = reconcile_env ? std::stoi(reconcile_env) : 300;
-  std::jthread reconciler;
+  // Heap-allocated so the signal trampoline's g_reconciler pointer never
+  // holds a stack address (CodeQL cpp/stack-address-escape). Owned by main().
+  auto reconciler = std::make_unique<std::jthread>();
   if (gh_client && reconcile_sec > 0) {
-    reconciler = std::jthread([&store, reconcile_sec](std::stop_token st) {
+    *reconciler = std::jthread([&store, reconcile_sec](std::stop_token st) {
       while (!st.stop_requested()) {
         try {
           std::size_t n = store.reconcile_from_github();
@@ -165,16 +167,18 @@ int main() {
     return v ? std::stoi(v) : def;
   };
 
-  httplib::Server server;
-  server.new_task_queue = [&env_int]() {
+  // Heap-allocated so g_server never holds a stack address (CodeQL
+  // cpp/stack-address-escape). Owned by main(); nulled before return.
+  auto server = std::make_unique<httplib::Server>();
+  server->new_task_queue = [&env_int]() {
     return new httplib::ThreadPool(env_int("SERVER_THREAD_COUNT", 8));
   };
-  server.set_read_timeout(env_int("SERVER_READ_TIMEOUT_SEC", 10));
-  server.set_write_timeout(env_int("SERVER_WRITE_TIMEOUT_SEC", 10));
-  server.set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
-                                1024UL * 1024UL);
+  server->set_read_timeout(env_int("SERVER_READ_TIMEOUT_SEC", 10));
+  server->set_write_timeout(env_int("SERVER_WRITE_TIMEOUT_SEC", 10));
+  server->set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
+                                 1024UL * 1024UL);
 
-  agamemnon::register_routes(server, store, nats, rate_limiter, auth, metrics, orchestrator);
+  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;
@@ -189,10 +193,12 @@ int main() {
   }
 
   // ── Signal handling ───────────────────────────────────────────────────────
-  std::atomic<bool> shutdown_requested{false};
-  g_shutdown_flag = &shutdown_requested;
-  g_server = &server;
-  g_reconciler = &reconciler;
+  // Heap-allocated so the signal trampoline's g_shutdown_flag pointer never
+  // holds a stack address (CodeQL cpp/stack-address-escape). Owned by main().
+  auto shutdown_requested = std::make_unique<std::atomic<bool>>(false);
+  g_shutdown_flag = shutdown_requested.get();
+  g_server = server.get();
+  g_reconciler = reconciler.get();
 
   struct sigaction sa = {};
   sa.sa_handler = shutdown_handler;
@@ -202,14 +208,14 @@ int main() {
   sigaction(SIGINT, &sa, nullptr);
 
   std::cout << "[agamemnon] listening on 0.0.0.0:" << port << "\n";
-  server.listen("0.0.0.0", port);  // blocks until server.stop() is called
+  server->listen("0.0.0.0", port);  // blocks until server.stop() is called
 
   // Null the static pointers before any further work so late signals are no-ops.
   g_server = nullptr;
   g_shutdown_flag = nullptr;
   g_reconciler = nullptr;
 
-  if (shutdown_requested.load()) {
+  if (shutdown_requested->load()) {
     std::cout << "[agamemnon] shutdown signal received — draining complete\n";
   }
 
