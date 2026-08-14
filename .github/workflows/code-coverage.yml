@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build CI image (podman)
         run: podman build -f ci/Containerfile -t agamemnon-ci:local .
       - name: Push CI image to GHCR
@@ -31,7 +31,7 @@ jobs:
     needs: prepare-ci-image
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
