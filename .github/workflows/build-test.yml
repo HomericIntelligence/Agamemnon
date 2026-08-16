@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build CI image (podman)
         run: podman build -f ci/Containerfile -t agamemnon-ci:local .
       - name: Push CI image to GHCR
@@ -41,7 +41,7 @@ jobs:
         compiler: [gcc, clang]
         build_type: [debug, release]
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -139,7 +139,7 @@ jobs:
     name: python-orchestration
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -147,7 +147,7 @@ jobs:
 
 
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # v7.6.0
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
         with:
           enable-cache: true
 
@@ -171,7 +171,7 @@ jobs:
     name: schema-validation
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -204,7 +204,7 @@ jobs:
     name: cyclonedx-validate
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -225,7 +225,7 @@ jobs:
     name: port-smoke-test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -234,7 +234,7 @@ jobs:
 
 
       - name: Restore Conan cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.conan2
           key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
@@ -243,7 +243,7 @@ jobs:
             conan-${{ runner.os }}-
 
       - name: Restore FetchContent cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: build/_deps
           key: fetchcontent-r2-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
@@ -293,7 +293,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -302,7 +302,7 @@ jobs:
 
 
       - name: Restore Conan cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.conan2
           key: conan-${{ runner.os }}-debug-${{ hashFiles('conanfile.py') }}
@@ -311,7 +311,7 @@ jobs:
             conan-${{ runner.os }}-
 
       - name: Restore FetchContent cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: build/debug/_deps
           key: fetchcontent-r2-${{ runner.os }}-gcc-debug-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
@@ -377,7 +377,7 @@ jobs:
     runs-on: ubuntu-24.04
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -386,7 +386,7 @@ jobs:
 
 
       - name: Install just
-        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
+        uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3  # v4.0.0
         with:
           just-version: "1.36.0"
 

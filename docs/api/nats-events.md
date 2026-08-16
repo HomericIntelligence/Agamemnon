@@ -11,7 +11,7 @@ All payloads are JSON-encoded strings.
 ## Published Events (Agamemnon → NATS)
 
 | Endpoint | NATS Subject | Trigger | Payload |
-|----------|-------------|---------|---------|
+| ---------- | ------------- | --------- | --------- |
 | `POST /v1/agents` | `hi.agents.{host}.{name}.created` | Always | Full `{"id":..., "agent":{...}}` response (use `host: docker` for docker-hosted agents) |
 | `POST /v1/agents/{id}/start` | `hi.agents.{host}.{name}.updated` | Always | `{"status":"online","id":"..."}` |
 | `POST /v1/agents/{id}/stop` | `hi.agents.{host}.{name}.updated` | Always | `{"status":"offline","id":"..."}` |
@@ -30,7 +30,7 @@ All payloads are JSON-encoded strings.
 ### Conditional log events
 
 | Endpoint | NATS Subject | Trigger | Payload |
-|----------|-------------|---------|---------|
+| ---------- | ------------- | --------- | --------- |
 | `POST /v1/agents` | `hi.logs.agamemnon.agent_created` | Always | Log envelope with `agent_id`, `name`, `type`, `host` |
 | `POST /v1/teams/{team_id}/tasks` | `hi.logs.agamemnon.task_dispatched` | Always | Log envelope with `task_id`, `team_id`, `type`, `subject` |
 | `PUT /v1/teams/{team_id}/tasks/{task_id}` | `hi.logs.agamemnon.task_completed` | Only when `status == "completed"` | Log envelope with `task_id`, `team_id`, `type`, `assignee` |
@@ -43,7 +43,7 @@ All payloads are JSON-encoded strings.
 Agamemnon also subscribes to one subject to receive myrmidon completions:
 
 | Subject | Publisher | Action |
-|---------|-----------|--------|
+| --------- | ----------- | -------- |
 | `hi.tasks.*.*.completed` | Myrmidons | Calls `store.mark_task_completed(task_id)` — sets `status=completed` and `completedAt=now()` |
 
 The myrmidon payload is expected to contain either `task_id` at the top level or nested
@@ -79,7 +79,7 @@ The NATS stream for myrmidon subjects uses `MaxAckPending=1` (pull-based, one-at
 ## Subject Namespace Reference
 
 | Prefix | Description |
-|--------|-------------|
+| -------- | ------------- |
 | `hi.agents.>` | Agent lifecycle events and team events |
 | `hi.tasks.>` | Task state updates (Odysseus subscribes here) |
 | `hi.pipeline.>` | Pipeline state updates (Odysseus subscribes here) |

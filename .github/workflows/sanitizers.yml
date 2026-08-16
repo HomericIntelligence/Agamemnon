@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Build CI image (podman)
         run: podman build -f ci/Containerfile -t agamemnon-ci:local .
       - name: Push CI image to GHCR
@@ -47,7 +47,7 @@ jobs:
       security-events: write
       packages: read
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -56,7 +56,7 @@ jobs:
 
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@4e828ff8d448a8a6e532957b1811f387a63867e8  # v3.26.13
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v3.26.13
         with:
           languages: cpp
           queries: security-and-quality
@@ -83,7 +83,7 @@ jobs:
         run: cmake --build --preset release
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@4e828ff8d448a8a6e532957b1811f387a63867e8  # v3.26.13
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v3.26.13
         with:
           category: "/language:cpp"
 
@@ -94,7 +94,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
@@ -140,7 +140,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
         run: |
           podman container prune -af --volumes=false 2>/dev/null || exit 0
