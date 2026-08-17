@@ -72,7 +72,6 @@ static void reply_bad_request(httplib::Response& res, const std::string& msg) {
   reply_json(res, 400, {{"error", msg}});
 }
 
-
 /// Returns false and sets 400 if value exceeds max_len.
 static bool check_field_length(httplib::Response& res, const std::string& field_name,
                                const std::string& value, std::size_t max_len) {
