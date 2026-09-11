@@ -190,3 +190,8 @@ fleet-attachment-test python='python3':
 [positional-arguments]
 fleet-attachment-run *args:
   PYTHONPATH="agamemnon/src${PYTHONPATH:+:$PYTHONPATH}" "${FLEET_ATTACHMENT_PYTHON:-python3}" -m agamemnon.fleetd "$@"
+
+# Builds the fixture-only receiver for the explicit Telemachy cross-repo contract.
+fleet-epic-import-build:
+  cmake -S test/fleet -B build/fleet
+  cmake --build build/fleet --target fleet_epic_import --parallel 2

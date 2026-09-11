@@ -58,6 +58,9 @@ if(FLEET_NATIVE_NATS_PREFIX)
   target_link_libraries(fleet_nats_endpoint_tests PRIVATE fleet_native_core
       ${GTEST_MAIN_LIBRARY} ${GTEST_LIBRARY} ${NATS_DYNAMIC_LIBRARY})
   add_test(NAME fleet_nats_endpoint COMMAND fleet_nats_endpoint_tests)
+  add_executable(fleet_epic_import ${ROOT}/src/nats_client.cpp import_epic.cpp)
+  target_include_directories(fleet_epic_import SYSTEM PRIVATE ${NATS_INCLUDE})
+  target_link_libraries(fleet_epic_import PRIVATE fleet_native_core ${NATS_LIBRARY})
   add_executable(fleet_jetstream_tests ${ROOT}/src/nats_client.cpp ${ROOT}/test/src/test_nats_durable.cpp)
   target_include_directories(fleet_jetstream_tests SYSTEM PRIVATE ${NATS_INCLUDE} ${GTEST_INCLUDE})
   target_link_libraries(fleet_jetstream_tests PRIVATE fleet_native_core

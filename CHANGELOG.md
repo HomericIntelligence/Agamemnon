@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `test(fleet)`: add an executable receiver for actual Telemachy producer bytes,
+  with private-broker replay and controlled GitHub failure checks (Refs #504).
+
 - `feat(fleet)`: add GitHub-backed Fleet control, shared canonical task claims,
   private worker attachment, configured Projects projection, and durable JetStream
   epic replay/parent wakeup with explicit single-writer and deployment limits (Refs #504).

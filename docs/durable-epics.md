@@ -99,12 +99,36 @@ and the actual native epic-to-parent-wakeup path with a GitHub fixture. They do 
 prove positive live GitHub admission, a planner executing the wakeup, or throughput.
 Telemachy's legacy publisher uses Core publish plus flush and recreates issues on
 retry. Its separate Fleet path now supplies issue-backed progress and real PubAck
-for an existing reviewed epic under a single writer. The exact captured producer
-bytes have not yet been executed through this native handler; source-contract
-comparison is distinct from that remaining integration test. Legacy task lifecycle
-Core subscriptions are also outside this epic consumer slice. No production
+for an existing reviewed epic under a single writer. The explicit cross-repository
+contract below feeds actual producer bytes from a private broker through the
+compiled native handler, including receipt-write loss, exact replay, and parent
+wakeup. Legacy task lifecycle Core subscriptions are also outside this epic
+consumer slice. No production
 broker configuration or live issues were changed by these tests.
 
 The implementation follows the [NATS consumer contract](https://docs.nats.io/learn/jetstream/pull-consumers)
 and the installed nats.c headers for pull binding, explicit ACK, delayed NAK, TERM,
 publication IDs, and synchronous PubAck.
+
+## Producer-to-native contract
+
+Build the fixture executable through `just fleet-epic-import-build`. Then, from
+the standalone Telemachy checkout, run:
+
+```bash
+just fleet-native-contract /path/to/Agamemnon/build/fleet/fleet_epic_import \
+  /path/to/nats-server /private/new-output-directory /path/to/python
+```
+
+The output directory must not exist. The driver starts a private loopback broker
+and invokes the real Telemachy registration/publish functions. It verifies the
+issue-backed outbox bytes against the broker, simulates a failed receipt write,
+and checks that a fresh producer invocation reuses children and gets a duplicate
+PubAck for identical bytes. The native fixture rejects an altered capture before
+processing, rejects its first controlled GitHub write without dispatch or ACK,
+and then processes and replays the actual producer body across controller
+restart. A deliberately changed transport deduplication header exercises receiver
+idempotence without waiting for the broker window; the body stays unchanged.
+A controlled canonical child completion must wake its parent without completing
+the parent. Captures and process output are written only by the executing test.
+This does not provision a worker or establish live GitHub admission.
