@@ -118,7 +118,8 @@ bool NatsClient::publish_durable(const std::string& subject, const std::string& 
   const bool valid = info->Config->Storage == js_FileStorage &&
                      info->Config->Retention == js_LimitsPolicy &&
                      info->Config->Duplicates >= 120000000000LL && info->Config->MaxAge == 0 &&
-                     info->Config->Discard == js_DiscardNew;
+                     info->Config->Discard == js_DiscardNew &&
+                     (info->Config->MaxMsgsPerSubject <= 0 || info->Config->DiscardNewPerSubject);
   jsStreamInfo_Destroy(info);
   if (!valid) return false;
   jsPubOptions options;
@@ -144,7 +145,9 @@ bool NatsClient::subscribe_durable(const std::string& stream, const std::string&
                             stream_info->Config->Retention == js_LimitsPolicy &&
                             stream_info->Config->Duplicates >= 120000000000LL &&
                             stream_info->Config->MaxAge == 0 &&
-                            stream_info->Config->Discard == js_DiscardNew;
+                            stream_info->Config->Discard == js_DiscardNew &&
+                            (stream_info->Config->MaxMsgsPerSubject <= 0 ||
+                             stream_info->Config->DiscardNewPerSubject);
   jsStreamInfo_Destroy(stream_info);
   if (!stream_valid) return false;
   jsConsumerInfo* info = nullptr;

@@ -202,6 +202,42 @@ TEST_F(PrivateJetStream, IncompatibleConsumerIsNotSilentlyReconfigured) {
                                         [](auto&, auto&) {}));
 }
 
+TEST_F(PrivateJetStream, PerSubjectLimitNeverEvictsPriorDurableWork) {
+  NatsClient client(url);
+  ASSERT_TRUE(client.connect());
+  client.ensure_streams(true);
+  for (const bool reject_new : {false, true}) {
+    SCOPED_TRACE(reject_new ? "reject new per subject" : "unsafe per-subject eviction");
+    jsStreamInfo* info = nullptr;
+    ASSERT_EQ(js_GetStreamInfo(&info, js, "homeric-pipeline", nullptr, nullptr), NATS_OK);
+    info->Config->MaxMsgsPerSubject = 1;
+    info->Config->DiscardNewPerSubject = reject_new;
+    ASSERT_EQ(js_UpdateStream(nullptr, js, info->Config, nullptr, nullptr), NATS_OK);
+    const std::string suffix = reject_new ? "reject" : "evict";
+    const std::string subject = "hi.pipeline.epic.subject-limit-" + suffix + ".registered";
+    const std::string original = "retained-registration";
+    EXPECT_EQ(js_Publish(nullptr, js, subject.c_str(), original.data(),
+                         static_cast<int>(original.size()), nullptr, nullptr), NATS_OK);
+    EXPECT_FALSE(client.publish_durable(subject, "replacement", "subject-limit-" + suffix));
+    EXPECT_EQ(client.subscribe_durable("homeric-pipeline", subject,
+                                       "subject-limit-" + suffix, [](auto&, auto&) {}),
+              reject_new);
+    natsMsg* retained = nullptr;
+    const auto found = js_GetLastMsg(&retained, js, "homeric-pipeline", subject.c_str(),
+                                    nullptr, nullptr);
+    EXPECT_EQ(found, NATS_OK);
+    if (retained) {
+      EXPECT_EQ(std::string(natsMsg_GetData(retained), natsMsg_GetDataLength(retained)), original);
+      natsMsg_Destroy(retained);
+    }
+    // Restore the shared private test stream before the next test runs.
+    info->Config->MaxMsgsPerSubject = -1;
+    info->Config->DiscardNewPerSubject = false;
+    EXPECT_EQ(js_UpdateStream(nullptr, js, info->Config, nullptr, nullptr), NATS_OK);
+    jsStreamInfo_Destroy(info);
+  }
+}
+
 class AuthorityFixture : public MockGitHubClient {
  public:
   bool reject_first_create = true;

@@ -49,6 +49,10 @@ work streams receive those settings. Existing incompatible streams cause attachm
 or strict publication to fail; the server does not migrate, purge, or replace them.
 The default 50-MiB bound remains. A full stream rejects new publications, preserving
 existing data. Approved capacity changes and safe archival are operational work.
+Positive `MaxMsgsPerSubject` limits additionally require
+`DiscardNewPerSubject=true`. Without that setting, NATS can replace the previous
+message on one subject despite stream-level `DiscardNew`; both the durable
+publisher and consumer reject that configuration before work is sent or attached.
 
 The consumer uses explicit acknowledgments, a 30-second ACK deadline, one pending
 message, and a persistent pull cursor. A processing heartbeat extends the deadline

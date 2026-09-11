@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(fleet)`: reject per-subject retention settings that can evict pending
+  durable work, with a private JetStream preservation regression (Refs #504).
+
 - `fix(ci)`: upgrade the audit environment's pip security floor and locked
   version to remove PYSEC-2026-3721 from the required scan (Refs #504).
 
