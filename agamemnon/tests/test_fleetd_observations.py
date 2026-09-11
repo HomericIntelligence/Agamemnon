@@ -210,7 +210,12 @@ def test_partial_writes_preserve_jsonl_boundaries(monkeypatch: Any) -> None:
 
 @pytest.mark.parametrize(
     "field,value",
-    [("sourceSequence", True), ("sourceId", PRIVATE_INPUT_FIXTURE), ("observedAt", PRIVATE_INPUT_FIXTURE), ("operation", PRIVATE_INPUT_FIXTURE)],
+    [
+        ("sourceSequence", True),
+        ("sourceId", PRIVATE_INPUT_FIXTURE),
+        ("observedAt", PRIVATE_INPUT_FIXTURE),
+        ("operation", PRIVATE_INPUT_FIXTURE),
+    ],
 )
 def test_invalid_observation_is_dropped_without_private_content(field: str, value: Any) -> None:
     observation, _ = modules()
