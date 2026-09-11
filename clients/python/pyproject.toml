@@ -58,7 +58,7 @@ lint = [
     # `lint` solve-group; uv shares the project's requires-python, hence the
     # explicit markers.)
     "pip-audit>=2.8; python_version >= '3.10'",
-    "pip>=26.1.2; python_version >= '3.10'",
+    "pip>=26.2; python_version >= '3.10'",
     # Transitive dep of pip-audit (via cachecontrol). Pinned to the first
     # patched release for GHSA-6v7p-g79w-8964 (use-after-free DoS, CVSS 7.5);
     # msgpack <= 1.2.0 is flagged by security/dependency-scan and blocks all

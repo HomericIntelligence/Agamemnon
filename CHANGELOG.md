@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(ci)`: upgrade the audit environment's pip security floor and locked
+  version to remove PYSEC-2026-3721 from the required scan (Refs #504).
+
 - `fix(ci)`: create empty Conan cache directories before required-job container
   mounts, preserving cold-cache test and build execution (Refs #504).
 
