@@ -25,6 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(ci)`: create empty Conan cache directories before required-job container
+  mounts, preserving cold-cache test and build execution (Refs #504).
+
 - `fix(fleet)`: propagate durable-write failures before state changes or dispatch,
   reject ambiguous POST retries and legacy mutations of Fleet-owned work, and
   require correlated inactive-worker cleanup before releasing admission (Refs #504).

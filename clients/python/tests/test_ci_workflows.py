@@ -50,8 +50,7 @@ def test_merge_group_runs_only_the_smoke_workflow() -> None:
         assert triggers["push"]["branches"] == ["main"]
         assert triggers["pull_request"]["branches"] == ["main"]
         assert "merge_group" not in triggers, (
-            f"{filename} must not trigger on merge_group — merge-queue-smoke.yml "
-            "owns that event"
+            f"{filename} must not trigger on merge_group — merge-queue-smoke.yml owns that event"
         )
 
     smoke = _load_workflow(WORKFLOW_DIR / SMOKE_WORKFLOW)
@@ -154,3 +153,51 @@ def test_gitleaks_sarif_upload_step_not_affected() -> None:
         "Upload Gitleaks SARIF step lost its 'always()' condition — "
         "SARIF reports will not be uploaded when the scan fails"
     )
+
+
+def test_empty_conan_cache_is_created_before_container_mount(tmp_path: Path) -> None:
+    """Execute each mount step up to a controlled container boundary on a cache miss."""
+    import os
+    import subprocess
+
+    workflow = _load_workflow()
+    checked = []
+    for job_id, job in workflow["jobs"].items():
+        for step in job.get("steps", []):
+            script = step.get("run", "")
+            if "$HOME/.conan2:/home/ci/.conan2:Z" not in script:
+                continue
+            sandbox = tmp_path / job_id
+            sandbox.mkdir()
+            fake_home = sandbox / "home"
+            fake_home.mkdir()
+            executable = sandbox / "podman"
+            executable.write_text(
+                '#!/bin/sh\nif [ ! -d "$FLEET_TEST_HOME/.conan2" ]; then exit 74; fi\nexit 73\n'
+            )
+            executable.chmod(0o700)
+            env = {
+                "PATH": str(sandbox) + os.pathsep + os.defpath,
+                "FLEET_TEST_HOME": str(fake_home),
+                "CONAN_HOME": "/home/ci/.conan2",
+                "FLEET_TEST_PACKAGE_OUTPUT": str(sandbox / "package.out"),
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-e",
+                    "-c",
+                    script.replace("$HOME", "$FLEET_TEST_HOME").replace(
+                        "/tmp/agamemnon-package.out", '"$FLEET_TEST_PACKAGE_OUTPUT"'
+                    ),
+                ],
+                cwd=sandbox,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert result.returncode == 73, (job_id, result.returncode, result.stderr)
+            assert (fake_home / ".conan2").is_dir()
+            checked.append(job_id)
+    assert len(checked) == 7
