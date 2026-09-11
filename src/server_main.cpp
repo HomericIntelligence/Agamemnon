@@ -159,6 +159,7 @@ int main() {
   // Explicit configuration enables only a derived ProjectV2 view. Failure here
   // is exposed through Fleet health and never substitutes for durable task state.
   nlohmann::json project_config = nullptr;
+  // The launching operator selects this local file; no HTTP field supplies its path.
   if (const char* path = std::getenv("AGAMEMNON_PROJECTS_CONFIG"); path && *path) {
     try {
       std::ifstream input(path);

@@ -85,6 +85,14 @@ COPY pyproject.toml uv.lock ./
 # pre-commit — ADR-018). The root project is tooling-only (package = false).
 RUN uv sync --locked
 
+# Test broker only: CTest starts a fresh loopback JetStream instance with private
+# storage. Verify the pinned release before extracting the single executable.
+RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/nats-io/nats-server/releases/download/v2.10.24/nats-server-v2.10.24-linux-amd64.tar.gz -o /tmp/nats-server.tar.gz \
+    && echo "ee6500f364e3a741b496ae0296c04f2a9d53bbaabac457104ac74596b4a59d85  /tmp/nats-server.tar.gz" | sha256sum --check \
+    && tar xzf /tmp/nats-server.tar.gz -C /usr/local/bin --strip-components=1 nats-server-v2.10.24-linux-amd64/nats-server \
+    && rm /tmp/nats-server.tar.gz \
+    && nats-server --version
+
 # actionlint — pinned release binary (workflow lint)
 RUN curl -fsSL --retry 5 --retry-all-errors https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o /tmp/actionlint.tar.gz \
     && echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  /tmp/actionlint.tar.gz" | sha256sum --check \

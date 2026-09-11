@@ -4,6 +4,7 @@
 #include "agamemnon/orchestrator.hpp"
 #include "agamemnon/projects.hpp"
 #include "agamemnon/store.hpp"
+#include "agamemnon/version.hpp"
 
 #include <algorithm>
 #include <openssl/crypto.h>
@@ -63,6 +64,7 @@ void reply(httplib::Response& response, int status, Function function) {
     response.status = 503;
     result = {{"error", "durable Fleet operation unavailable; reconcile before retry"}};
   }
+  response.set_header("X-API-Version", std::string(kVersion));
   response.set_content(result.dump(), "application/json");
 }
 }  // namespace
@@ -272,6 +274,8 @@ json FleetService::events(std::uint64_t after) {
 
 json FleetService::command(const std::string& kind, const std::string& id,
                            const std::string& operation, const json& body) {
+  // Serialize admission and command intent under the single-controller boundary.
+  // Mutate a copy: only persist_ can commit it to the cache after GitHub confirms.
   std::lock_guard lock(mutex_);
   load_();
   auto& entry = find_(kind, id);
@@ -380,6 +384,8 @@ json FleetService::command(const std::string& kind, const std::string& id,
     if (occupied >= worker["capacity"].get<int>())
       throw FleetError(409, "worker capacity exhausted");
     if (record.contains("taskId")) {
+      // This separate durable claim deliberately survives a later intent failure;
+      // a retry must retain the same owner instead of making the task available.
       if (!store_.reserve_hmas_fleet_claim(record["taskId"], canonical_claim(record)))
         throw FleetError(409, "canonical task is ineligible or already owned");
     }
@@ -417,6 +423,7 @@ json FleetService::command(const std::string& kind, const std::string& id,
   // Leave room for the current command's terminal confirmation.
   if (body_(document).size() > 45000 && operation != "cancel" && operation != "interrupt")
     throw FleetError(507, "Fleet record requires archival before new work");
+  // An uncertain delivery retries this exact persisted identity, never a new task.
   persist_(entry, std::move(document), operation + ".requested");
   if (!publisher_.publish(subject, envelope.dump()))
     throw FleetError(503, "command persisted; delivery uncertain; retry the same command");

@@ -85,6 +85,15 @@ slice; active or uncertain parent ownership must first be reconciled.
 
 ## Reproducible validation and remaining gates
 
+The standard CMake test build registers `fleet_jetstream` with the `integration`
+label. Both required hosted test jobs and the canonical local CI unit/integration
+commands run it through CTest. It executes all eight transport cases against a
+fresh private broker; missing `nats-server` fails the gate. The CI image installs
+checksum-verified `nats-server` 2.10.24. For a native build, put that broker on
+`PATH` or configure `-DAGAMEMNON_TEST_NATS_SERVER=/absolute/path/to/nats-server`.
+The focused native build registers the same CTest gate when its existing nats.c
+dependency is configured. Manual commands remain useful for diagnosis:
+
 1. Build the existing focused target with `just fleet-native-build <nats-build>`.
    This uses cached libraries; it does not install dependencies.
 2. Run `just fleet-jetstream-test <nats-server> <python>`. The harness creates a

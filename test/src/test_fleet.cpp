@@ -7,6 +7,7 @@
 #include "agamemnon/rate_limiter.hpp"
 #include "agamemnon/routes.hpp"
 #include "agamemnon/store.hpp"
+#include "agamemnon/version.hpp"
 
 #include <fstream>
 #include <memory>
@@ -414,6 +415,24 @@ TEST(FleetPersistence, MemoryOnlyModeIsRejected) {
   FleetService fleet(store, publisher);
   EXPECT_THROW(fleet.list("pools"), FleetError);
   EXPECT_THROW(fleet.create("pools", {{"id", "laptop"}, {"capacity", 12}}), FleetError);
+}
+
+TEST_F(FleetRoutes, CanonicalVersionHeaderOnSuccessAndFailure) {
+  const auto success = post("pools", {{"id", "version-pool"}, {"capacity", 1}});
+  ASSERT_TRUE(success);
+  ASSERT_EQ(success->status, 201);
+  EXPECT_EQ(success->get_header_value("X-API-Version"), std::string(kVersion));
+
+  const auto invalid = post("pools", json::array());
+  ASSERT_TRUE(invalid);
+  ASSERT_EQ(invalid->status, 400);
+  EXPECT_EQ(invalid->get_header_value("X-API-Version"), std::string(kVersion));
+
+  github->fail_create = true;
+  const auto unavailable = post("pools", {{"id", "unavailable-pool"}, {"capacity", 1}});
+  ASSERT_TRUE(unavailable);
+  ASSERT_EQ(unavailable->status, 503);
+  EXPECT_EQ(unavailable->get_header_value("X-API-Version"), std::string(kVersion));
 }
 
 TEST_F(FleetRoutes, RestartHydratesLinkageAndControlCursor) {
@@ -825,6 +844,7 @@ TEST_F(FleetRoutes, ExportLifecycleEnvelopes) {
   EXPECT_FALSE(created["executionId"].get<std::string>().empty());
   for (const auto& emitted : commands)
     EXPECT_EQ(emitted["command"]["executionId"], created["executionId"]);
+  // Test-runner output only; this exporter is never part of the service binary.
   if (const char* path = std::getenv("FLEET_CONTRACT_OUTPUT")) {
     std::ofstream output(path);
     ASSERT_TRUE(output.good());

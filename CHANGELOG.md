@@ -25,6 +25,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(ci)`: run all eight private JetStream durability regressions through the
+  standard CTest integration gate and provision its pinned broker in the CI image
+  (Refs #504).
+- `fix(api)`: include the canonical `X-API-Version` header on Fleet success and
+  error responses (Refs #504).
+- `fix(ci)`: give the port parsing smoke test explicit local fixture configuration
+  so it can exercise parsing with required startup authentication enabled (Refs #504).
+
 - `fix(fleet)`: reject per-subject retention settings that can evict pending
   durable work, with a private JetStream preservation regression (Refs #504).
 

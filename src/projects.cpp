@@ -215,6 +215,8 @@ json ProjectProjection::health() const {
   return status_;
 }
 json ProjectProjection::reconcile() {
+  // Projection is a retryable read model: no branch below writes canonical task
+  // state or Hephaestus labels. Only one reconciliation mutates the board at once.
   std::unique_lock run_lock(run_mutex_, std::try_to_lock);
   if (!run_lock.owns_lock()) return health();
   auto result = health();
@@ -245,6 +247,8 @@ json ProjectProjection::reconcile() {
         throw std::runtime_error("duplicate_project_items");
     }
     for (const auto& [issue, task] : records) {
+      // Re-enumeration after a lost mutation response adopts the existing item;
+      // equal fields make confirmed projection retries a no-op.
       json row{{"taskId", task.id},
                {"orchestrationState", task_state_to_string(task.state)},
                {"orchestrationIssueUrl", issue.value("html_url", "")},
@@ -299,6 +303,7 @@ json ProjectProjection::reconcile() {
         const auto counter = changed ? "projected" : "unchanged";
         result[counter] = result[counter].get<int>() + 1;
       } catch (const std::exception&) {
+        // Preserve per-item failure for the operator without undoing durable work.
         row["state"] = "failed";
         row["error"] = "projection_not_acknowledged";
         row["retryable"] = true;

@@ -65,4 +65,11 @@ if(FLEET_NATIVE_NATS_PREFIX)
   target_include_directories(fleet_jetstream_tests SYSTEM PRIVATE ${NATS_INCLUDE} ${GTEST_INCLUDE})
   target_link_libraries(fleet_jetstream_tests PRIVATE fleet_native_core
       ${GTEST_MAIN_LIBRARY} ${GTEST_LIBRARY} ${NATS_LIBRARY})
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  set(AGAMEMNON_TEST_NATS_SERVER "nats-server" CACHE STRING
+      "Broker executable used only for isolated JetStream test processes")
+  add_test(NAME fleet_jetstream COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_LIST_DIR}/private_jetstream.py
+      ${AGAMEMNON_TEST_NATS_SERVER} $<TARGET_FILE:fleet_jetstream_tests>)
+  set_tests_properties(fleet_jetstream PROPERTIES LABELS "integration" TIMEOUT 60 RUN_SERIAL TRUE)
 endif()
