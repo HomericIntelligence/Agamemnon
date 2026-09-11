@@ -141,13 +141,12 @@ bool NatsClient::subscribe_durable(const std::string& stream, const std::string&
   jsStreamInfo* stream_info = nullptr;
   if (js_GetStreamInfo(&stream_info, to_js(js_), stream.c_str(), nullptr, nullptr) != NATS_OK)
     return false;
-  const bool stream_valid = stream_info->Config->Storage == js_FileStorage &&
-                            stream_info->Config->Retention == js_LimitsPolicy &&
-                            stream_info->Config->Duplicates >= 120000000000LL &&
-                            stream_info->Config->MaxAge == 0 &&
-                            stream_info->Config->Discard == js_DiscardNew &&
-                            (stream_info->Config->MaxMsgsPerSubject <= 0 ||
-                             stream_info->Config->DiscardNewPerSubject);
+  const bool stream_valid =
+      stream_info->Config->Storage == js_FileStorage &&
+      stream_info->Config->Retention == js_LimitsPolicy &&
+      stream_info->Config->Duplicates >= 120000000000LL && stream_info->Config->MaxAge == 0 &&
+      stream_info->Config->Discard == js_DiscardNew &&
+      (stream_info->Config->MaxMsgsPerSubject <= 0 || stream_info->Config->DiscardNewPerSubject);
   jsStreamInfo_Destroy(stream_info);
   if (!stream_valid) return false;
   jsConsumerInfo* info = nullptr;

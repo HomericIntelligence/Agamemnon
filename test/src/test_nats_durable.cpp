@@ -217,14 +217,15 @@ TEST_F(PrivateJetStream, PerSubjectLimitNeverEvictsPriorDurableWork) {
     const std::string subject = "hi.pipeline.epic.subject-limit-" + suffix + ".registered";
     const std::string original = "retained-registration";
     EXPECT_EQ(js_Publish(nullptr, js, subject.c_str(), original.data(),
-                         static_cast<int>(original.size()), nullptr, nullptr), NATS_OK);
+                         static_cast<int>(original.size()), nullptr, nullptr),
+              NATS_OK);
     EXPECT_FALSE(client.publish_durable(subject, "replacement", "subject-limit-" + suffix));
-    EXPECT_EQ(client.subscribe_durable("homeric-pipeline", subject,
-                                       "subject-limit-" + suffix, [](auto&, auto&) {}),
+    EXPECT_EQ(client.subscribe_durable("homeric-pipeline", subject, "subject-limit-" + suffix,
+                                       [](auto&, auto&) {}),
               reject_new);
     natsMsg* retained = nullptr;
-    const auto found = js_GetLastMsg(&retained, js, "homeric-pipeline", subject.c_str(),
-                                    nullptr, nullptr);
+    const auto found =
+        js_GetLastMsg(&retained, js, "homeric-pipeline", subject.c_str(), nullptr, nullptr);
     EXPECT_EQ(found, NATS_OK);
     if (retained) {
       EXPECT_EQ(std::string(natsMsg_GetData(retained), natsMsg_GetDataLength(retained)), original);
