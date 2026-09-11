@@ -63,19 +63,16 @@ NatsClient::~NatsClient() { close(); }
 
 bool NatsClient::connect() {
   natsOptions* opts = nullptr;
-  natsOptions_Create(&opts);
+  natsStatus s = natsOptions_Create(&opts);
+  const char* endpoint = url_.c_str();
+  if (s == NATS_OK) s = natsOptions_SetServers(opts, &endpoint, 1);
   // Allow nats.c internal reconnect attempts before we declare failure.
-  natsOptions_SetMaxReconnect(opts, 5);
-  natsOptions_SetReconnectWait(opts, 500);  // 500 ms between internal reconnect attempts
+  if (s == NATS_OK) s = natsOptions_SetMaxReconnect(opts, 5);
+  if (s == NATS_OK) s = natsOptions_SetReconnectWait(opts, 500);
 
   natsConnection* c = nullptr;
-  natsStatus s = natsConnection_Connect(&c, opts);
+  if (s == NATS_OK) s = natsConnection_Connect(&c, opts);
   natsOptions_Destroy(opts);
-
-  if (s != NATS_OK) {
-    // Fall back to simple URL connect (natsOptions_SetServers variant)
-    s = natsConnection_ConnectTo(&c, url_.c_str());
-  }
 
   if (s != NATS_OK) {
     std::cerr << "[nats] WARNING: could not connect to " << url_ << " — " << natsStatus_GetText(s)
@@ -103,8 +100,172 @@ bool NatsClient::connect() {
 }
 
 // ── close ─────────────────────────────────────────────────────────────────────
+bool NatsClient::publish_durable(const std::string& subject, const std::string& payload,
+                                 const std::string& message_id) {
+  if (!connected_ || !js_ || message_id.empty()) return false;
+  std::string stream;
+  if (subject.starts_with("hi.pipeline."))
+    stream = "homeric-pipeline";
+  else if (subject.starts_with("hi.myrmidon."))
+    stream = "homeric-myrmidon";
+  else if (subject.starts_with("hi.tasks."))
+    stream = "homeric-tasks";
+  else
+    return false;
+  jsStreamInfo* info = nullptr;
+  if (js_GetStreamInfo(&info, to_js(js_), stream.c_str(), nullptr, nullptr) != NATS_OK)
+    return false;
+  const bool valid = info->Config->Storage == js_FileStorage &&
+                     info->Config->Retention == js_LimitsPolicy &&
+                     info->Config->Duplicates >= 120000000000LL && info->Config->MaxAge == 0 &&
+                     info->Config->Discard == js_DiscardNew;
+  jsStreamInfo_Destroy(info);
+  if (!valid) return false;
+  jsPubOptions options;
+  jsPubOptions_Init(&options);
+  options.MsgId = message_id.c_str();
+  options.ExpectStream = stream.c_str();
+  options.MaxWait = 2000;
+  jsPubAck* ack = nullptr;
+  auto result = js_Publish(&ack, to_js(js_), subject.c_str(), payload.data(),
+                           static_cast<int>(payload.size()), &options, nullptr);
+  const bool persisted = result == NATS_OK && ack != nullptr;
+  if (ack) jsPubAck_Destroy(ack);
+  return persisted;
+}
+bool NatsClient::subscribe_durable(const std::string& stream, const std::string& subject,
+                                   const std::string& durable, MessageCallback cb,
+                                   int retry_delay_ms) {
+  if (!connected_ || !js_ || retry_delay_ms < 1 || retry_delay_ms > 10000) return false;
+  jsStreamInfo* stream_info = nullptr;
+  if (js_GetStreamInfo(&stream_info, to_js(js_), stream.c_str(), nullptr, nullptr) != NATS_OK)
+    return false;
+  const bool stream_valid = stream_info->Config->Storage == js_FileStorage &&
+                            stream_info->Config->Retention == js_LimitsPolicy &&
+                            stream_info->Config->Duplicates >= 120000000000LL &&
+                            stream_info->Config->MaxAge == 0 &&
+                            stream_info->Config->Discard == js_DiscardNew;
+  jsStreamInfo_Destroy(stream_info);
+  if (!stream_valid) return false;
+  jsConsumerInfo* info = nullptr;
+  auto found =
+      js_GetConsumerInfo(&info, to_js(js_), stream.c_str(), durable.c_str(), nullptr, nullptr);
+  if (found == NATS_NOT_FOUND) {
+    jsConsumerConfig config;
+    jsConsumerConfig_Init(&config);
+    config.Durable = durable.c_str();
+    config.FilterSubject = subject.c_str();
+    config.DeliverPolicy = js_DeliverAll;
+    config.AckPolicy = js_AckExplicit;
+    config.AckWait = 30000000000LL;
+    config.MaxDeliver = -1;
+    config.MaxAckPending = 1;
+    found = js_AddConsumer(&info, to_js(js_), stream.c_str(), &config, nullptr, nullptr);
+  }
+  if (found != NATS_OK || !info) return false;
+  const auto* config = info->Config;
+  const bool compatible =
+      config->AckPolicy == js_AckExplicit && config->DeliverPolicy == js_DeliverAll &&
+      config->AckWait == 30000000000LL && config->MaxDeliver == -1 && config->MaxAckPending == 1 &&
+      config->BackOffLen == 0 && config->FilterSubject && subject == config->FilterSubject &&
+      (!config->DeliverSubject || !*config->DeliverSubject) && config->InactiveThreshold == 0;
+  jsConsumerInfo_Destroy(info);
+  if (!compatible) return false;
+  jsSubOptions options;
+  jsSubOptions_Init(&options);
+  options.Stream = stream.c_str();
+  options.Consumer = durable.c_str();
+  options.ManualAck = true;
+  natsSubscription* subscription = nullptr;
+  if (js_PullSubscribe(&subscription, to_js(js_), subject.c_str(), durable.c_str(), nullptr,
+                       &options, nullptr) != NATS_OK)
+    return false;
+  consumers_.emplace_back([this, subscription, cb = std::move(cb), stream, durable,
+                           retry_delay_ms](std::stop_token stop) {
+    while (!stop.stop_requested()) {
+      natsMsgList messages{};
+      auto status = natsSubscription_Fetch(&messages, subscription, 1, 100, nullptr);
+      if (status == NATS_TIMEOUT) continue;
+      if (status != NATS_OK) {
+        std::cerr << "[nats] durable fetch failed for " << durable << ": "
+                  << natsStatus_GetText(status) << "\n";
+        std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms));
+        continue;
+      }
+      for (int index = 0; index < messages.Count; ++index) {
+        auto* message = messages.Msgs[index];
+        jsMsgMetaData* metadata = nullptr;
+        if (natsMsg_GetMetaData(&metadata, message) != NATS_OK) continue;
+        const std::string source = natsMsg_GetSubject(message);
+        const std::string data(natsMsg_GetData(message), natsMsg_GetDataLength(message));
+        std::string failure;
+        // Slow GitHub processing extends the ACK deadline, but this is not a
+        // distributed controller lease. Deployment remains a single writer.
+        std::jthread heartbeat([message](std::stop_token heartbeat_stop) {
+          int ticks = 0;
+          while (!heartbeat_stop.stop_requested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            if (++ticks % 50 == 0) natsMsg_InProgress(message, nullptr);
+          }
+        });
+        try {
+          if (metadata->NumDelivered > 3)
+            failure = "processing_retry_exhausted";
+          else
+            cb(source, data);
+        } catch (const std::invalid_argument&) {
+          failure = "invalid_input";
+        } catch (...) {
+          failure = "processing_failed";
+        }
+        heartbeat.request_stop();
+        heartbeat.join();
+        if (failure.empty()) {
+          if (natsMsg_AckSync(message, nullptr, nullptr) != NATS_OK) {
+            std::cerr << "[nats] durable ACK unconfirmed for " << durable << "\n";
+            natsMsg_NakWithDelay(message, retry_delay_ms, nullptr);
+          }
+        } else if (failure == "invalid_input" || metadata->NumDelivered >= 3) {
+          std::string encoded;
+          static constexpr char hex[] = "0123456789abcdef";
+          const auto kept = std::min<std::size_t>(data.size(), 65536);
+          for (std::size_t i = 0; i < kept; ++i) {
+            auto byte = static_cast<unsigned char>(data[i]);
+            encoded += hex[byte >> 4];
+            encoded += hex[byte & 15];
+          }
+          const auto id = durable + ":" + std::to_string(metadata->Sequence.Stream);
+          nlohmann::json record = {
+              {"schema", "hi/quarantine/v1"},    {"eventId", id},
+              {"status", "quarantined"},         {"reason", failure},
+              {"sourceStream", stream},          {"sourceSequence", metadata->Sequence.Stream},
+              {"sourceSubject", source},         {"deliveries", metadata->NumDelivered},
+              {"payloadHex", encoded},           {"sourceBytes", data.size()},
+              {"truncated", kept != data.size()}};
+          if (publish_durable("hi.pipeline.quarantine." + durable, record.dump(), id)) {
+            if (natsMsg_Term(message, nullptr) != NATS_OK)
+              std::cerr << "[nats] quarantine termination unconfirmed for " << durable << "\n";
+          } else {
+            std::cerr << "[nats] quarantine unconfirmed for " << durable
+                      << "; source remains unacknowledged and quarantine delivery will retry\n";
+            natsMsg_NakWithDelay(message, retry_delay_ms, nullptr);
+          }
+        } else {
+          natsMsg_NakWithDelay(message, retry_delay_ms, nullptr);
+        }
+        jsMsgMetaData_Destroy(metadata);
+      }
+      natsMsgList_Destroy(&messages);
+    }
+    // Bound consumers survive attachment destruction and process restart.
+    natsSubscription_Destroy(subscription);
+  });
+  return true;
+}
 
 void NatsClient::close() {
+  for (auto& consumer : consumers_) consumer.request_stop();
+  consumers_.clear();
   if (js_) {
     jsCtx_Destroy(to_js(js_));
     js_ = nullptr;
@@ -120,7 +281,7 @@ void NatsClient::close() {
 
 // ── ensure_streams ────────────────────────────────────────────────────────────
 
-void NatsClient::ensure_streams() {
+void NatsClient::ensure_streams(bool durable_work) {
   if (!connected_ || !js_) return;
 
   auto env_int64 = [](const char* name, int64_t def) -> int64_t {
@@ -151,6 +312,13 @@ void NatsClient::ensure_streams() {
     cfg.Retention = js_LimitsPolicy;
     cfg.MaxBytes = max_bytes;
     cfg.MaxAge = static_cast<uint64_t>(max_age);
+    if (durable_work &&
+        (std::string(sd.name) == "homeric-pipeline" || std::string(sd.name) == "homeric-myrmidon" ||
+         std::string(sd.name) == "homeric-tasks")) {
+      cfg.MaxAge = 0;
+      cfg.Discard = js_DiscardNew;
+      cfg.Duplicates = 120000000000LL;
+    }
     cfg.MaxMsgs = -1;
 
     jsStreamInfo* info = nullptr;

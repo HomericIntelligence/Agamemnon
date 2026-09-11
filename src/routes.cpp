@@ -3,6 +3,7 @@
 #include "agamemnon/auth.hpp"
 #include "agamemnon/circuit_breaker.hpp"
 #include "agamemnon/dead_letter_queue.hpp"
+#include "agamemnon/fleet.hpp"
 #include "agamemnon/github_webhook.hpp"
 #include "agamemnon/hmas_types.hpp"
 #include "agamemnon/metrics.hpp"
@@ -205,7 +206,7 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 // register_routes is the public entry point invoked from server_main.cpp.
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
-                     Orchestrator& orchestrator) {
+                     Orchestrator& orchestrator, std::shared_ptr<FleetService> fleet) {
   Store* sp = &store;
   NatsPublisher* np = &nats;
   // Production NatsClient overrides dead_letter_queue()/circuit_breaker() to
@@ -259,6 +260,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // ── Global transport-layer body size limit (1 MB) ───────────────────────
   static constexpr std::size_t kMaxBodyBytes = 1U << 20U;
   server.set_payload_max_length(kMaxBodyBytes);
+  if (!fleet) fleet = std::make_shared<FleetService>(store, nats, &orchestrator);
+  register_fleet_routes(server, std::move(fleet));
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
@@ -798,17 +801,31 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   });
 
   // POST /v1/tasks/:task_id/complete — mark an HMAS task completed
-  server.Post(R"(/v1/tasks/([^/]+)/complete)",
-              [op](const httplib::Request& req, httplib::Response& res) {
-                const std::string task_id = req.matches[1];
-                json body;
-                if (!parse_body(req, res, body)) {
-                  return;
-                }
-                const json payload = {{"task_id", task_id}};
-                op->on_myrmidon_completion("v1.tasks." + task_id + ".complete", payload.dump());
-                reply_json(res, 200, {{"task_id", task_id}, {"completed", true}});
-              });
+  server.Post(R"(/v1/tasks/([^/]+)/complete)", [op, sp](const httplib::Request& req,
+                                                        httplib::Response& res) {
+    const std::string task_id = req.matches[1];
+    json body;
+    if (!parse_body(req, res, body)) {
+      return;
+    }
+    const auto before = sp->get_hmas_task(task_id);
+    if (before && !before->fleet_claim.is_null()) {
+      reply_json(res, 409, {{"error", "Fleet-owned task requires reviewed resolution"}});
+      return;
+    }
+    const json payload = {{"task_id", task_id}};
+    op->on_myrmidon_completion("v1.tasks." + task_id + ".complete", payload.dump());
+    const auto after = sp->get_hmas_task(task_id);
+    if (after && !after->fleet_claim.is_null()) {
+      reply_json(res, 409, {{"error", "Fleet ownership changed during completion"}});
+      return;
+    }
+    if (before && (!after || after->state != TaskState::Completed)) {
+      reply_json(res, 503, {{"error", "Canonical completion was not acknowledged"}});
+      return;
+    }
+    reply_json(res, 200, {{"task_id", task_id}, {"completed", true}});
+  });
 
   // GET /v1/tasks/:task_id/state — return current HMAS task state
   server.Get(R"(/v1/tasks/([^/]+)/state)",

@@ -8,14 +8,13 @@ info:
     service for the HomericIntelligence distributed agent mesh.
 
     **Authentication:** All endpoints (except `/health` and `/v1/health`) require an API key
-    when the server is launched with `AGAMEMNON_API_KEY` set. Two header forms are accepted:
+    configured through `AGAMEMNON_API_KEY`. Two header forms are accepted:
 
     * `Authorization: Bearer <key>`
     * `X-API-Key: <key>`
 
-    If `AGAMEMNON_API_KEY` is unset or empty in the server environment, authentication is
-    disabled and requests are accepted unauthenticated (development escape hatch). In
-    production deployments the environment variable MUST be set.
+    The server refuses to start when `AGAMEMNON_API_KEY` is unset or empty, before
+    connecting to the broker or starting projection services.
 
     **Transport:** Internal mesh traffic only (no TLS). Intended to be reached over Tailscale
     (100.x.x.x) or localhost.
@@ -45,6 +44,8 @@ security:
   - apiKeyAuth: []
 
 tags:
+  - name: fleet
+    description: Durable Fleet control and derived projections
   - name: health
     description: Health and version checks
   - name: agents
@@ -70,6 +71,255 @@ tags:
       (escalate / complete / state lookup).
 
 paths:
+  /v1/fleet/projects:
+    get:
+      tags: [fleet]
+      operationId: fleetProjectsHealth
+      summary: Inspect the configured derived ProjectV2 view
+      description: Reports configuration and retryable projection health without changing canonical state.
+      responses:
+        '200':
+          description: Projection health, including disabled and retryable failures
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ProjectsHealth'}
+  /v1/fleet/projects/reconcile:
+    post:
+      tags: [fleet]
+      operationId: fleetProjectsReconcile
+      summary: Rebuild explicitly configured ProjectV2 fields from durable issues
+      description: >-
+        Never modifies canonical task state or Hephaestus labels. Concurrent
+        requests return the current running status. Disabled configuration performs no writes.
+      responses:
+        '200':
+          description: Projection result; inspect state and retryable fields
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ProjectsHealth'}
+  /v1/fleet/{kind}:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Kind'
+    get:
+      tags: [fleet]
+      operationId: fleetList
+      summary: Read Fleet records and their last observed activity
+      description: Returns durable ownership alongside the latest observed runtime activity.
+      responses:
+        '200':
+          description: Records owned by Agamemnon
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: {$ref: './fleet.yaml#/components/schemas/Record'}
+                  total: {type: integer, minimum: 0}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+    post:
+      tags: [fleet]
+      operationId: fleetCreate
+      summary: Persist a resource without dispatching work
+      description: Requires a confirmed GitHub write before the resource becomes available.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/Create'}
+      responses:
+        '201':
+          description: GitHub acknowledged the resource
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/Record'}
+        '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
+        '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+  /v1/fleet/{kind}/{id}:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Kind'
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    get:
+      tags: [fleet]
+      operationId: fleetGet
+      summary: Inspect a Fleet resource
+      description: Returns the current control generation and explicit ownership metadata.
+      responses:
+        '200':
+          description: Resource with explicit ownership and observations
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/Record'}
+        '404': {$ref: './fleet.yaml#/components/responses/Missing'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+  /v1/fleet/{kind}/{id}/{operation}:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Kind'
+      - $ref: './fleet.yaml#/components/parameters/Id'
+      - name: operation
+        in: path
+        required: true
+        schema:
+          type: string
+          enum: [start, input, respond, interrupt, cancel, resume, drain]
+    post:
+      tags: [fleet]
+      operationId: fleetCommand
+      summary: Persist intent before Keystone publication
+      description: >-
+        Reuse commandId and idempotencyKey when delivery is uncertain. Only a
+        worker confirmation completes a stop. Pool control and worker startup
+        require allocation adapters and currently return 409. Drain applies to workers.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/CommandRequest'}
+      responses:
+        '202':
+          description: Durable intent; execution may still be pending
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  command: {$ref: './fleet.yaml#/components/schemas/Command'}
+                  status: {type: string, enum: [pending, accepted, completed, failed, superseded]}
+        '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
+        '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/Full'}
+  /v1/fleet/{kind}/{id}/ack:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Kind'
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetAcknowledge
+      summary: Persist an idempotent worker command receipt
+      description: Validates command identity, ownership, and generation before recording acknowledgment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/Acknowledgment'}
+      responses:
+        '200': {$ref: './fleet.yaml#/components/responses/Acknowledged'}
+        '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
+        '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+  /v1/fleet/{kind}/{id}/resolve:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Kind'
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetResolve
+      summary: Record an explicit manual orchestration decision for inactive work
+      description: >-
+        Applies to sessions, executions and build-jobs with a canonical task.
+        Disabled unless a separate operator resolution key is configured.
+        An evidence reference does not verify approval. The persisted resolution
+        is manual with verifiedApproval false and cannot establish independently
+        approved acceptance work. Reuse the same decision after uncertain writes.
+      security:
+        - bearerAuth: []
+          resolutionKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/ManualDecision'}
+      responses:
+        '200':
+          description: Canonical outcome and Fleet release are durably acknowledged
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/Record'}
+        '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
+        '403': {description: Separate operator credential required}
+        '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+  /v1/fleet/commands/{id}:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    get:
+      tags: [fleet]
+      operationId: fleetVerifyCommand
+      summary: Verify immutable durable intent against current ownership
+      description: This read gate is for an attachment adapter, not another work queue.
+      responses:
+        '200':
+          description: Original command, receipt status, and current resource
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [command, status, record]
+                properties:
+                  command: {$ref: './fleet.yaml#/components/schemas/Command'}
+                  status: {type: string}
+                  record: {$ref: './fleet.yaml#/components/schemas/Record'}
+        '404': {$ref: './fleet.yaml#/components/responses/Missing'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+  /v1/fleet/events:
+    get:
+      tags: [fleet]
+      operationId: fleetEvents
+      summary: Replay durable control transitions
+      description: >-
+        The cursor covers persisted control transitions only. High-volume activity
+        has a worker sourceSequence and is visible in current resource observations.
+        A cursor ahead of this controller requires resynchronization and returns 409.
+      parameters:
+        - name: after
+          in: query
+          schema: {type: integer, minimum: 0, default: 0}
+      responses:
+        '200':
+          description: Ordered control transitions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [events, cursor]
+                properties:
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      required: [seq, kind, targetId, event, at, record]
+                      properties:
+                        seq: {type: integer, minimum: 1}
+                        kind: {type: string}
+                        targetId: {type: string}
+                        event: {type: string}
+                        at: {type: string, format: date-time}
+                        record: {$ref: './fleet.yaml#/components/schemas/Record'}
+                  cursor: {type: integer, minimum: 0}
+        '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
+    post:
+      tags: [fleet]
+      operationId: fleetObserve
+      summary: Accept a versioned worker fact through Agamemnon
+      description: Applies fenced command receipts or observed activity without authorizing issue completion.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: './fleet.yaml#/components/schemas/Activity'
+                - $ref: './fleet.yaml#/components/schemas/Acknowledgment'
+      responses:
+        '200': {$ref: './fleet.yaml#/components/responses/Acknowledged'}
+        '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
+        '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
+        '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
 
   # ── Health / version ──────────────────────────────────────────────────────────
 
@@ -741,7 +991,8 @@ paths:
       description: |
         Reports completion of an HMAS task (used by myrmidons via the Telemachy
         completion protocol). The orchestrator records the completion and may
-        unblock dependent tasks.
+        unblock dependent tasks. Fleet-owned tasks return 409 and require the
+        separate reviewed Fleet resolution path.
       parameters:
         - name: id
           in: path
@@ -764,6 +1015,10 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HmasCompleteResponse"
+        "409":
+          description: Fleet ownership requires generation-fenced reviewed resolution
+        "503":
+          description: Canonical completion was not acknowledged
 
   /v1/tasks/{id}/state:
     get:
@@ -877,23 +1132,23 @@ paths:
 components:
 
   securitySchemes:
+    resolutionKey:
+      type: apiKey
+      in: header
+      name: X-Fleet-Resolution-Key
     bearerAuth:
       type: http
       scheme: bearer
       description: |
         API key supplied as `Authorization: Bearer <key>`. The expected key is the
-        value of the server's `AGAMEMNON_API_KEY` environment variable. When the
-        server is launched without `AGAMEMNON_API_KEY` (or with an empty value),
-        authentication is disabled (development escape hatch).
+        value of the server's required `AGAMEMNON_API_KEY` environment variable.
     apiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
       description: |
         API key supplied as `X-API-Key: <key>`. The expected key is the value of
-        the server's `AGAMEMNON_API_KEY` environment variable. When the server is
-        launched without `AGAMEMNON_API_KEY` (or with an empty value),
-        authentication is disabled (development escape hatch).
+        the server's required `AGAMEMNON_API_KEY` environment variable.
 
   parameters:
     LimitParam:
@@ -1500,6 +1755,14 @@ components:
           type: string
         assigned_lead_id:
           type: string
+        fleet_claim:
+          $ref: './fleet.yaml#/components/schemas/CanonicalClaim'
+        fleet_resolution:
+          $ref: './fleet.yaml#/components/schemas/Resolution'
+        delivery:
+          type: object
+          description: Orchestrator-owned durable publication checkpoints; not a task-state authority.
+          additionalProperties: true
         blocked_by:
           type: array
           items:

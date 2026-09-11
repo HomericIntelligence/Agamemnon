@@ -1,9 +1,11 @@
 #include "agamemnon/auth.hpp"
+#include "agamemnon/fleet.hpp"
 #include "agamemnon/metrics.hpp"
 #include "agamemnon/nats_client.hpp"
 #include "agamemnon/orchestrator.hpp"
 #include "agamemnon/peer_discovery.hpp"
 #include "agamemnon/port_parse.hpp"
+#include "agamemnon/projects.hpp"
 #include "agamemnon/rate_limiter.hpp"
 #include "agamemnon/routes.hpp"
 #include "agamemnon/store.hpp"
@@ -14,6 +16,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -49,6 +52,48 @@ int main() {
 
   std::cout << agamemnon::kProjectName << " v" << agamemnon::kVersion << " starting...\n";
 
+  // Validate required authorization before constructing any service that can
+  // contact GitHub, discover peers, or attach to a work consumer.
+  const char* api_key_env = std::getenv("AGAMEMNON_API_KEY");
+  if (!api_key_env || std::string(api_key_env).empty()) {
+    std::cerr << "[agamemnon] FATAL: AGAMEMNON_API_KEY is not set. Refusing to start.\n";
+    return 1;
+  }
+  agamemnon::AuthMiddleware auth(api_key_env);
+
+  // ── Rate limiter ──────────────────────────────────────────────────────────
+  const char* rps_env = std::getenv("RATE_LIMIT_RPS");
+  const char* burst_env = std::getenv("RATE_LIMIT_BURST");
+  double rate_limit_rps = rps_env ? std::stod(rps_env) : 60.0;
+  double rate_limit_burst = burst_env ? std::stod(burst_env) : 120.0;
+  agamemnon::RateLimiter rate_limiter(rate_limit_rps, rate_limit_burst);
+  std::cout << "[agamemnon] rate limiting: " << rate_limit_rps << " req/s, burst "
+            << rate_limit_burst << "\n";
+
+  auto env_int = [](const char* name, int def) -> int {
+    const char* v = std::getenv(name);
+    return v ? std::stoi(v) : def;
+  };
+
+  auto reconcile_env = std::getenv("GITHUB_RECONCILE_INTERVAL_SEC");
+  int reconcile_sec = reconcile_env ? std::stoi(reconcile_env) : 300;
+  const char* port_env = std::getenv("PORT");
+  int port = 8080;
+  if (port_env) {
+    auto result = agamemnon::parse_port(port_env);
+    if (!result.port.has_value()) {
+      std::cerr << "[agamemnon] WARNING: PORT=\"" << port_env << "\" is invalid (" << result.error
+                << "), defaulting to " << port << "\n";
+    } else {
+      port = result.port.value();
+    }
+  }
+
+  const int server_threads = env_int("SERVER_THREAD_COUNT", 8);
+  const int read_timeout = env_int("SERVER_READ_TIMEOUT_SEC", 10);
+  const int write_timeout = env_int("SERVER_WRITE_TIMEOUT_SEC", 10);
+  const int request_limit_mb = env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4);
+
   // ── Metrics registry ─────────────────────────────────────────────────────
   agamemnon::MetricsRegistry metrics;
 
@@ -71,8 +116,6 @@ int main() {
   store.set_metrics(&metrics);
 
   // ── GitHub reconciliation (#165) ─────────────────────────────────────────
-  auto reconcile_env = std::getenv("GITHUB_RECONCILE_INTERVAL_SEC");
-  int reconcile_sec = reconcile_env ? std::stoi(reconcile_env) : 300;
   // Heap-allocated so the signal trampoline's g_reconciler pointer never
   // holds a stack address (CodeQL cpp/stack-address-escape). Owned by main().
   auto reconciler = std::make_unique<std::jthread>();
@@ -112,10 +155,58 @@ int main() {
 
   // ── HMAS Orchestrator ────────────────────────────────────────────────────
   agamemnon::Orchestrator orchestrator(store, nats);
+  const char* resolution_key = std::getenv("AGAMEMNON_FLEET_RESOLUTION_KEY");
+  // Explicit configuration enables only a derived ProjectV2 view. Failure here
+  // is exposed through Fleet health and never substitutes for durable task state.
+  nlohmann::json project_config = nullptr;
+  if (const char* path = std::getenv("AGAMEMNON_PROJECTS_CONFIG"); path && *path) {
+    try {
+      std::ifstream input(path);
+      if (!input) throw std::runtime_error("project configuration unreadable");
+      input >> project_config;
+    } catch (const std::exception&) {
+      project_config = nlohmann::json::object();
+    }
+  }
+  auto projects = std::make_shared<agamemnon::ProjectProjection>(gh_client, project_config);
+  std::jthread project_reconciler;
+  if (projects->health()["state"] == "pending") {
+    project_reconciler = std::jthread([projects](std::stop_token stop) {
+      while (!stop.stop_requested()) {
+        projects->reconcile();
+        for (int second = 0; second < 300 && !stop.stop_requested(); ++second)
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+      }
+    });
+  }
+  auto fleet = std::make_shared<agamemnon::FleetService>(
+      store, nats, &orchestrator, resolution_key ? resolution_key : "", projects);
+  // GitHub-backed Fleet must not silently use Core epic delivery. Explicit
+  // durable mode without GitHub is rejected before attaching a consumer.
+  const char* durable_env = std::getenv("AGAMEMNON_DURABLE_EPICS");
+  const bool durable_epics = gh_client || (durable_env && std::string(durable_env) == "1");
+  if (durable_epics && !gh_client) {
+    std::cerr << "[agamemnon] FATAL: durable epic delivery requires GitHub persistence\n";
+    return 1;
+  }
+  std::jthread parent_reconciler;
 
   if (nats.connect()) {
     std::cout << "[agamemnon] connected to NATS at " << nats_url << "\n";
-    nats.ensure_streams();
+    nats.ensure_streams(durable_epics);
+
+    // Worker journals retain facts until this durable-owner acknowledgment is
+    // observed. Core NATS delivery alone is not a persistence acknowledgment.
+    nats.subscribe(
+        "hi.fleet.events.*", [fleet, &nats](const std::string& subject, const std::string& data) {
+          try {
+            auto fact = nlohmann::json::parse(data);
+            auto result = fleet->on_worker_event(subject, fact);
+            nats.publish("hi.fleet.acks." + fact.at("workerId").get<std::string>(), result.dump());
+          } catch (const std::exception& error) {
+            std::cerr << "[agamemnon] Fleet fact was not acknowledged: " << error.what() << "\n";
+          }
+        });
 
     // Subscribe to task state events published by myrmidons (ADR-013 §2):
     // hi.tasks.{team_id}.{task_id}.{started|completed|failed}. `started`
@@ -133,64 +224,53 @@ int main() {
                      orchestrator.on_myrmidon_failed(subject, data);
                    });
 
-    // Epic registration trigger from Telemachy (ADR-013 §6). Core
-    // subscription for the slice; the durable JetStream consumer
-    // ('agamemnon-epics') documented in ADR-013 is a follow-up.
-    nats.subscribe("hi.pipeline.epic.*.registered",
-                   [&orchestrator](const std::string& subject, const std::string& data) {
-                     orchestrator.on_epic_registered(subject, data);
-                   });
+    if (durable_epics) {
+      if (!nats.subscribe_durable(
+              "homeric-pipeline", "hi.pipeline.epic.*.registered", "agamemnon-epics",
+              [&orchestrator](const std::string& subject, const std::string& data) {
+                orchestrator.on_epic_registered(subject, data, true);
+              })) {
+        std::cerr << "[agamemnon] FATAL: required durable epic attachment unavailable\n";
+        nats.close();
+        return 1;
+      }
+      parent_reconciler = std::jthread([&orchestrator](std::stop_token stop) {
+        while (!stop.stop_requested()) {
+          try {
+            orchestrator.reconcile_parent_wakeups();
+          } catch (const std::exception& error) {
+            std::cerr << "[agamemnon] parent wakeup requires reconciliation: " << error.what()
+                      << "\n";
+          }
+          for (int tick = 0; tick < 50 && !stop.stop_requested(); ++tick)
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+      });
+    } else {
+      nats.subscribe("hi.pipeline.epic.*.registered",
+                     [&orchestrator](const std::string& subject, const std::string& data) {
+                       orchestrator.on_epic_registered(subject, data);
+                     });
+    }
   } else {
+    if (durable_epics) {
+      std::cerr << "[agamemnon] FATAL: durable Fleet requires a connected JetStream broker\n";
+      return 1;
+    }
     std::cerr << "[agamemnon] WARNING: running without NATS — events will be skipped\n";
   }
 
-  // ── Rate limiter ──────────────────────────────────────────────────────────
-  const char* rps_env = std::getenv("RATE_LIMIT_RPS");
-  const char* burst_env = std::getenv("RATE_LIMIT_BURST");
-  double rate_limit_rps = rps_env ? std::stod(rps_env) : 60.0;
-  double rate_limit_burst = burst_env ? std::stod(burst_env) : 120.0;
-  agamemnon::RateLimiter rate_limiter(rate_limit_rps, rate_limit_burst);
-  std::cout << "[agamemnon] rate limiting: " << rate_limit_rps << " req/s, burst "
-            << rate_limit_burst << "\n";
-
-  // ── API key (fail-secure: refuse to start if unset) ──────────────────────
-  const char* api_key_env = std::getenv("AGAMEMNON_API_KEY");
-  if (!api_key_env || std::string(api_key_env).empty()) {
-    std::cerr << "[agamemnon] FATAL: AGAMEMNON_API_KEY is not set. Refusing to start.\n";
-    return 1;
-  }
-  agamemnon::AuthMiddleware auth(api_key_env);
-
   // ── HTTP server ───────────────────────────────────────────────────────────
-  auto env_int = [](const char* name, int def) -> int {
-    const char* v = std::getenv(name);
-    return v ? std::stoi(v) : def;
-  };
-
   // Heap-allocated so g_server never holds a stack address (CodeQL
   // cpp/stack-address-escape). Owned by main(); nulled before return.
   auto server = std::make_unique<httplib::Server>();
-  server->new_task_queue = [&env_int]() {
-    return new httplib::ThreadPool(env_int("SERVER_THREAD_COUNT", 8));
-  };
-  server->set_read_timeout(env_int("SERVER_READ_TIMEOUT_SEC", 10));
-  server->set_write_timeout(env_int("SERVER_WRITE_TIMEOUT_SEC", 10));
-  server->set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
-                                 1024UL * 1024UL);
+  server->new_task_queue = [server_threads]() { return new httplib::ThreadPool(server_threads); };
+  server->set_read_timeout(read_timeout);
+  server->set_write_timeout(write_timeout);
+  server->set_payload_max_length(static_cast<size_t>(request_limit_mb) * 1024UL * 1024UL);
 
-  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator);
-
-  const char* port_env = std::getenv("PORT");
-  int port = 8080;
-  if (port_env) {
-    auto result = agamemnon::parse_port(port_env);
-    if (!result.port.has_value()) {
-      std::cerr << "[agamemnon] WARNING: PORT=\"" << port_env << "\" is invalid (" << result.error
-                << "), defaulting to " << port << "\n";
-    } else {
-      port = result.port.value();
-    }
-  }
+  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator,
+                             fleet);
 
   // ── Signal handling ───────────────────────────────────────────────────────
   // Heap-allocated so the signal trampoline's g_shutdown_flag pointer never
@@ -207,8 +287,9 @@ int main() {
   sigaction(SIGTERM, &sa, nullptr);
   sigaction(SIGINT, &sa, nullptr);
 
-  std::cout << "[agamemnon] listening on 0.0.0.0:" << port << "\n";
-  server->listen("0.0.0.0", port);  // blocks until server.stop() is called
+  const auto* bind_address = agamemnon::server_bind_address(std::getenv("AGAMEMNON_BIND_ADDRESS"));
+  std::cout << "[agamemnon] listening on " << bind_address << ":" << port << "\n";
+  server->listen(bind_address, port);  // blocks until server.stop() is called
 
   // Null the static pointers before any further work so late signals are no-ops.
   g_server = nullptr;
@@ -219,6 +300,8 @@ int main() {
     std::cout << "[agamemnon] shutdown signal received — draining complete\n";
   }
 
+  parent_reconciler.request_stop();
+  if (parent_reconciler.joinable()) parent_reconciler.join();
   nats.close();
   return 0;
 }

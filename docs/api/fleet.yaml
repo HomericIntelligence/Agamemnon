@@ -1,0 +1,262 @@
+openapi: 3.1.0
+info:
+  title: Agamemnon Fleet control API
+  version: 0.1.0
+  description: >-
+    Shared Fleet schemas referenced by openapi.yaml. Command receipt completion
+    is distinct from observed activity and canonical issue completion.
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer}
+    resolutionKey: {type: apiKey, in: header, name: X-Fleet-Resolution-Key}
+  parameters:
+    Kind:
+      name: kind
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [pools, workers, sessions, executions, build-jobs]
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'}
+  schemas:
+    ProjectsHealth:
+      type: object
+      required: [schema, state, authority, direction, stageProjection, items]
+      properties:
+        schema: {type: string, enum: [hi/projects-projection/v1]}
+        state:
+          type: string
+          enum: [disabled, pending, running, healthy, degraded, misconfigured, unavailable]
+        authority: {type: string, enum: [github-issues]}
+        direction: {type: string, enum: [issues-to-project]}
+        projectId: {type: string}
+        stageProjection: {type: string, enum: [available, partial, unavailable]}
+        lastAttemptAt: {type: string, format: date-time}
+        lastSuccessAt: {type: string, format: date-time}
+        projected: {type: integer, minimum: 0}
+        unchanged: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
+        unavailable: {type: integer, minimum: 0}
+        retryable: {type: boolean}
+        error: {type: string}
+        items:
+          type: array
+          items:
+            type: object
+            required: [taskId, orchestrationState, orchestrationIssueUrl, repo, issue, state]
+            properties:
+              taskId: {type: string}
+              orchestrationState: {type: string}
+              orchestrationIssueUrl: {type: string}
+              repo: {type: string}
+              issue: {type: integer}
+              workIssueUrl: {type: string}
+              pullRequestUrls: {type: array, items: {type: string}}
+              projectItemId: {type: string}
+              stageLabel: {type: string}
+              stageProjection: {type: string, enum: [available, unavailable]}
+              stageReason: {type: string}
+              state: {type: string, enum: [projected, unchanged, failed]}
+              error: {type: string}
+              retryable: {type: boolean}
+    Create:
+      type: object
+      required: [id]
+      description: >-
+        Pools need capacity; workers need poolId and capacity. Sessions, executions,
+        and build jobs need workerId, agentId, and workspace. Task routing requires
+        a known taskId plus domain and hmasRole. Ownership and status are server-owned.
+      properties:
+        id: {type: string}
+        name: {type: string}
+        capacity: {type: integer, minimum: 1, maximum: 108}
+        workerId: {type: string}
+        agentId: {type: string}
+        taskId: {type: string}
+        issueUrl: {type: string}
+        executionId: {type: string}
+        sessionId: {type: string}
+        host: {type: string}
+        poolId: {type: string}
+        allocationId: {type: string}
+        stage: {type: string}
+        workspace: {type: string}
+        domain: {type: string}
+        hmasRole: {type: string}
+        mode: {type: string}
+        backend: {type: string}
+        purpose: {type: string}
+        resources: {type: object}
+      additionalProperties: false
+    Record:
+      type: object
+      required: [id, kind, schema, status, generation, claimStatus, lastActivityAt]
+      properties:
+        id: {type: string}
+        kind: {type: string}
+        schema: {type: string, enum: [hi/fleet/v1]}
+        status: {type: string}
+        generation: {type: integer, minimum: 1}
+        claimStatus: {type: string, enum: [unclaimed, reserved, claimed, released]}
+        taskId: {type: string}
+        issueUrl: {type: string}
+        agentId: {type: string}
+        sessionId: {type: string}
+        executionId: {type: string}
+        workerId: {type: string}
+        host: {type: [string, "null"]}
+        poolId: {type: string}
+        allocationId: {type: [string, "null"]}
+        stage: {type: string}
+        activity: {type: string}
+        lastActivityAt: {type: [string, "null"], format: date-time}
+        lastActivityReceivedAt: {type: string, format: date-time}
+        backgroundCleanup:
+          type: [string, "null"]
+          enum: [confirmed_empty, null]
+          description: Current observation confirms no background tool processes remain.
+        observationState: {type: string, enum: [observed, reconciliation_required, awaiting_activity]}
+        resolution: {$ref: '#/components/schemas/Resolution'}
+        waitingReason: {type: [string, "null"]}
+        sourceSequence: {type: integer, minimum: 1}
+        latestInputCommandId: {type: string}
+        expectedProviderTurnId:
+          type: [string, "null"]
+          description: Latest input receipt's provider turn, retained across stop receipts.
+        outcome:
+          type: string
+          description: Observed provider turn outcome; not an issue completion.
+    CanonicalClaim:
+      type: object
+      required: [schema, targetKind, targetId, workerId, agentId, generation, workspace]
+      properties:
+        schema: {type: string, enum: [hi/fleet/claim/v1]}
+        targetKind: {type: string}
+        targetId: {type: string}
+        workerId: {type: string}
+        agentId: {type: string}
+        generation: {type: integer, minimum: 1}
+        workspace: {type: string}
+    ManualDecision:
+      type: object
+      required: [decisionId, generation, outcome, decision, reviewerId, evidenceRef]
+      properties:
+        decisionId: {type: string}
+        generation: {type: integer, minimum: 1}
+        outcome: {type: string, enum: [completed, failed]}
+        decision: {type: string, enum: [approve_completion, reject_completion]}
+        reviewerId: {type: string}
+        evidenceRef: {type: string}
+    Resolution:
+      allOf:
+        - $ref: '#/components/schemas/ManualDecision'
+        - type: object
+          properties:
+            provenance: {type: string, enum: [manual]}
+            verifiedApproval: {type: boolean, enum: [false]}
+    CommandRequest:
+      type: object
+      required: [commandId, idempotencyKey, generation, payload]
+      properties:
+        commandId: {type: string}
+        idempotencyKey: {type: string}
+        generation: {type: integer, minimum: 1}
+        payload:
+          type: object
+          description: Bounded metadata only; private text and approval bodies stay in attachment storage.
+          properties:
+            inputRef: {type: string}
+            promptRef: {type: string}
+            responseRef: {type: string}
+            requestId: {type: string}
+            reason: {type: string}
+            recipe: {type: string}
+            snapshotRef: {type: string}
+            approvalId: {type: string}
+            decision: {type: string}
+          additionalProperties: false
+    Command:
+      allOf:
+        - $ref: '#/components/schemas/CommandRequest'
+        - type: object
+          required: [schema, operation, targetKind, targetId, workerId]
+          properties:
+            schema: {type: string, enum: [hi/fleet/v1]}
+            operation: {type: string}
+            targetKind: {type: string}
+            targetId: {type: string}
+            workerId: {type: string}
+            taskId: {type: string}
+            agentId: {type: string}
+            sessionId: {type: string}
+            executionId: {type: string}
+            workspace: {type: string}
+            stage: {type: string}
+    Acknowledgment:
+      type: object
+      required: [schema, eventId, workerId, commandId, generation, status, receipt]
+      properties:
+        schema: {type: string, enum: [hi/fleet/v1]}
+        eventId: {type: string}
+        workerId: {type: string}
+        commandId: {type: string}
+        generation: {type: integer, minimum: 1}
+        targetKind: {type: string}
+        targetId: {type: string}
+        status: {type: string, enum: [accepted, completed, failed]}
+        receipt:
+          type: object
+          description: Bounded provider IDs, references, waiting reason, or stable error code. No transcript.
+    Activity:
+      type: object
+      required: [schema, eventId, workerId, generation, sourceSequence, kind, targetKind, targetId, event]
+      properties:
+        schema: {type: string, enum: [hi/fleet/v1]}
+        eventId: {type: string}
+        workerId: {type: string}
+        generation: {type: integer, minimum: 1}
+        sourceSequence: {type: integer, minimum: 1}
+        kind: {type: string, enum: [activity]}
+        targetKind: {type: string}
+        targetId: {type: string}
+        event:
+          type: object
+          required: [activity, observedAt]
+          properties:
+            activity:
+              type: string
+              enum: [model_working, tool_running, waiting_approval, waiting_input, idle, disconnected, unknown]
+            observedAt: {type: string, format: date-time}
+            backgroundCleanup:
+              type: string
+              enum: [confirmed_empty]
+              description: Required for stop release and manual canonical resolution.
+            stage: {type: string}
+            waitingReason: {type: [string, "null"]}
+            providerThreadId: {type: [string, "null"]}
+            providerTurnId: {type: [string, "null"]}
+            outcome: {type: string}
+            commandId:
+              type: string
+              description: Required to correlate a confirmed stop with its current control intent.
+  responses:
+    Invalid: {description: Invalid schema or metadata}
+    Missing: {description: Resource or command not found}
+    Conflict: {description: "Admission, ownership, generation, ordering, or control conflict"}
+    Unavailable: {description: Persistence or delivery unavailable; reconcile before retry}
+    Full: {description: Bounded record history requires explicit archival before new work}
+    Acknowledged:
+      description: Accepted by the orchestration owner
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [record, eventId, acknowledged]
+            properties:
+              record: {$ref: '#/components/schemas/Record'}
+              eventId: {type: string}
+              acknowledged: {type: boolean}

@@ -5,6 +5,11 @@
 
 namespace agamemnon {
 
+// Preserve the deployment default; private canaries explicitly select loopback.
+inline const char* server_bind_address(const char* configured) {
+  return configured && *configured ? configured : "0.0.0.0";
+}
+
 struct PortParseResult {
   std::optional<int> port;
   const char* error = nullptr;  // non-owning string literal

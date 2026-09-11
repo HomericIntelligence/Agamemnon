@@ -10,6 +10,8 @@ find_package(prometheus-cpp REQUIRED)
 add_executable(${PROJECT_NAME}_tests
   src/test_version.cpp
   src/test_store.cpp
+  src/test_fleet.cpp
+  src/test_projects.cpp
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
@@ -28,6 +30,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_shutdown.cpp
   src/test_hmas_types.cpp
   src/test_orchestrator.cpp
+  src/test_durable_epics.cpp
   src/test_planning_breakdown.cpp
   src/test_state_machine.cpp
   src/test_github_client.cpp

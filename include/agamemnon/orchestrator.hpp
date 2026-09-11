@@ -30,6 +30,8 @@ class Orchestrator {
 
   /// Record an escalation on task_id and re-queue to parent layer's subject.
   bool escalate(const std::string& task_id, const std::string& reason);
+  /// Called by the authorized controller decision path, never a provider turn fact.
+  bool resolve_fleet_task(const std::string& task_id, const json& claim, const json& decision);
 
   /// Called by the NATS subscription callback when a myrmidon publishes completion.
   void on_myrmidon_completion(const std::string& subject, const std::string& payload);
@@ -48,7 +50,12 @@ class Orchestrator {
   /// Decomposing) and dispatches the decompose burst to the
   /// pipeline.chief-architect role queue. Returns the new brief id ("" on
   /// invalid payloads).
-  std::string on_epic_registered(const std::string& subject, const std::string& payload);
+  /// durable=true validates hi/v1, reconciles deterministic GitHub records, and
+  /// propagates errors. Return only follows confirmed publication and receipt.
+  std::string on_epic_registered(const std::string& subject, const std::string& payload,
+                                 bool durable = false);
+  /// Reconcile child completion wakeups from durable canonical state; never completes a parent.
+  void reconcile_parent_wakeups();
 
   /// Worker overrun re-adjustment (ADR-013 §4): register remainder subtasks
   /// under task_id. Each subtask {title, description?, blocked_by?[],
@@ -80,6 +87,9 @@ class Orchestrator {
 
   /// Delegate all child tasks of parent_id that are no longer blocked.
   void delegate_unblocked_children(const std::string& parent_id);
+  std::string register_epic_durable(const std::string& subject, const std::string& payload);
+  void publish_checkpoint(HmasTask task, const std::string& key, const std::string& subject,
+                          const json& envelope);
 };
 
 }  // namespace agamemnon

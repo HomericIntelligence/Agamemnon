@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from types import TracebackType
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -65,6 +66,92 @@ class AgamemnonClient:
         """Close the underlying HTTP client."""
         await self._client.aclose()
 
+    @staticmethod
+    def _fleet_path(kind: str, identifier: str | None = None) -> str:
+        if kind not in {"pools", "workers", "sessions", "executions", "build-jobs", "commands"}:
+            raise ValueError("unknown Fleet resource kind")
+        path = f"/v1/fleet/{kind}"
+        if identifier is not None:
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", identifier):
+                raise ValueError("invalid Fleet identifier")
+            path += f"/{identifier}"
+        return path
+
+    async def fleet_list(self, kind: str) -> dict[str, Any]:
+        """Read Fleet records; assignments do not establish observed activity."""
+        return cast("dict[str, Any]", await self._request("GET", self._fleet_path(kind)))
+
+    async def fleet_get(self, kind: str, identifier: str) -> dict[str, Any]:
+        """Read a resource, or a durable command with its current claim."""
+        return cast(
+            "dict[str, Any]", await self._request("GET", self._fleet_path(kind, identifier))
+        )
+
+    async def fleet_create(self, kind: str, body: dict[str, Any]) -> dict[str, Any]:
+        """Create a GitHub-backed record without executing work."""
+        return cast(
+            "dict[str, Any]", await self._request("POST", self._fleet_path(kind), json=body)
+        )
+
+    async def fleet_command(
+        self, kind: str, identifier: str, operation: str, body: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Submit durable control intent. Private input remains a reference."""
+        if operation not in {"start", "input", "respond", "interrupt", "cancel", "resume", "drain"}:
+            raise ValueError("unsupported Fleet operation")
+        return cast(
+            "dict[str, Any]",
+            await self._request(
+                "POST", f"{self._fleet_path(kind, identifier)}/{operation}", json=body
+            ),
+        )
+
+    async def fleet_acknowledge(
+        self, kind: str, identifier: str, fact: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Record a worker command receipt; this does not complete an issue."""
+        return cast(
+            "dict[str, Any]",
+            await self._request("POST", f"{self._fleet_path(kind, identifier)}/ack", json=fact),
+        )
+
+    async def fleet_observe(self, fact: dict[str, Any]) -> dict[str, Any]:
+        """Submit worker activity through the same orchestration owner."""
+        return cast("dict[str, Any]", await self._request("POST", "/v1/fleet/events", json=fact))
+
+    async def fleet_resolve(
+        self, kind: str, identifier: str, decision: dict[str, Any], resolution_key: str
+    ) -> dict[str, Any]:
+        """Record an authorized manual decision; this does not verify review evidence."""
+        if kind not in {"sessions", "executions", "build-jobs"}:
+            raise ValueError("resolution requires an execution resource")
+        return cast(
+            "dict[str, Any]",
+            await self._request(
+                "POST",
+                f"{self._fleet_path(kind, identifier)}/resolve",
+                json=decision,
+                headers={"X-Fleet-Resolution-Key": resolution_key},
+            ),
+        )
+
+    async def fleet_projects(self) -> dict[str, Any]:
+        """Read derived board health without changing canonical work state."""
+        return cast("dict[str, Any]", await self._request("GET", "/v1/fleet/projects"))
+
+    async def fleet_reconcile_projects(self) -> dict[str, Any]:
+        """Rebuild only explicitly configured ProjectV2 fields from durable issues."""
+        return cast("dict[str, Any]", await self._request("POST", "/v1/fleet/projects/reconcile"))
+
+    async def fleet_events(self, after: int = 0) -> dict[str, Any]:
+        """Read durable control transitions; activity telemetry uses its own source cursor."""
+        if after < 0:
+            raise ValueError("event cursor must be nonnegative")
+        return cast(
+            "dict[str, Any]",
+            await self._request("GET", "/v1/fleet/events", params={"after": after}),
+        )
+
     # ── Internal request helper ────────────────────────────────────────────────
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
@@ -90,9 +177,7 @@ class AgamemnonClient:
                 f"Cannot connect to Agamemnon at {self._base_url}: {exc}"
             ) from exc
         except httpx.TimeoutException as exc:
-            raise AgamemnonConnectionError(
-                f"Request to Agamemnon timed out: {exc}"
-            ) from exc
+            raise AgamemnonConnectionError(f"Request to Agamemnon timed out: {exc}") from exc
 
         if response.is_error:
             try:
@@ -134,9 +219,7 @@ class AgamemnonClient:
 
     async def create_agent(self, agent: AgentCreate) -> Agent:
         """Create a new agent. Returns the created agent."""
-        data = await self._request(
-            "POST", "/v1/agents", json=agent.model_dump(exclude_none=True)
-        )
+        data = await self._request("POST", "/v1/agents", json=agent.model_dump(exclude_none=True))
         return Agent.model_validate(data.get("agent", data))
 
     async def create_docker_agent(self, agent: AgentDockerCreate) -> Agent:
@@ -190,9 +273,7 @@ class AgamemnonClient:
 
     async def create_team(self, team: TeamCreate) -> Team:
         """Create a new team. Returns the created team."""
-        data = await self._request(
-            "POST", "/v1/teams", json=team.model_dump(exclude_none=True)
-        )
+        data = await self._request("POST", "/v1/teams", json=team.model_dump(exclude_none=True))
         return Team.model_validate(data.get("team", data))
 
     async def get_team(self, team_id: str) -> Team:
@@ -202,9 +283,7 @@ class AgamemnonClient:
 
     async def update_team(self, team_id: str, update: TeamUpdate) -> Team:
         """Fully replace a team (PUT)."""
-        data = await self._request(
-            "PUT", f"/v1/teams/{team_id}", json=update.model_dump()
-        )
+        data = await self._request("PUT", f"/v1/teams/{team_id}", json=update.model_dump())
         return Team.model_validate(data.get("team", data))
 
     async def delete_team(self, team_id: str) -> str:

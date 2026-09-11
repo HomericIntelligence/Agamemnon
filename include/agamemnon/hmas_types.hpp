@@ -47,10 +47,15 @@ struct HmasTask {
   TaskState state;
   std::string subject;
   std::string description;
-  std::string repo;                     // relevant repository (L1+)
-  std::string module;                   // relevant module (L2+)
-  int issue = 0;                        // linked GitHub issue number (0 = none; L3, ADR-013)
-  std::string assigned_lead_id;         // agent assigned at this layer
+  std::string repo;              // relevant repository (L1+)
+  std::string module;            // relevant module (L2+)
+  int issue = 0;                 // linked GitHub issue number (0 = none; L3, ADR-013)
+  std::string assigned_lead_id;  // agent assigned at this layer
+  // Additive, versioned Fleet ownership. Legacy mutations cannot replace it.
+  json fleet_claim = nullptr;
+  json fleet_resolution = nullptr;
+  // Orchestrator-owned publication checkpoints, never a task state authority.
+  json delivery = json::object();
   std::vector<std::string> blocked_by;  // task IDs this task depends on
   std::vector<std::string> child_task_ids;
   std::vector<EscalationRecord> escalations;

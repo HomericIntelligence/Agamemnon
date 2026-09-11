@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `feat(fleet)`: add GitHub-backed Fleet control, shared canonical task claims,
+  private worker attachment, configured Projects projection, and durable JetStream
+  epic replay/parent wakeup with explicit single-writer and deployment limits (Refs #504).
 - `feat(ci)`: add markdownlint/pixi/justfile/symlink CI jobs + fix lint blockers (#34)
 - `feat(nats)`: publish hi.logs.agamemnon.\* structured log events
 - `feat(clients/python)`: add agamemnon-client Python package
@@ -19,6 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(fleet)`: propagate durable-write failures before state changes or dispatch,
+  reject ambiguous POST retries and legacy mutations of Fleet-owned work, and
+  require correlated inactive-worker cleanup before releasing admission (Refs #504).
 - `fix(docs)`: add blank lines around list blocks in CLAUDE.md (MD032) (#87)
 - `fix(ci)`: replace gitleaks-action with binary, fix cmake preset, make mypy advisory
 - `fix(ci)`: use valid job IDs in \_required.yml (no slashes in keys)

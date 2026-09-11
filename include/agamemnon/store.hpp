@@ -35,6 +35,9 @@ class Store {
  public:
   explicit Store(std::shared_ptr<IGitHubClient> gh = nullptr) : gh_(std::move(gh)) {}
 
+  /// Fleet shares this backing store; it never permits memory-only operation.
+  std::shared_ptr<IGitHubClient> github_client() const { return gh_; }
+
   /// Attach a MetricsRegistry for instrumentation (nullable; pass nullptr to disable).
   void set_metrics(MetricsRegistry* metrics) noexcept { metrics_ = metrics; }
 
@@ -84,12 +87,25 @@ class Store {
   bool update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
                                                     const EscalationRecord& escalation);
   bool update_hmas_task(const HmasTask& task);
+  /// Serialize legacy planning against Fleet admission. Persist parent links
+  /// before child creation so a partial write cannot leave untracked children.
+  bool append_hmas_children(const HmasTask& expected, const std::vector<HmasTask>& children);
+  /// Metadata-only compare-and-write, including Fleet-owned tasks; no state/claim mutation.
+  bool update_hmas_delivery(const std::string& id, const json& expected, const json& delivery);
+  /// Durable exclusive reservation; false means ineligible or another owner.
+  bool reserve_hmas_fleet_claim(const std::string& id, const json& claim);
+  /// A matching worker observation may start work; it cannot complete a task.
+  bool observe_hmas_fleet_start(const std::string& id, const json& claim);
+  std::optional<HmasTask> resolve_hmas_fleet_task(const std::string& id, const json& claim,
+                                                  const json& decision);
   std::vector<HmasTask> list_hmas_tasks_by_layer(HmasLayer layer);
   std::vector<HmasTask> list_hmas_tasks_by_parent(const std::string& parent_id);
   std::vector<HmasTask> list_hmas_tasks_by_brief(const std::string& brief_id);
 
   // ── TaskBriefs (HMAS root submissions) ─────────────────────────────────
   void create_task_brief(const TaskBrief& brief);
+  /// Strict all-state reconciliation for deterministic durable registrations.
+  void ensure_durable_task_brief(const TaskBrief& brief);
   std::optional<TaskBrief> get_task_brief(const std::string& id);
   std::vector<TaskBrief> list_task_briefs();
 
@@ -126,7 +142,6 @@ class Store {
   mutable std::once_flag teams_once_;
   mutable std::once_flag tasks_once_;
   mutable std::once_flag faults_once_;
-  mutable std::once_flag hmas_tasks_once_;
   mutable std::once_flag briefs_once_;
 
   // Called while holding mutex_; loads entity type from GitHub on first access.
@@ -135,6 +150,8 @@ class Store {
   void ensure_tasks_loaded_();
   void ensure_faults_loaded_();
   void ensure_hmas_tasks_loaded_();
+  // Called under mutex_; an uncertain response invalidates HMAS reads/writes.
+  void persist_hmas_task_(const HmasTask& task);
   void ensure_briefs_loaded_();
 
   // Parses the JSON payload embedded in an issue body; returns nullptr on failure.
