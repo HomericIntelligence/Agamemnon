@@ -134,6 +134,10 @@ release VERSION push='true':
 ci-build:
     podman build -f ci/Containerfile -t agamemnon-ci:local .
 
+# Controlled installer contracts; no image, network or dependency installation.
+ci-tools-test python='python3':
+    PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_tools.py -v
+
 # Run the full required-check suite in the container
 ci-check:
     ./scripts/run_ci_local.sh all
