@@ -138,6 +138,10 @@ ci-build:
 ci-tools-test python='python3':
     PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_tools.py -v
 
+# Check report ignore boundaries with private Git repositories; no scanners run.
+ci-reports-test python='python3':
+    PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_reports.py -v
+
 # Run the full required-check suite in the container
 ci-check:
     ./scripts/run_ci_local.sh all

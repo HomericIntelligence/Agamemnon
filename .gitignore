@@ -13,6 +13,9 @@ CTestTestfile.cmake
 _deps/
 CMakeUserPresets.json
 conan.lock
+# Generated scanner reports at the checkout root.
+/gitleaks.sarif
+/conan-sbom.cdx.json
 # uv (ADR-018): uv.lock files ARE committed; only the virtualenv is ignored.
 .venv/
 __pycache__/

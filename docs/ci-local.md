@@ -34,17 +34,23 @@ the existing CTest launcher, which creates a loopback broker with private storag
    intended Linux architecture. The local runner mounts this checkout and writes
    build and scanner outputs there. A worktree whose `.git` file points outside
    the mount does not provide the history that the secrets scan needs.
-2. Run the controlled installer contracts with an existing Python interpreter:
+   The generated `gitleaks.sarif` and `conan-sbom.cdx.json` reports have ignore
+   rules that apply only at the checkout root. Retain their bytes with the CI
+   evidence; their presence is not a tracked source change.
+2. Run the controlled CI contracts with an existing Python interpreter:
 
    ```bash
    just ci-tools-test python3
+   just ci-reports-test python3
    ```
 
    These tests execute the image's uv installation command and the installer
    against private OS/download boundaries. They cover both architecture mappings,
    real checksum rejection, failure status and cleanup. Positive download and
    extraction acknowledgments are fixtures; they do not prove Linux binary or
-   image execution.
+   image execution. The report tests use private Git repositories to check that
+   root reports leave source status unchanged while nested files and tracked
+   source changes remain visible. They do not run scanners.
 3. Build the actual image with the existing Podman recipe:
 
    ```bash
