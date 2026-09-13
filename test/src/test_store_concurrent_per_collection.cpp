@@ -148,8 +148,7 @@ TEST(StorePerCollection, ContentionMeasurementCrossCollection) {
     threads.emplace_back([&, i] {
       int n = 0;
       while (!stop.load(std::memory_order_relaxed)) {
-        (void)s.create_agent(
-            {{"name", "w" + std::to_string(i) + "_" + std::to_string(n++)}});
+        (void)s.create_agent({{"name", "w" + std::to_string(i) + "_" + std::to_string(n++)}});
         writes.fetch_add(1, std::memory_order_relaxed);
       }
     });
@@ -158,14 +157,11 @@ TEST(StorePerCollection, ContentionMeasurementCrossCollection) {
   std::this_thread::sleep_for(kDuration);
   stop.store(true, std::memory_order_relaxed);
   for (auto& t : threads) t.join();
-  const auto secs =
-      std::chrono::duration<double>(agamemmon_clock::now() - start).count();
-  std::cerr << "[per-collection] cross-collection reads=" << reads.load()
-            << " (" << static_cast<long>(static_cast<double>(reads.load()) / secs)
-            << "/s)"
-            << " writes=" << writes.load()
-            << " (" << static_cast<long>(static_cast<double>(writes.load()) / secs)
-            << "/s)\n";
+  const auto secs = std::chrono::duration<double>(agamemmon_clock::now() - start).count();
+  std::cerr << "[per-collection] cross-collection reads=" << reads.load() << " ("
+            << static_cast<long>(static_cast<double>(reads.load()) / secs) << "/s)"
+            << " writes=" << writes.load() << " ("
+            << static_cast<long>(static_cast<double>(writes.load()) / secs) << "/s)\n";
   EXPECT_GT(reads.load(), 0);
   EXPECT_GT(writes.load(), 0);
 }
@@ -196,12 +192,10 @@ TEST(StorePerCollection, ContentionMeasurementIntraCollection) {
   std::this_thread::sleep_for(kDuration);
   stop.store(true, std::memory_order_relaxed);
   for (auto& t : threads) t.join();
-  const auto secs =
-      std::chrono::duration<double>(agamemmon_clock::now() - start).count();
-  std::cerr << "[per-collection] intra-collection reads=" << reads.load()
-            << " (" << static_cast<long>(static_cast<double>(reads.load()) / secs)
-            << "/s)\n";
+  const auto secs = std::chrono::duration<double>(agamemmon_clock::now() - start).count();
+  std::cerr << "[per-collection] intra-collection reads=" << reads.load() << " ("
+            << static_cast<long>(static_cast<double>(reads.load()) / secs) << "/s)\n";
   EXPECT_GT(reads.load(), 0);
 }
 
-}  // namespace agamemmon::test
+}  // namespace agamemnon::test

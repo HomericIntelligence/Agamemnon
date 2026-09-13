@@ -305,10 +305,14 @@ void Store::ensure_briefs_loaded_() {
 
 std::shared_mutex& Store::collection_mutex_(Collection c) noexcept {
   switch (c) {
-    case Collection::kAgents: return agents_mutex_;
-    case Collection::kTeams: return teams_mutex_;
-    case Collection::kTasks: return tasks_mutex_;
-    case Collection::kFaults: return faults_mutex_;
+    case Collection::kAgents:
+      return agents_mutex_;
+    case Collection::kTeams:
+      return teams_mutex_;
+    case Collection::kTasks:
+      return tasks_mutex_;
+    case Collection::kFaults:
+      return faults_mutex_;
   }
   return agents_mutex_;  // unreachable; silences -Wreturn-type
 }
