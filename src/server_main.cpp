@@ -1,5 +1,6 @@
 #include "agamemnon/auth.hpp"
 #include "agamemnon/fleet.hpp"
+#include "agamemnon/fleet_build_config.hpp"
 #include "agamemnon/fleet_research.hpp"
 #include "agamemnon/metrics.hpp"
 #include "agamemnon/nats_client.hpp"
@@ -75,6 +76,19 @@ int main() {
         optional_env("AGAMEMNON_NESTOR_NAMESPACE"), gh_token && *gh_token);
   } catch (const std::exception&) {
     std::cerr << "[agamemnon] FATAL: invalid Nestor research import configuration\n";
+    return 1;
+  }
+  agamemnon::BuildConfiguration build_config;
+  nlohmann::json build_artifacts;
+  try {
+    build_config =
+        agamemnon::load_build_configuration(optional_env("AGAMEMNON_FLEET_BUILD_CONFIG"),
+                                            gh_token && *gh_token, api_key_env && *api_key_env);
+    build_artifacts = agamemnon::load_build_artifact_configuration(
+        optional_env("AGAMEMNON_FLEET_BUILD_ARTIFACTS"), gh_token && *gh_token,
+        api_key_env && *api_key_env);
+  } catch (const std::exception&) {
+    std::cerr << "[agamemnon] FATAL: invalid Fleet build configuration\n";
     return 1;
   }
 
@@ -208,7 +222,8 @@ int main() {
     });
   }
   auto fleet = std::make_shared<agamemnon::FleetService>(
-      store, nats, &orchestrator, resolution_key ? resolution_key : "", projects);
+      store, nats, &orchestrator, resolution_key ? resolution_key : "", projects,
+      build_config.catalog, build_config.authorities, build_artifacts);
   // GitHub-backed Fleet must not silently use Core epic delivery. Explicit
   // durable mode without GitHub is rejected before attaching a consumer.
   const char* durable_env = std::getenv("AGAMEMNON_DURABLE_EPICS");

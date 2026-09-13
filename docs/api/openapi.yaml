@@ -72,6 +72,295 @@ tags:
       (escalate / complete / state lookup).
 
 paths:
+  /v1/fleet/build-jobs/submit:
+    post:
+      tags: [fleet]
+      operationId: fleetSubmitBuild
+      summary: Admit one subordinate tool build without changing its parent claim
+      description: >-
+        Requires a registered immutable first-profile policy, qualified tool
+        capacity with a separately configured supervisor authority, and an eligible
+        currently observed parent with its exact canonical claim. Persists one reservation and start
+        intent before Keystone publication. Admission does not verify snapshot
+        bytes or authorize process execution. Exact submission replay is a read
+        that returns the historical record and start command; it never republishes.
+        New admission is unavailable when the operator removes the catalog.
+      x-nats-events:
+        - subject: hi.fleet.control.{workerId}
+          description: Typed build start command after confirmed durable admission; absent on replay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildSubmit'}
+      responses:
+        '202':
+          description: Durable admission or exact historical replay; no process-start guarantee
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildSubmitResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    get:
+      tags: [fleet]
+      operationId: fleetGetBuild
+      summary: Read a retained build record
+      description: >-
+        Existing generic GET route. Typed records carry build.schema
+        hi/fleet/build/v1 and a separate tool reservation; legacy generic build
+        records retain their existing shape. Reading status does not deliver a
+        command or authorize a run. Recovery remains available after admission
+        policy removal. collectionVerified false is not an independently verified
+        result; terminal child status never resolves the parent's issue.
+      x-nats-events: []
+      responses:
+        '200':
+          description: Retained typed or legacy generic build record
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+  /v1/fleet/build-jobs/{id}/deliver:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetDeliverBuild
+      summary: Retry delivery of the same admitted start intent
+      description: >-
+        Requires a typed build in admitted status with reserved capacity, pending
+        original start intent and no grant, plus the exact currently eligible
+        parent claim. Revalidates the parent even after hydration; an unknown or
+        stale parent blocks delivery. Republishes the same retained command with
+        no durable mutation or new attempt. A consumer must deduplicate delivery.
+      x-nats-events:
+        - subject: hi.fleet.control.{workerId}
+          description: Exact retained typed start command after current-parent validation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildDelivery'}
+      responses:
+        '202':
+          description: Same start intent delivered; run grant is still required
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildSubmitResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+  /v1/fleet/build-jobs/{id}/claim-run:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetClaimBuildRun
+      summary: Persist or replay one supervisor run grant
+      description: >-
+        Requires both API authentication and the separately bound supervisor key.
+        A new grant revalidates current parent eligibility and is ordered with
+        parent stop under the Fleet mutex. Stop-before-grant denies a new grant;
+        grant-before-stop authorizes the retained attempt. Later parent stop cannot
+        retract an already durable grant or make controller authorization atomic
+        with a remote process start. Exact claim replay returns the historical
+        grant and original command, including after parent stop or cancellation;
+        it grants no new attempt. The supervisor must retain its stop fence and
+        journal the grant before launching, so replay cannot launch a second process.
+      security:
+        - bearerAuth: []
+          buildKey: []
+        - apiKeyAuth: []
+          buildKey: []
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildClaim'}
+      responses:
+        '200':
+          description: One confirmed durable grant or exact historical replay
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildGrantResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '403': {$ref: './fleet.yaml#/components/responses/BuildForbidden'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}/cancel:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetCancelBuild
+      summary: Persist or replay typed build cancellation or an existing generic cancel
+      description: >-
+        The retained record selects the contract. A typed build requires BuildCancel
+        with schema hi/fleet/build-cancel/v1, generation and attempt, and no payload;
+        a legacy generic build continues to use CommandRequest. Typed cancellation
+        persists an exact stop before publication and preserves its reservation.
+        It remains available after parent invalidation or admission catalog removal.
+        Exact pending-stop replay may republish the same command. ACK, publication
+        and parent stop do not release tool capacity; only an exact trusted cancelled
+        fact with the stop command, start fence and confirmed cleanup releases it.
+      x-nats-events:
+        - subject: hi.fleet.control.{workerId}
+          description: Retained cancel intent after persistence, or pending-stop replay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: './fleet.yaml#/components/schemas/BuildCancel'
+                - $ref: './fleet.yaml#/components/schemas/CommandRequest'
+      responses:
+        '202':
+          description: Typed record/command or legacy command/status; stop may still be pending
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: './fleet.yaml#/components/schemas/BuildCancelResponse'
+                  - $ref: './fleet.yaml#/components/schemas/LegacyCommandResponse'
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}/facts:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetBuildFact
+      summary: Record one trusted terminal cleanup fact for a subordinate build
+      description: >-
+        Requires normal API authentication and the dedicated supervisor authority
+        matching the retained worker/allocation/generation, including during
+        recovery with admission disabled. The closed fact binds every command,
+        attempt, policy, parameters, snapshot and execution-platform identity.
+        A matching terminal fact with owned-process cleanup releases only the child
+        tool reservation. Missing evidence references report incomplete; present
+        references report unverified. collectionVerified remains false. No inline
+        logs, collector success flag, HMAS claim change or parent issue resolution
+        is accepted. Generic ACK/HTTP events/unqualified NATS events are not a
+        supervisor authority path for typed builds.
+      security:
+        - bearerAuth: []
+          buildKey: []
+        - apiKeyAuth: []
+          buildKey: []
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildFact'}
+      responses:
+        '200':
+          description: Terminal fact durably retained or exactly replayed; tool reservation released
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildFactResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '403': {$ref: './fleet.yaml#/components/responses/BuildForbidden'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}/logs:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    get:
+      tags: [fleet]
+      operationId: fleetBuildLogs
+      summary: Read one bounded UTF-8 log page from the configured local backend
+      description: >-
+        Only stream, after and limit query keys are accepted, at most once each.
+        No caller URL, path, attempt, snapshotDigest or backend credential is
+        accepted. The controller uses the admitted build/attempt/snapshot identity
+        and its separately configured backend credential to request
+        GET /v1/fleet/build-jobs/{id}/logs with attempt, snapshotDigest, stream,
+        after and limit on the private backend. The first backend profile permits
+        only literal http://127.0.0.1:<port> or http://[::1]:<port>, with an explicit
+        decimal port from 1 through 65535 and no leading zero. HTTPS, DNS names,
+        external origins, alternate numeric host spellings, URL credentials,
+        paths, queries and fragments are rejected. Redirects and proxies are
+        disabled. Connection timeout is 500 ms and total timeout is 1000 ms;
+        response body is capped at 400000 bytes including JSON escaping. Duplicate
+        response keys, nesting beyond 16, malformed/oversized data and any identity,
+        range or digest mismatch fail closed. Reads never modify the durable
+        record or event history. An empty backend configuration returns 503;
+        real backend/executor qualification and remote transport remain pending.
+      x-nats-events: []
+      parameters:
+        - name: stream
+          in: query
+          schema: {type: string, enum: [stdout, stderr], default: stdout}
+        - name: after
+          in: query
+          description: Unsigned decimal byte offset; signs, fractions and exponents are rejected.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9223372036854775807
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum returned UTF-8 bytes; unsigned decimal integer only.
+          schema: {type: integer, minimum: 1, maximum: 65536, default: 65536}
+      responses:
+        '200':
+          description: Identity-bound bounded log page; complete requires a manifest
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildLogPage'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409':
+          description: Target is a legacy generic record or backend cursor is ahead of available output
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildError'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503':
+          description: >-
+            Durable record unavailable, local backend unconfigured/unavailable,
+            connection/response timeout, or invalid backend configuration/response.
+            No durable state changes and no fabricated empty successful page.
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildError'}
   /v1/fleet/research-intakes:
     post:
       tags: [fleet]
@@ -174,7 +463,7 @@ paths:
                 properties:
                   items:
                     type: array
-                    items: {$ref: './fleet.yaml#/components/schemas/Record'}
+                    items: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
                   total: {type: integer, minimum: 0}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
     post:
@@ -210,7 +499,7 @@ paths:
           description: Resource with explicit ownership and observations
           content:
             application/json:
-              schema: {$ref: './fleet.yaml#/components/schemas/Record'}
+              schema: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
         '404': {$ref: './fleet.yaml#/components/responses/Missing'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
   /v1/fleet/{kind}/{id}/{operation}:
@@ -231,21 +520,30 @@ paths:
         Reuse commandId and idempotencyKey when delivery is uncertain. Only a
         worker confirmation completes a stop. Pool control and worker startup
         require allocation adapters and currently return 409. Drain applies to workers.
+        Typed subordinate builds accept only BuildCancel here, selected by the
+        retained record; the explicit build-jobs/{id}/cancel path documents that
+        contract. Other generic commands return 409 for typed builds. Existing
+        records without build metadata retain the CommandRequest contract.
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: './fleet.yaml#/components/schemas/CommandRequest'}
+            schema:
+              oneOf:
+                - $ref: './fleet.yaml#/components/schemas/CommandRequest'
+                - $ref: './fleet.yaml#/components/schemas/BuildCancel'
       responses:
         '202':
           description: Durable intent; execution may still be pending
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  command: {$ref: './fleet.yaml#/components/schemas/Command'}
-                  status: {type: string, enum: [pending, accepted, completed, failed, superseded]}
+                anyOf:
+                  - type: object
+                    properties:
+                      command: {$ref: './fleet.yaml#/components/schemas/Command'}
+                      status: {type: string, enum: [pending, accepted, completed, failed, superseded]}
+                  - $ref: './fleet.yaml#/components/schemas/BuildCancelResponse'
         '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
         '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
@@ -258,7 +556,10 @@ paths:
       tags: [fleet]
       operationId: fleetAcknowledge
       summary: Persist an idempotent worker command receipt
-      description: Validates command identity, ownership, and generation before recording acknowledgment.
+      description: >-
+        Validates command identity, ownership, and generation before recording
+        acknowledgment. Typed subordinate builds reject generic ACK; their trusted
+        terminal fact path is build-jobs/{id}/facts and requires a dedicated key.
       requestBody:
         required: true
         content:
@@ -278,7 +579,8 @@ paths:
       operationId: fleetResolve
       summary: Record an explicit manual orchestration decision for inactive work
       description: >-
-        Applies to sessions, executions and build-jobs with a canonical task.
+        Applies to sessions, executions and legacy generic build-jobs with a canonical task.
+        Typed subordinate builds cannot resolve a canonical task through this path.
         Disabled unless a separate operator resolution key is configured.
         An evidence reference does not verify approval. The persisted resolution
         is manual with verifiedApproval false and cannot establish independently
@@ -308,7 +610,10 @@ paths:
       tags: [fleet]
       operationId: fleetVerifyCommand
       summary: Verify immutable durable intent against current ownership
-      description: This read gate is for an attachment adapter, not another work queue.
+      description: >-
+        This read gate is for an attachment adapter, not another work queue.
+        It also returns retained typed build commands; reading a start command
+        does not substitute for the dedicated supervisor claim-run grant.
       responses:
         '200':
           description: Original command, receipt status, and current resource
@@ -318,9 +623,9 @@ paths:
                 type: object
                 required: [command, status, record]
                 properties:
-                  command: {$ref: './fleet.yaml#/components/schemas/Command'}
+                  command: {$ref: './fleet.yaml#/components/schemas/FleetReadableCommand'}
                   status: {type: string}
-                  record: {$ref: './fleet.yaml#/components/schemas/Record'}
+                  record: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
         '404': {$ref: './fleet.yaml#/components/responses/Missing'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
   /v1/fleet/events:
@@ -332,6 +637,8 @@ paths:
         The cursor covers persisted control transitions only. High-volume activity
         has a worker sourceSequence and is visible in current resource observations.
         A cursor ahead of this controller requires resynchronization and returns 409.
+        Typed build entries carry compact buildTransition status/reservation fields
+        instead of a record copy. Exact replay and log polling append no events.
       parameters:
         - name: after
           in: query
@@ -347,16 +654,7 @@ paths:
                 properties:
                   events:
                     type: array
-                    items:
-                      type: object
-                      required: [seq, kind, targetId, event, at, record]
-                      properties:
-                        seq: {type: integer, minimum: 1}
-                        kind: {type: string}
-                        targetId: {type: string}
-                        event: {type: string}
-                        at: {type: string, format: date-time}
-                        record: {$ref: './fleet.yaml#/components/schemas/Record'}
+                    items: {$ref: './fleet.yaml#/components/schemas/FleetReadableTransition'}
                   cursor: {type: integer, minimum: 0}
         '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
@@ -364,7 +662,10 @@ paths:
       tags: [fleet]
       operationId: fleetObserve
       summary: Accept a versioned worker fact through Agamemnon
-      description: Applies fenced command receipts or observed activity without authorizing issue completion.
+      description: >-
+        Applies fenced command receipts or observed activity without authorizing
+        issue completion. Typed build grants and terminal facts are rejected here;
+        the dedicated claim-run/facts paths require a separately bound supervisor key.
       requestBody:
         required: true
         content:
@@ -1190,6 +1491,8 @@ paths:
 components:
 
   securitySchemes:
+    buildKey:
+      $ref: './fleet.yaml#/components/securitySchemes/buildKey'
     resolutionKey:
       type: apiKey
       in: header

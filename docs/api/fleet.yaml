@@ -5,9 +5,29 @@ info:
   description: >-
     Shared Fleet schemas referenced by openapi.yaml. Command receipt completion
     is distinct from observed activity and canonical issue completion.
+    Typed subordinate builds preserve the parent's canonical claim. Their first
+    profile supports only the registered Linux/aarch64 hephaestus-test-unit-v1
+    recipe, fixed argv [just, test-unit], and empty parameters. Admission defaults
+    to unavailable until an operator registers independently qualified capacity.
+    Snapshot metadata and evidence references do not establish verified bytes;
+    collectionVerified remains false. Executor, collector, MCP and remote backend
+    qualification remain separate acceptance requirements.
+security:
+  - bearerAuth: []
+  - apiKeyAuth: []
 components:
   securitySchemes:
     bearerAuth: {type: http, scheme: bearer}
+    apiKeyAuth: {type: apiKey, in: header, name: X-API-Key}
+    buildKey:
+      type: apiKey
+      in: header
+      name: X-Fleet-Build-Key
+      description: >-
+        Separate supervisor credential bound to the retained authority ID, tool
+        worker, allocation and generation. Required for claim-run and facts in
+        addition to either existing API authentication header. Secret values
+        never appear in the admission catalog, public policy or durable record.
     resolutionKey: {type: apiKey, in: header, name: X-Fleet-Resolution-Key}
   parameters:
     Kind:
@@ -23,6 +43,691 @@ components:
       required: true
       schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'}
   schemas:
+    BuildIdentifier:
+      type: string
+      pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'
+    BuildId:
+      type: string
+      pattern: '^build-[a-f0-9]{64}$'
+      description: >-
+        Controller-generated build- prefix followed by the SHA256 of the
+        canonical JSON object containing workspaceId and idempotencyKey.
+    BuildDigest: {type: string, pattern: '^[a-f0-9]{64}$'}
+    BuildImageDigest: {type: string, pattern: '^sha256:[a-f0-9]{64}$'}
+    BuildQuantity:
+      type: integer
+      minimum: 1
+      maximum: 9223372036854775807
+      description: >-
+        Exact JSON integer in the signed 64-bit positive range. Boolean, float
+        and exponential numeric tokens are rejected even when mathematically
+        integral; JSON Schema's integer type alone does not express this wire rule.
+    BuildCursor:
+      type: integer
+      minimum: 0
+      maximum: 9223372036854775807
+      description: >-
+        Nonnegative byte offset within one UTF-8 stream. JSON response values
+        must be exact integer tokens; no float or boolean coercion is performed.
+    BuildTimestamp:
+      type: string
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$'
+    BuildParameters:
+      type: object
+      additionalProperties: false
+      maxProperties: 0
+      description: Only the empty object is supported in the first profile.
+    BuildParentRequest:
+      type: object
+      additionalProperties: false
+      required: [targetKind, targetId, sessionId, executionId, generation]
+      properties:
+        targetKind: {type: string, enum: [sessions, executions]}
+        targetId: {$ref: '#/components/schemas/BuildIdentifier'}
+        sessionId: {$ref: '#/components/schemas/BuildIdentifier'}
+        executionId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+      description: >-
+        All fields must exactly match the retained live parent. Both sessionId
+        and executionId are required. These comparison values grant no authority.
+    BuildSnapshot:
+      type: object
+      additionalProperties: false
+      required: [reference, manifestDigest, baseCommit, members, bytes, policyDigest]
+      properties:
+        reference: {$ref: '#/components/schemas/BuildIdentifier'}
+        manifestDigest: {$ref: '#/components/schemas/BuildDigest'}
+        baseCommit: {type: string, pattern: '^[a-f0-9]{40}$'}
+        members: {$ref: '#/components/schemas/BuildQuantity'}
+        bytes: {$ref: '#/components/schemas/BuildQuantity'}
+        policyDigest: {$ref: '#/components/schemas/BuildDigest'}
+      description: >-
+        Private snapshot reference and unverified content commitment. Counts are
+        positive and cannot exceed the registered recipe's snapshotMembers and
+        snapshotBytes. policyDigest must match the registered workspace policy.
+        No caller path, URL, environment, mount or image override is accepted.
+    BuildSubmit:
+      type: object
+      additionalProperties: false
+      required: [schema, workspaceId, recipeId, parameters, idempotencyKey, parent, snapshot]
+      properties:
+        schema: {type: string, const: hi/fleet/build-submit/v1}
+        workspaceId: {$ref: '#/components/schemas/BuildIdentifier'}
+        recipeId: {type: string, const: hephaestus-test-unit-v1}
+        parameters: {$ref: '#/components/schemas/BuildParameters'}
+        idempotencyKey: {$ref: '#/components/schemas/BuildIdentifier'}
+        parent: {$ref: '#/components/schemas/BuildParentRequest'}
+        snapshot: {$ref: '#/components/schemas/BuildSnapshot'}
+      description: >-
+        Closed metadata-only admission request; serialized body limit is 16384
+        bytes. Exact request replay under the workspace/idempotency identity
+        returns the historical record and original start command without a new
+        reservation, delivery or run grant, even after the parent becomes inactive
+        or admission policy is removed. Changed intent returns 409.
+    BuildDelivery:
+      type: object
+      additionalProperties: false
+      required: [schema, commandId, generation, attempt]
+      properties:
+        schema: {type: string, const: hi/fleet/build-delivery/v1}
+        commandId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        attempt: {$ref: '#/components/schemas/BuildQuantity'}
+      description: >-
+        Retains the admitted start command and allocation generation/attempt.
+        Current first-profile attempt is 1. Explicit delivery revalidates the
+        current eligible parent and never creates a new attempt or journal event.
+    BuildClaim:
+      type: object
+      additionalProperties: false
+      required: [schema, workerId, allocationId, generation, attempt, commandId, claimId]
+      properties:
+        schema: {type: string, const: hi/fleet/build-claim/v1}
+        workerId: {$ref: '#/components/schemas/BuildIdentifier'}
+        allocationId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        attempt: {$ref: '#/components/schemas/BuildQuantity'}
+        commandId: {$ref: '#/components/schemas/BuildIdentifier'}
+        claimId: {$ref: '#/components/schemas/BuildIdentifier'}
+      description: >-
+        Supervisor journals claimId before requesting authorization. Worker,
+        allocation, generation, attempt and original start command must match the
+        retained build. Current attempt is 1. Changed claim identity conflicts.
+    BuildCancel:
+      type: object
+      additionalProperties: false
+      required: [schema, commandId, idempotencyKey, generation, attempt]
+      properties:
+        schema: {type: string, const: hi/fleet/build-cancel/v1}
+        commandId: {$ref: '#/components/schemas/BuildIdentifier'}
+        idempotencyKey: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        attempt: {$ref: '#/components/schemas/BuildQuantity'}
+      description: >-
+        Typed cancellation has no payload field and is distinct from the legacy
+        CommandRequest. It uses the retained allocation generation and attempt,
+        currently 1, and a fresh globally unique stop commandId. Exact cancellation
+        replay may redeliver a pending stop; changed identity returns 409. Parent
+        liveness and an enabled admission catalog are not required for cleanup.
+    BuildEvidenceReference:
+      type: object
+      additionalProperties: false
+      required: [reference, digest]
+      properties:
+        reference: {$ref: '#/components/schemas/BuildIdentifier'}
+        digest: {$ref: '#/components/schemas/BuildDigest'}
+      description: >-
+        Bounded private receipt or manifest reference and digest, with no URL or
+        inline bytes. The controller does not establish independent collection.
+    BuildNullableEvidenceReference:
+      oneOf:
+        - $ref: '#/components/schemas/BuildEvidenceReference'
+        - type: 'null'
+    BuildFact:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - eventId
+        - workerId
+        - allocationId
+        - generation
+        - attempt
+        - commandId
+        - policyDigest
+        - parametersDigest
+        - snapshotDigest
+        - platform
+        - imageDigest
+        - toolchainDigest
+        - outcome
+        - exitCode
+        - cleanup
+        - startFenced
+        - receipt
+        - logs
+        - artifacts
+      properties:
+        schema: {type: string, const: hi/fleet/build-fact/v1}
+        eventId: {$ref: '#/components/schemas/BuildIdentifier'}
+        workerId: {$ref: '#/components/schemas/BuildIdentifier'}
+        allocationId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        attempt: {$ref: '#/components/schemas/BuildQuantity'}
+        commandId: {$ref: '#/components/schemas/BuildIdentifier'}
+        policyDigest: {$ref: '#/components/schemas/BuildDigest'}
+        parametersDigest: {$ref: '#/components/schemas/BuildDigest'}
+        snapshotDigest: {$ref: '#/components/schemas/BuildDigest'}
+        platform: {type: string, const: linux/aarch64}
+        imageDigest: {$ref: '#/components/schemas/BuildImageDigest'}
+        toolchainDigest: {$ref: '#/components/schemas/BuildDigest'}
+        outcome: {type: string, enum: [completed, failed, cancelled, timed_out]}
+        exitCode: {type: [integer, 'null'], minimum: -255, maximum: 255}
+        cleanup: {type: string, const: confirmed_empty}
+        startFenced: {type: boolean}
+        receipt: {$ref: '#/components/schemas/BuildNullableEvidenceReference'}
+        logs: {$ref: '#/components/schemas/BuildNullableEvidenceReference'}
+        artifacts: {$ref: '#/components/schemas/BuildNullableEvidenceReference'}
+      allOf:
+        - if:
+            properties: {outcome: {const: completed}}
+          then:
+            properties: {exitCode: {type: integer, const: 0}}
+        - if:
+            properties: {outcome: {const: failed}}
+          then:
+            properties:
+              exitCode: {type: integer, minimum: -255, maximum: 255, not: {const: 0}}
+        - if:
+            properties: {outcome: {enum: [cancelled, timed_out]}}
+          then:
+            properties: {exitCode: {type: 'null'}}
+        - if:
+            properties: {outcome: {const: cancelled}}
+          then:
+            properties: {startFenced: {const: true}}
+      description: >-
+        Terminal supervisor fact only; serialized body limit is 16384 bytes.
+        Every identity/digest must match the retained build, selected allocation
+        and current command. Before cancellation, a durable run grant is required
+        and cancelled is rejected. During cancellation, only cancelled with the
+        exact stop commandId, startFenced true and confirmed owned-process cleanup
+        is accepted. Other outcomes need an exact integer exitCode when present.
+        Exact terminal replay returns the retained record without another event;
+        any changed fact returns 409. Nullable evidence retains truthful incomplete
+        evidence while still allowing confirmed cleanup to release the tool slot.
+    BuildWorkspacePolicy:
+      type: object
+      additionalProperties: false
+      required: [id, repository, parentWorkspace, snapshotPolicyDigest]
+      properties:
+        id: {$ref: '#/components/schemas/BuildIdentifier'}
+        repository:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Exact registered repository; UTF-8 encoding is limited to 128 bytes.
+        parentWorkspace:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Operator-owned parent workspace; UTF-8 encoding is limited to 1024 bytes.
+        snapshotPolicyDigest: {$ref: '#/components/schemas/BuildDigest'}
+    BuildRecipeResources:
+      type: object
+      additionalProperties: false
+      required:
+        - cpus
+        - gpus
+        - memoryBytes
+        - diskBytes
+        - wallSeconds
+        - outputBytes
+        - artifactBytes
+        - snapshotBytes
+        - snapshotMembers
+      properties:
+        cpus: {$ref: '#/components/schemas/BuildQuantity'}
+        gpus: {type: integer, const: 0}
+        memoryBytes: {$ref: '#/components/schemas/BuildQuantity'}
+        diskBytes: {$ref: '#/components/schemas/BuildQuantity'}
+        wallSeconds: {$ref: '#/components/schemas/BuildQuantity'}
+        outputBytes: {$ref: '#/components/schemas/BuildQuantity'}
+        artifactBytes: {$ref: '#/components/schemas/BuildQuantity'}
+        snapshotBytes: {$ref: '#/components/schemas/BuildQuantity'}
+        snapshotMembers: {$ref: '#/components/schemas/BuildQuantity'}
+      description: >-
+        Finite operator-owned limits in the named units; cpus counts CPU slots.
+        gpus is the exact integer 0 in the first profile. Enforcement by the
+        independent supervisor requires its own qualification evidence.
+    BuildRecipePolicy:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - repository
+        - argv
+        - parameters
+        - recipeDigest
+        - lockDigest
+        - platform
+        - imageDigest
+        - toolchainDigest
+        - resources
+      properties:
+        id: {type: string, const: hephaestus-test-unit-v1}
+        repository:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Must equal workspace.repository; UTF-8 encoding is limited to 128 bytes.
+        argv: {type: array, const: [just, test-unit]}
+        parameters: {$ref: '#/components/schemas/BuildParameters'}
+        recipeDigest: {$ref: '#/components/schemas/BuildDigest'}
+        lockDigest: {$ref: '#/components/schemas/BuildDigest'}
+        platform: {type: string, const: linux/aarch64}
+        imageDigest: {$ref: '#/components/schemas/BuildImageDigest'}
+        toolchainDigest: {$ref: '#/components/schemas/BuildDigest'}
+        resources: {$ref: '#/components/schemas/BuildRecipeResources'}
+    BuildAllocationResources:
+      type: object
+      additionalProperties: false
+      required: [cpus, gpus, memoryBytes, diskBytes]
+      properties:
+        cpus: {$ref: '#/components/schemas/BuildQuantity'}
+        gpus: {type: integer, const: 0}
+        memoryBytes: {$ref: '#/components/schemas/BuildQuantity'}
+        diskBytes: {$ref: '#/components/schemas/BuildQuantity'}
+    BuildSupervisionResources:
+      type: object
+      additionalProperties: false
+      required: [cpus, memoryBytes]
+      properties:
+        cpus: {$ref: '#/components/schemas/BuildQuantity'}
+        memoryBytes: {$ref: '#/components/schemas/BuildQuantity'}
+    BuildAllocation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - workerId
+        - generation
+        - authorityId
+        - platform
+        - imageDigest
+        - toolchainDigest
+        - qualificationReceiptDigest
+        - resources
+        - supervision
+      properties:
+        id: {$ref: '#/components/schemas/BuildIdentifier'}
+        workerId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        authorityId: {$ref: '#/components/schemas/BuildIdentifier'}
+        platform: {type: string, const: linux/aarch64}
+        imageDigest: {$ref: '#/components/schemas/BuildImageDigest'}
+        toolchainDigest: {$ref: '#/components/schemas/BuildDigest'}
+        qualificationReceiptDigest: {$ref: '#/components/schemas/BuildDigest'}
+        resources: {$ref: '#/components/schemas/BuildAllocationResources'}
+        supervision: {$ref: '#/components/schemas/BuildSupervisionResources'}
+      description: >-
+        Selected independently qualified tool capacity, separate from provider
+        workers and their agent slots. One unreleased build per allocation/worker.
+        Recipe CPU/memory must fit allocation minus positive supervision reserves;
+        recipe disk must fit allocation disk. Platform/image/toolchain must match
+        the recipe. authorityId is public; its dedicated key is never retained here.
+    BuildPolicy:
+      type: object
+      additionalProperties: false
+      required: [workspace, recipe, allocation]
+      properties:
+        workspace: {$ref: '#/components/schemas/BuildWorkspacePolicy'}
+        recipe: {$ref: '#/components/schemas/BuildRecipePolicy'}
+        allocation: {$ref: '#/components/schemas/BuildAllocation'}
+      description: Immutable controller-selected public policy retained for replay and recovery.
+    BuildParentClaim:
+      type: object
+      additionalProperties: false
+      required: [schema, targetKind, targetId, workerId, agentId, generation, workspace]
+      properties:
+        schema: {type: string, const: hi/fleet/claim/v1}
+        targetKind: {type: string, enum: [sessions, executions]}
+        targetId: {$ref: '#/components/schemas/BuildIdentifier'}
+        workerId: {$ref: '#/components/schemas/BuildIdentifier'}
+        agentId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        workspace: {type: string, minLength: 1, maxLength: 1024}
+    BuildParent:
+      type: object
+      additionalProperties: false
+      required: [targetKind, targetId, sessionId, executionId, generation, taskId, agentId, claim]
+      properties:
+        targetKind: {type: string, enum: [sessions, executions]}
+        targetId: {$ref: '#/components/schemas/BuildIdentifier'}
+        sessionId: {$ref: '#/components/schemas/BuildIdentifier'}
+        executionId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        taskId: {$ref: '#/components/schemas/BuildIdentifier'}
+        agentId: {$ref: '#/components/schemas/BuildIdentifier'}
+        claim: {$ref: '#/components/schemas/BuildParentClaim'}
+      description: >-
+        Controller-retained comparison binding to the original parent and
+        canonical HMAS claim. It creates no second task or issue-writer assignment.
+    BuildGrant:
+      type: object
+      additionalProperties: false
+      required: [schema, claim, grantId, authorizedAt]
+      properties:
+        schema: {type: string, const: hi/fleet/build-grant/v1}
+        claim: {$ref: '#/components/schemas/BuildClaim'}
+        grantId: {$ref: '#/components/schemas/BuildDigest'}
+        authorizedAt: {$ref: '#/components/schemas/BuildTimestamp'}
+      description: >-
+        Durable authorization for this one immutable attempt. grantId is SHA256
+        of canonical JSON containing buildId and claim. The supervisor must journal
+        the grant before process creation and deduplicate delivery independently.
+    BuildCommandPayload:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - attempt
+        - parent
+        - policy
+        - policyDigest
+        - snapshot
+        - parametersDigest
+        - snapshotWorkspace
+        - requiresRunGrant
+      properties:
+        schema: {type: string, const: hi/fleet/build-command/v1}
+        attempt: {type: integer, const: 1}
+        parent: {$ref: '#/components/schemas/BuildParent'}
+        policy: {$ref: '#/components/schemas/BuildPolicy'}
+        policyDigest: {$ref: '#/components/schemas/BuildDigest'}
+        snapshot: {$ref: '#/components/schemas/BuildSnapshot'}
+        parametersDigest: {$ref: '#/components/schemas/BuildDigest'}
+        snapshotWorkspace: {type: string, pattern: '^build-[a-f0-9]{64}-attempt-1$'}
+        requiresRunGrant: {type: boolean, const: true}
+        stopStartCommandId: {$ref: '#/components/schemas/BuildIdentifier'}
+      description: >-
+        Immutable first-profile command metadata. stopStartCommandId is present
+        only on cancellation and equals the retained original start command ID.
+        snapshotWorkspace is a controller-owned identity, not a caller path.
+    BuildCommand:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - targetKind
+        - targetId
+        - workerId
+        - generation
+        - operation
+        - commandId
+        - idempotencyKey
+        - payload
+      properties:
+        schema: {type: string, const: hi/fleet/v1}
+        targetKind: {type: string, const: build-jobs}
+        targetId: {$ref: '#/components/schemas/BuildId'}
+        workerId: {$ref: '#/components/schemas/BuildIdentifier'}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        operation: {type: string, enum: [start, cancel]}
+        commandId: {$ref: '#/components/schemas/BuildIdentifier'}
+        idempotencyKey: {$ref: '#/components/schemas/BuildIdentifier'}
+        payload: {$ref: '#/components/schemas/BuildCommandPayload'}
+      allOf:
+        - if:
+            properties: {operation: {const: start}}
+          then:
+            properties:
+              commandId: {pattern: '^build-[a-f0-9]{64}-start$'}
+              idempotencyKey: {pattern: '^build-[a-f0-9]{64}-start$'}
+              payload: {not: {required: [stopStartCommandId]}}
+        - if:
+            properties: {operation: {const: cancel}}
+          then:
+            properties:
+              payload: {required: [stopStartCommandId]}
+      description: >-
+        Controller-produced Keystone envelope addressed to hi.fleet.control.{workerId}.
+        Start commandId and idempotencyKey both equal {buildId}-start. Receiving a
+        start envelope alone does not authorize process execution. Generic ACK,
+        events, start/input/resume/resolve cannot grant or complete a typed build.
+    BuildStartCommand:
+      allOf:
+        - $ref: '#/components/schemas/BuildCommand'
+        - properties: {operation: {const: start}}
+    BuildCancelCommand:
+      allOf:
+        - $ref: '#/components/schemas/BuildCommand'
+        - properties: {operation: {const: cancel}}
+    BuildData:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - request
+        - policy
+        - policyDigest
+        - parametersDigest
+        - allocation
+        - attempt
+        - reservation
+        - snapshotWorkspace
+      properties:
+        schema: {type: string, const: hi/fleet/build/v1}
+        request: {$ref: '#/components/schemas/BuildSubmit'}
+        policy: {$ref: '#/components/schemas/BuildPolicy'}
+        policyDigest: {$ref: '#/components/schemas/BuildDigest'}
+        parametersDigest: {$ref: '#/components/schemas/BuildDigest'}
+        allocation: {$ref: '#/components/schemas/BuildAllocation'}
+        attempt: {type: integer, const: 1}
+        reservation: {type: string, enum: [reserved, released]}
+        snapshotWorkspace: {type: string, pattern: '^build-[a-f0-9]{64}-attempt-1$'}
+        grant: {$ref: '#/components/schemas/BuildGrant'}
+        cancellation: {$ref: '#/components/schemas/BuildCancel'}
+        terminal: {$ref: '#/components/schemas/BuildFact'}
+        evidenceState: {type: string, enum: [incomplete, unverified]}
+      dependentRequired:
+        terminal: [evidenceState]
+        evidenceState: [terminal]
+      description: >-
+        allocation equals policy.allocation. policyDigest and parametersDigest are
+        SHA256 over the retained canonical JSON policy and parameters. Grant,
+        cancellation and terminal are immutable once persisted. Terminal evidence
+        is incomplete if any receipt/log/artifact reference is null, otherwise
+        unverified. No receipt is an independently collected result here.
+    BuildRecord:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - kind
+        - id
+        - status
+        - claimStatus
+        - generation
+        - createdAt
+        - updatedAt
+        - parent
+        - build
+        - collectionVerified
+        - commandId
+      properties:
+        schema: {type: string, const: hi/fleet/v1}
+        kind: {type: string, const: build-jobs}
+        id: {$ref: '#/components/schemas/BuildId'}
+        status:
+          type: string
+          enum: [admitted, authorized, cancelling, completed, failed, cancelled, timed_out]
+        claimStatus: {type: string, const: unclaimed}
+        generation: {$ref: '#/components/schemas/BuildQuantity'}
+        createdAt: {$ref: '#/components/schemas/BuildTimestamp'}
+        updatedAt: {$ref: '#/components/schemas/BuildTimestamp'}
+        parent: {$ref: '#/components/schemas/BuildParent'}
+        build: {$ref: '#/components/schemas/BuildData'}
+        collectionVerified: {type: boolean, const: false}
+        commandId: {$ref: '#/components/schemas/BuildIdentifier'}
+        activity: {type: string, const: unknown}
+        observationState: {type: string, const: reconciliation_required}
+      description: >-
+        Separate tool reservation with no top-level worker/task/agent assignment.
+        generation is the allocation generation; commandId is the start until a
+        cancellation supplies the retained stop. admitted/authorized/cancelling
+        retain reserved capacity; a trusted terminal fact releases it. authorized
+        means the durable run grant exists, not observed process start. Hydration
+        adds activity unknown and observationState reconciliation_required without
+        erasing the durable status. Parent state, lead, claim and resolution are
+        unchanged by the child's admission, cancellation or terminal result.
+    FleetReadableRecord:
+      anyOf:
+        - $ref: '#/components/schemas/Record'
+        - $ref: '#/components/schemas/BuildRecord'
+      description: Existing generic record or typed subordinate build record.
+    FleetReadableCommand:
+      anyOf:
+        - $ref: '#/components/schemas/Command'
+        - $ref: '#/components/schemas/BuildCommand'
+    BuildSubmitResponse:
+      type: object
+      additionalProperties: false
+      required: [record, command]
+      properties:
+        record: {$ref: '#/components/schemas/BuildRecord'}
+        command: {$ref: '#/components/schemas/BuildStartCommand'}
+    BuildCancelResponse:
+      type: object
+      additionalProperties: false
+      required: [record, command]
+      properties:
+        record: {$ref: '#/components/schemas/BuildRecord'}
+        command: {$ref: '#/components/schemas/BuildCancelCommand'}
+    BuildGrantResponse:
+      type: object
+      additionalProperties: false
+      required: [grant, command]
+      properties:
+        grant: {$ref: '#/components/schemas/BuildGrant'}
+        command: {$ref: '#/components/schemas/BuildStartCommand'}
+    BuildFactResponse:
+      type: object
+      additionalProperties: false
+      required: [record, eventId]
+      properties:
+        record: {$ref: '#/components/schemas/BuildRecord'}
+        eventId: {$ref: '#/components/schemas/BuildIdentifier'}
+    LegacyCommandResponse:
+      type: object
+      required: [command, status]
+      properties:
+        command: {$ref: '#/components/schemas/Command'}
+        status: {type: string, enum: [pending, accepted, completed, failed, superseded]}
+    BuildLogPage:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - buildId
+        - attempt
+        - snapshotDigest
+        - stream
+        - after
+        - next
+        - data
+        - chunkDigest
+        - complete
+        - truncated
+        - manifest
+      properties:
+        schema: {type: string, const: hi/fleet/build-logs/v1}
+        buildId: {$ref: '#/components/schemas/BuildId'}
+        attempt: {type: integer, const: 1}
+        snapshotDigest: {$ref: '#/components/schemas/BuildDigest'}
+        stream: {type: string, enum: [stdout, stderr]}
+        after: {$ref: '#/components/schemas/BuildCursor'}
+        next: {$ref: '#/components/schemas/BuildCursor'}
+        data:
+          type: string
+          maxLength: 65536
+          description: >-
+            UTF-8 data, including the empty string. Encoded byte length must not
+            exceed requested limit or 65536; maxLength alone counts characters.
+            Offsets and chunkDigest use the UTF-8 bytes, not characters.
+        chunkDigest: {$ref: '#/components/schemas/BuildDigest'}
+        complete: {type: boolean}
+        truncated: {type: boolean}
+        manifest: {$ref: '#/components/schemas/BuildNullableEvidenceReference'}
+      allOf:
+        - if:
+            properties: {complete: {const: true}}
+          then:
+            properties:
+              manifest: {$ref: '#/components/schemas/BuildEvidenceReference'}
+      description: >-
+        Closed backend response returned unchanged after controller validation.
+        buildId, attempt and snapshotDigest must match the admitted job; stream
+        and after must match the request. next equals after plus UTF-8 byte length
+        of data and cannot exceed 9223372036854775807. chunkDigest is SHA256 of
+        those bytes. complete true requires a non-null manifest. If a terminal
+        logs reference exists, manifest must equal it exactly, including after a
+        concurrent terminal write. truncated is independent of complete; neither
+        flag establishes independent collection or canonical task completion.
+    BuildTransition:
+      type: object
+      additionalProperties: false
+      required: [seq, kind, targetId, event, at, buildTransition]
+      properties:
+        seq: {$ref: '#/components/schemas/BuildQuantity'}
+        kind: {type: string, const: build-jobs}
+        targetId: {$ref: '#/components/schemas/BuildId'}
+        event:
+          type: string
+          enum: [build.admitted, build.run_authorized, build.cancel_requested, build.terminal]
+        at: {$ref: '#/components/schemas/BuildTimestamp'}
+        buildTransition:
+          type: object
+          additionalProperties: false
+          required: [status, reservation]
+          properties:
+            status:
+              type: string
+              enum: [admitted, authorized, cancelling, completed, failed, cancelled, timed_out]
+            reservation: {type: string, enum: [reserved, released]}
+      description: >-
+        Compact typed lifecycle entry in the existing Fleet event cursor; no copy
+        of the record and no log chunk index. Each transition persists once; exact
+        replay and log polling append no events. A first-profile job has admission,
+        optional run grant, optional cancellation, and at most one terminal entry.
+    FleetLegacyTransition:
+      type: object
+      required: [seq, kind, targetId, event, at, record]
+      properties:
+        seq: {type: integer, minimum: 1}
+        kind: {type: string}
+        targetId: {type: string}
+        event: {type: string}
+        at: {type: string, format: date-time}
+        record: {$ref: '#/components/schemas/Record'}
+    FleetReadableTransition:
+      anyOf:
+        - $ref: '#/components/schemas/FleetLegacyTransition'
+        - $ref: '#/components/schemas/BuildTransition'
+    BuildError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: {type: string}
+      description: Error text is diagnostic; clients must branch on HTTP status.
+    FleetRateLimitError:
+      type: object
+      additionalProperties: false
+      required: [error, retry_after_seconds]
+      properties:
+        error: {type: string, const: rate limit exceeded}
+        retry_after_seconds: {type: integer, minimum: 1}
     ResearchImportError:
       type: object
       additionalProperties: false
@@ -334,6 +1039,72 @@ components:
               type: string
               description: Required to correlate a confirmed stop with its current control intent.
   responses:
+    BuildInvalid:
+      description: Invalid JSON object, closed schema, exact type, bound or registered policy
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildUnauthorized:
+      description: Missing or invalid existing Agamemnon API credential
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildForbidden:
+      description: >-
+        Missing, invalid or unavailable dedicated supervisor authority. Both the
+        normal API credential and an X-Fleet-Build-Key matching the retained
+        authority/worker/allocation/generation are required. Restore the exact
+        recovery authority to collect an old job after removing admission policy;
+        ordinary requester authentication cannot replace it.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildMissing:
+      description: Build or required parent Fleet resource was not found
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildConflict:
+      description: >-
+        Retained identity, parent eligibility, capacity, command, generation,
+        attempt, run authorization, terminal evidence or cleanup does not match;
+        a typed-only operation also rejects a generic build record with 409.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildTooLarge:
+      description: Serialized request body exceeds 16384 bytes
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildRateLimited:
+      description: Existing per-client API rate limit exceeded
+      headers:
+        Retry-After:
+          description: Retry delay in seconds
+          schema: {type: integer, minimum: 1}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FleetRateLimitError'}
+    BuildUnavailable:
+      description: >-
+        Required configuration, qualified capacity, durable backing or delivery
+        is unavailable or uncertain. A write/publication may already have occurred;
+        recover the unique retained identity and reuse the exact request before
+        retrying. Retain the tool reservation until trusted terminal cleanup.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
+    BuildFull:
+      description: >-
+        Durable body budget exceeded. Typed admission permits at most 30000 bytes
+        before its first transition; nonterminal persistence permits at most
+        45000 bytes. Cancellation and terminal cleanup retain the existing
+        60000-byte absolute body cap. Sizes include the serialized issue body
+        wrapper and are decimal bytes, not KiB. Log chunks are never persisted here.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/BuildError'}
     Invalid: {description: Invalid schema or metadata}
     Missing: {description: Resource or command not found}
     Conflict: {description: "Admission, ownership, generation, ordering, or control conflict"}

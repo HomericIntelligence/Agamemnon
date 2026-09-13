@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `feat(fleet)`: admit registered snapshot-bound subordinate build jobs while
+  preserving the parent issue writer, with durable run grants, fenced cleanup,
+  private loopback log pages, operator configuration, and Python client methods
+  with whole-request deadlines and bounded response reads (Refs #508).
+  Runtime execution and artifact collection require separate qualification.
+
 - `test(fleet)`: add an executable receiver for actual Telemachy producer bytes,
   with private-broker replay and controlled GitHub failure checks (Refs #504).
 
