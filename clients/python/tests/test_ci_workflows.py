@@ -2,10 +2,28 @@
 
 from pathlib import Path
 
+import tomllib
 import yaml
 
 WORKFLOW_DIR = Path(__file__).parents[3] / ".github" / "workflows"
 WORKFLOW_PATH = WORKFLOW_DIR / "_required.yml"
+
+# ── Python audit dependency floor (issue #495: PYSEC-2026-3721) ────────────
+# The Python client's locked audit environment is what security/dependency-scan
+# audits, so three things must move together: the manifest floor in the `lint`
+# dependency group, the resolver-owned lock, and the exact command CI runs.
+# Any one of them drifting reintroduces a failing-close audit on every PR.
+PYPROJECT_PATH = Path(__file__).parents[1] / "pyproject.toml"
+LOCK_PATH = Path(__file__).parents[1] / "uv.lock"
+
+# First pip release carrying the PYSEC-2026-3721 fix (per the GitHub advisory
+# database). The manifest floor and the resolved lock must both stay at or
+# above this.
+PIP_AUDIT_FLOOR = (26, 2)
+
+# Exact command the security-dependency-scan job runs for the Python audit.
+PIP_AUDIT_COMMAND = "cd clients/python && uv run --only-group lint pip-audit --skip-editable"
+PYPROJECT_SECTION = "dependency-groups.lint"
 
 REQUIRED_WORKFLOWS = ("_required.yml", "build-test.yml", "static-analysis.yml")
 SMOKE_WORKFLOW = "merge-queue-smoke.yml"
@@ -120,6 +138,100 @@ def _find_gitleaks_upload_step(workflow: dict) -> dict:
         if step.get("name") == "Upload Gitleaks SARIF":
             return step
     raise AssertionError("Could not find 'Upload Gitleaks SARIF' step in security-secrets-scan job")
+
+
+def _release_tuple(version: str) -> tuple[int, ...]:
+    """Return the numeric release tuple for a PEP 440 version string."""
+    core = version.split("+", 1)[0].split("-", 1)[0]
+    return tuple(int(part) for part in core.split("."))
+
+
+def _lint_group_pip_requirement() -> str:
+    """Return the raw pip requirement string declared in the lint group."""
+    groups = tomllib.loads(PYPROJECT_PATH.read_text()).get("dependency-groups", {})
+    for requirement in groups.get("lint", []):
+        name = requirement.split(";", 1)[0]
+        for delimiter in (">=", "<=", "==", "~=", ">", "<", "[", " "):
+            name = name.split(delimiter, 1)[0]
+        if name.strip().lower() == "pip":
+            return requirement
+    raise AssertionError(
+        f"{PYPROJECT_SECTION} declares no pip requirement — the audit floor is unbound"
+    )
+
+
+def _lint_group_pip_floor() -> tuple[int, ...]:
+    """Return the manifest floor for pip as a comparable release tuple."""
+    specifier = _lint_group_pip_requirement().split(";", 1)[0]
+    if ">=" not in specifier:
+        raise AssertionError(
+            f"{PYPROJECT_SECTION} pip requirement '{specifier}' declares no '>=' floor"
+        )
+    return _release_tuple(specifier.split(">=", 1)[1].strip())
+
+
+def _locked_pip_version() -> tuple[int, ...]:
+    """Return the pip version resolved in the client's resolver-owned lock."""
+    lock = tomllib.loads(LOCK_PATH.read_text())
+    for package in lock.get("package", []):
+        if str(package.get("name", "")).lower() == "pip":
+            return _release_tuple(str(package["version"]))
+    raise AssertionError("uv.lock contains no pip package")
+
+
+def test_pip_audit_manifest_floor_meets_advisory_fix() -> None:
+    """The lint-group pip floor must be at or above the PYSEC-2026-3721 fix."""
+    floor = _lint_group_pip_floor()
+    assert floor >= PIP_AUDIT_FLOOR, (
+        f'{PYPROJECT_SECTION} pip floor {floor} is below the advisory fix '
+        f"{PIP_AUDIT_FLOOR} — security/dependency-scan fails closed on PYSEC-2026-3721"
+    )
+
+
+def test_locked_pip_satisfies_the_manifest_floor() -> None:
+    """The resolved lock must honour the manifest floor and the advisory fix.
+
+    A floor that the lock does not apply is exactly the drift that let pip
+    26.1.2 keep shipping in the audited environment.
+    """
+    floor = _lint_group_pip_floor()
+    locked = _locked_pip_version()
+    assert locked >= floor, (
+        f"uv.lock resolves pip {locked} below the {PYPROJECT_SECTION} floor {floor} — "
+        "regenerate the lock with `uv lock`"
+    )
+    assert locked >= PIP_AUDIT_FLOOR, (
+        f"uv.lock resolves pip {locked} below the advisory fix {PIP_AUDIT_FLOOR} — "
+        "security/dependency-scan fails closed on PYSEC-2026-3721"
+    )
+
+
+def test_dependency_scan_runs_the_bound_pip_audit_command() -> None:
+    """security/dependency-scan must run the bound audit command, fail closed."""
+    workflow = _load_workflow()
+    steps = workflow["jobs"]["security-dependency-scan"]["steps"]
+    runnable = [step for step in steps if "run" in step]
+    audit_step = next((step for step in runnable if PIP_AUDIT_COMMAND in step["run"]), None)
+    assert audit_step is not None, (
+        f"security-dependency-scan does not run '{PIP_AUDIT_COMMAND}'"
+    )
+
+    run_block = audit_step["run"]
+    assert "continue-on-error" not in audit_step, (
+        "Dependency scan step has continue-on-error — the audit no longer fails closed"
+    )
+    assert "--ignore-vuln" not in run_block, (
+        "Dependency scan suppresses advisories with --ignore-vuln instead of fixing them"
+    )
+    command_line = next(
+        line for line in run_block.splitlines() if PIP_AUDIT_COMMAND in line
+    )
+    assert "||" not in command_line, (
+        "Dependency scan masks pip-audit failures with a shell fallback"
+    )
+    assert "--skip-editable" in command_line, (
+        "Dependency scan dropped --skip-editable, widening the audited set"
+    )
 
 
 def test_gitleaks_scan_step_is_blocking() -> None:
