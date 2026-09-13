@@ -1,21 +1,24 @@
 # Merge Queue Readiness
 
-Agamemnon stages merge-queue rollout in two steps. Repository changes first ensure every required
-status context runs for `merge_group` events with the `checks_requested` activity. A repository
-administrator may activate the queue only after that support has merged and a representative queued
-pull request can be observed.
+The queue commit must report all 18 required contexts. The three required workflows subscribe to
+`merge_group` with the `checks_requested` activity, as well as their existing `push` and
+`pull_request` events on `main`:
 
-The required contexts are supplied by these workflows:
+- `_required.yml`: the 12 canonical lint, unit, integration, security, build, schema, dependency,
+  aggregate-test, package, install, and release-readiness contexts.
+- `build-test.yml`: `All Build/Test Checks` and its four compiler/build-type matrix contexts.
+- `static-analysis.yml`: `All Static Analysis Checks`.
 
-- `_required.yml`: the canonical lint, test, security, build, schema, dependency, package, install,
-  and release-readiness contexts
-- `build-test.yml`: `All Build/Test Checks` and its four compiler/build-type matrix contexts
-- `static-analysis.yml`: `All Static Analysis Checks`
+`merge-queue-smoke.yml` remains a separate five-minute smoke check. Its result cannot replace those
+18 contexts. Required job names, permissions, aggregate result checks, scanner policies, and
+matrix entries remain part of the required-check contract. The existing optional PR-only docs
+job and tag-only publishing workflows retain their separate event rules.
 
-Their `push` and `pull_request` triggers, job names, permissions, and security gates are part of the
-required-check contract. Tag-only publishing workflows remain separate and must not run for merge
-groups.
+`clients/python/tests/test_ci_workflows.py` checks queue subscriptions, exact context names and
+required-job eligibility. It also executes the aggregate shell blocks with controlled successful
+and failed dependency results. These tests do not execute a hosted merge group or a container.
+A complete local CI result and the required hosted checks on the final source remain necessary
+before merge. A queued commit must then receive its own required checks.
 
-Enabling or changing the live ruleset, branch protection, queue policy, or merge method is an
-administrative operation outside workflow-readiness changes. For the initial rollout, track
-activation and the post-merge queue smoke check in issue #452.
+Changing the live ruleset, branch protection, queue policy, or merge method is an administrative
+operation outside this workflow correction. Track the operational queue observation in issue #491.

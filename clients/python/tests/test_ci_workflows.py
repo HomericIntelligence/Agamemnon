@@ -1,7 +1,10 @@
 """Regression smoke tests for required CI workflow contracts."""
 
+import os
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 WORKFLOW_DIR = Path(__file__).parents[3] / ".github" / "workflows"
@@ -37,27 +40,67 @@ def _workflow_triggers(workflow: dict) -> dict:
     return workflow.get("on", workflow.get(True, {}))
 
 
-def test_merge_group_runs_only_the_smoke_workflow() -> None:
-    """The merge queue must run exactly one fast smoke job (one runner slot).
+@pytest.mark.parametrize("filename", REQUIRED_WORKFLOWS)
+def test_required_workflows_run_for_queue_commit(filename: str) -> None:
+    """The queue commit must run each workflow that owns a required check."""
+    triggers = _workflow_triggers(_load_workflow(WORKFLOW_DIR / filename))
+    assert triggers["push"]["branches"] == ["main"]
+    assert triggers["pull_request"]["branches"] == ["main"]
+    assert triggers.get("merge_group") == {"types": ["checks_requested"]}, filename
 
-    The full workflows must NOT re-run for merge_group — that starved the
-    runner pool and pushed queue merges to 70-90 min. merge-queue-smoke.yml
-    owns the merge_group event and emits the single `merge-queue-smoke`
-    context; PR-side CI is untouched.
-    """
-    for filename in REQUIRED_WORKFLOWS:
-        triggers = _workflow_triggers(_load_workflow(WORKFLOW_DIR / filename))
-        assert triggers["push"]["branches"] == ["main"]
-        assert triggers["pull_request"]["branches"] == ["main"]
-        assert "merge_group" not in triggers, (
-            f"{filename} must not trigger on merge_group — merge-queue-smoke.yml owns that event"
-        )
 
+def test_queue_smoke_remains_a_separate_bounded_check() -> None:
+    """The supplemental smoke check retains its existing event and time bound."""
     smoke = _load_workflow(WORKFLOW_DIR / SMOKE_WORKFLOW)
     assert _workflow_triggers(smoke) == {"merge_group": {"types": ["checks_requested"]}}
     assert list(smoke["jobs"]) == ["merge-queue-smoke"]
     assert smoke["jobs"]["merge-queue-smoke"]["name"] == "merge-queue-smoke"
     assert smoke["jobs"]["merge-queue-smoke"]["timeout-minutes"] == 5
+
+
+@pytest.mark.parametrize(
+    "filename,job_id", [*REQUIRED_CONTEXT_JOBS.values(), ("build-test.yml", "build-test")]
+)
+def test_required_jobs_do_not_exclude_queue_events(filename: str, job_id: str) -> None:
+    """Required jobs cannot use a PR-only or push-only execution condition."""
+    job = _load_workflow(WORKFLOW_DIR / filename)["jobs"][job_id]
+    assert job.get("if") in (None, "always()"), (filename, job_id)
+
+
+@pytest.mark.parametrize(
+    "filename,job_id",
+    [
+        ("_required.yml", "test"),
+        ("build-test.yml", "check-all"),
+        ("static-analysis.yml", "check-all"),
+    ],
+)
+def test_aggregate_scripts_preserve_dependency_failures(
+    filename: str, job_id: str, tmp_path: Path
+) -> None:
+    """Execute the actual aggregate script for success and each failed dependency."""
+    job = _load_workflow(WORKFLOW_DIR / filename)["jobs"][job_id]
+    step = next(step for step in job["steps"] if "run" in step)
+    statuses = {key: "success" for key in step["env"]}
+
+    def run(values: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-e", "-c", step["run"]],
+            env={"PATH": os.defpath, **values},
+            cwd=tmp_path,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+    success = run(statuses)
+    assert success.returncode == 0, success.stderr
+    for dependency in statuses:
+        failed = run({**statuses, dependency: "failure"})
+        assert failed.returncode != 0, (filename, dependency, failed.stdout)
+    if "DOCS_RESULT" in statuses:
+        # This existing optional job runs on PRs. Its queue skip is intentional.
+        assert run({**statuses, "DOCS_RESULT": "skipped"}).returncode == 0
 
 
 def test_live_required_context_names_remain_exact() -> None:
@@ -157,9 +200,6 @@ def test_gitleaks_sarif_upload_step_not_affected() -> None:
 
 def test_empty_conan_cache_is_created_before_container_mount(tmp_path: Path) -> None:
     """Execute each mount step up to a controlled container boundary on a cache miss."""
-    import os
-    import subprocess
-
     workflow = _load_workflow()
     checked = []
     for job_id, job in workflow["jobs"].items():
