@@ -27,6 +27,12 @@ Nestor owns research questions, content, and the canonical research issue. Agame
 a confirmed Nestor intake reference as a durable Pending L3 execution leaf; import does not
 dispatch work or grant worker admission. Later execution uses existing Fleet controls and
 separate environment gates. See [the research import contract](docs/fleet.md#import-a-nestor-research-intake).
+Independently of Nestor, Agamemnon may import an explicitly selected planned GitHub issue
+from an operator registry as a Pending implementation leaf. Both import paths share bounded
+GitHub reconciliation and a conditional creation-attempt record; neither approves plan content
+nor dispatches work. Generic work acquisition cannot bypass retained ownership or unresolved
+attempts when routes or configuration are disabled. See
+[the direct import and recovery contract](docs/fleet.md#import-a-planned-github-issue).
 Agamemnon does **not** provide UI (Odysseus) or make myrmidon-level decisions
 (myrmidons communicate peer-to-peer directly).
 

@@ -218,6 +218,29 @@ void reply(httplib::Response& response, int status, const char* error) {
 }
 }  // namespace
 
+void validate_research_intake_provenance(const json& provenance, const std::string& task_id,
+                                         const std::string& repository, int number) {
+  const auto issue = provenance.value("issue", json());
+  if (!provenance.is_object() || provenance.size() != 10 ||
+      provenance.value("schema", json()) != "hi/agamemnon/research-intake/v1" ||
+      !matches(provenance.value("namespace", json()), "[a-z0-9][a-z0-9_-]{0,63}") ||
+      !matches(provenance.value("intakeId", json()), "[a-z0-9][a-z0-9_-]{7,63}") ||
+      !matches(provenance.value("requestDigest", json()), "[a-f0-9]{64}") ||
+      !matches(provenance.value("bodyDigest", json()), "[a-f0-9]{64}") ||
+      !matches(provenance.value("attemptId", json()), "[a-f0-9]{32}") ||
+      !provenance.value("generation", json()).is_number_integer() ||
+      provenance["generation"] != 1 || !timestamp(provenance.value("createdAt", json())) ||
+      !timestamp(provenance.value("confirmedAt", json())) || repository.size() > 200 ||
+      repository.find("..") != std::string::npos ||
+      !matches(repository, "[a-z0-9_-]+/[a-z0-9_.-]+") || number <= 0 || !issue.is_object() ||
+      issue.size() != 3 || issue.value("repository", json()) != repository ||
+      !issue.value("number", json()).is_number_integer() || issue["number"] != number ||
+      issue.value("url", json()) !=
+          "https://github.com/" + repository + "/issues/" + std::to_string(number) ||
+      task_id != task_identity(provenance["namespace"].get<std::string>(), provenance["intakeId"]))
+    throw std::invalid_argument("Invalid retained research import provenance");
+}
+
 std::optional<NestorResearchConfig> research_import_configuration(
     const std::optional<std::string>& origin, const std::optional<std::string>& api_key,
     const std::optional<std::string>& authority_namespace, bool github_enabled) {
@@ -329,8 +352,11 @@ ResearchImportResponse FleetResearchService::import_request(const json& request)
          {"provenance", provenance},
          {"issue", provenance["issue"]},
          {"routing", {{"domain", "research"}, {"hmasRole", "task-agent"}, {"stage", "research"}}}}};
-  } catch (const std::invalid_argument&) {
-    return {409, {{"error", "research_import_conflict"}}};
+  } catch (const std::invalid_argument& error) {
+    return {409,
+            {{"error", std::string(error.what()) == "work_issue_already_imported"
+                           ? "work_issue_already_imported"
+                           : "research_import_conflict"}}};
   } catch (const std::exception&) {
     return {503, {{"error", "research_persistence_uncertain"}}};
   }

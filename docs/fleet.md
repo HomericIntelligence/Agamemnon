@@ -62,8 +62,9 @@ coordination record for that leaf.
 An operator configures all three values: `AGAMEMNON_NESTOR_URL`,
 `AGAMEMNON_NESTOR_API_KEY`, and `AGAMEMNON_NESTOR_NAMESPACE`. With all three absent,
 the route returns 503. A partial or invalid configuration stops server startup
-before peer discovery or service attachment. Enabled import requires GitHub
-persistence and the existing authenticated API middleware. Keep the namespace
+before peer discovery or service attachment. Enabled import also requires the
+shared repository registry and import-state branch described below, GitHub
+persistence, and the existing authenticated API middleware. Keep the namespace
 stable for the same Nestor authority; changing it creates a different identity.
 
 The configured URL is an HTTPS origin with certificate and hostname verification,
@@ -71,7 +72,8 @@ without user information, a query, a fragment, or a base path. Plain HTTP is
 limited to numeric loopback origins. The lookup uses the configured Nestor
 credential, disables ambient proxies, refuses redirects, connects within two
 seconds and limits the complete lookup to five seconds and 64 KiB. These bounds
-apply to Nestor lookup; GitHub persistence uses the existing backing client.
+apply to Nestor lookup. The subsequent GitHub operations and Store lock acquisition
+share a separate 30-second budget, for a declared sequence of at most 35 seconds.
 
 1. Obtain the immutable `intakeId` and `requestDigest` from Nestor's intake receipt.
 2. Send an authenticated `POST /v1/fleet/research-intakes` with exactly:
@@ -104,12 +106,13 @@ Only the supported Nestor v1 generation-1 created record is accepted. Its issue
 receipt confirms creation; it does not establish research completion or the
 current live state of the canonical issue.
 
-The Store serializes import against task mutations and scans all open and closed
-HMAS backing records on each attempt. One open matching record is replayed;
-closed, duplicate, malformed or changed identities return 409 for explicit
-reconciliation. An uncertain creation returns 503. Retrying first rechecks the
-durable records, so a committed write with a lost acknowledgement can be reused
-without another create. A failed authoritative scan cannot confirm absence.
+The Store serializes both intake kinds against task mutations and scans all open
+and closed HMAS backing records on each attempt. One valid open matching backing
+record is replayed. Closed, duplicate, malformed or changed identities require
+reconciliation. A direct-import task for the same canonical work issue returns
+409 `work_issue_already_imported`; it is never converted into research provenance.
+The shared conditional attempt record described below prevents a retry from
+creating a replacement while an earlier create remains uncertain.
 
 `delivery.researchIntake` retains only its schema, namespace, intake ID, request
 and body digests, generation, attempt ID, canonical issue, and creation and
@@ -124,12 +127,157 @@ provenance conflict returns 409. Disabled lookup, malformed/unavailable Nestor,
 incomplete GitHub enumeration, or uncertain persistence returns 503 with a
 non-sensitive error code. The API version header follows the existing API.
 
-Run one controller only. GitHub does not provide a distributed compare-and-swap
-lease for this import. Disable new import by removing all three configuration
-values; existing tasks and Fleet controls remain durable. Do not delete backing
+Disable the research route by removing all three Nestor configuration values.
+Retain the shared registry and attempt namespace for guards and reconciliation;
+removing them does not permit generic work acquisition. Do not delete backing
 records or change the namespace to retry a conflict. This component does not
 implement Nestor interviews, Telemachy workflow promotion, research-worker
 isolation, or live model acceptance; those remain separate component gates.
+
+## Import a planned GitHub issue
+
+Direct issue import uses an operator-registered GitHub repository and an explicit
+issue-body or issue-comment reference. It is available independently of Nestor.
+Agamemnon owns the resulting Pending L3 task and implementation routing; it does
+not approve a plan, copy its content, change the canonical work issue, or dispatch
+execution. Odysseus projects these supported APIs without becoming another task
+authority.
+
+1. Read authenticated `GET /v1/fleet/issue-intakes/repositories`. Select one
+   returned `key` with its case-sensitive canonical `repository` and native
+   `repositoryId`. This is configuration projection, not a fresh GitHub check.
+2. Read `GET /v1/fleet/issue-intakes/{key}/{number}`. With no query, inspection
+   selects the exact current issue body. The sole optional query parameter is
+   `planCommentId`, an explicit native issue-comment ID. Inspection verifies that
+   the comment belongs to the selected issue. It returns native identities,
+   title, canonical issue URL, open/closed state, the selected `plan` reference,
+   and `observedAt`. It returns no issue or comment body.
+3. Retain the exact selection and send authenticated
+   `POST /v1/fleet/issue-intakes` with exactly `schema`, `repositoryKey`,
+   `issueNumber`, `repositoryId`, `issueId`, and `plan`. The schema is
+   `hi/agamemnon/issue-import/v1`. The plan is either
+   `{kind: "issue_body", digest}` or
+   `{kind: "issue_comment", nodeId, digest}`. Use the actual inspected values;
+   there are no caller-controlled URLs, credentials, routing or timestamps.
+4. A 201 response acknowledges one new unassigned Pending leaf. A 200 response
+   replays its current canonical state with the original provenance. Receipt
+   fields are `schema`, `taskId`, `state`, `provenance`, `issue`, and `routing`.
+   The receipt schema is `hi/agamemnon/issue-import-receipt/v1`; fixed routing is
+   `domain: pipeline`, `hmasRole: task-agent`, `stage: implementation`.
+5. Separately qualify a worker and use the existing Fleet task-backed start flow.
+   Import creates no session, allocation, task claim, TaskBrief or NATS message.
+
+Registry reads and POST accept no query parameters. Inspection accepts at most
+one `planCommentId`; digests never belong in URLs. Requests reject duplicate JSON
+keys, unknown fields, invalid UTF-8 and non-integer issue numbers. POST is limited
+to 4096 raw UTF-8 bytes; native IDs are nonempty and at most 128 UTF-8 bytes;
+issue numbers are 1 through 2147483647. Selected content must be nonempty valid
+UTF-8 and at most 128 KiB. Its SHA-256 covers the exact bytes, with no whitespace
+or newline normalization. `observedAt` records observation, not approval. An
+edit followed by an exact content revert has the same content digest.
+
+The task key is `issue-` plus SHA-256 over compact, lexically sorted UTF-8 JSON
+with no trailing newline containing `forge: github`, `repositoryId`, `issueId`,
+and `schema: hi/agamemnon/issue-task-key/v1`. Registry selectors, plan digests and
+timestamps are not key inputs. `delivery.issueIntake` retains only its schema,
+forge, native identities, canonical issue reference, plan reference, fixed
+routing and original observation timestamp. All of these are immutable. Replay
+preserves state, claim, assignment, resolution and delivery checkpoints; it does
+not revive completed work. An unchanged existing task can replay after the work
+issue closes, but a first import requires an open work issue and open backing
+record. A research owner returns 409 `work_issue_already_imported`, not a direct
+receipt with rewritten provenance.
+
+Invalid selection, an unknown registry key, or a supplied repository ID that
+disagrees with that registry entry returns 400 before GitHub I/O. A missing work
+issue returns 404. A changed actual issue identity or selected content, a closed
+work issue before first import, and ownership conflicts return 409. Oversized
+POST returns 413. Disabled configuration, bounded upstream failure or uncertain
+persistence returns 503. Retry only the same retained reference; inspection,
+status reads and browser reload do not themselves import.
+
+## Shared import configuration and recovery
+
+Both intake paths and generic work-acquisition guards use one operator registry
+and conditional attempt namespace in the existing GitHub backing repository.
+Set `AGAMEMNON_ISSUE_INTAKE_CONFIG` to a private owned regular file with mode 0400
+or 0600, at most 64 KiB, without symlink ancestors, a symlink final component,
+hard links or descriptor aliases. The closed JSON wrapper has exactly `schema`
+and `repositories`:
+
+```json
+{
+  "schema": "hi/agamemnon/issue-intake-config/v1",
+  "repositories": [
+    {"key": "implementation", "repository": "Example/Project", "repositoryId": "R_example"}
+  ]
+}
+```
+
+The example native ID is illustrative; verify and supply the actual GitHub
+repository identity. Entries are unique by key, native ID and case-insensitive
+repository name, with 1 through 64 entries. Keys use lower-case ASCII letters,
+digits, `_` and `-`, begin with a letter or digit, and have at most 64 characters.
+Repository names are canonical ASCII `owner/name`, at most 255 bytes, without
+consecutive dots or a `.` component. Renames and native-ID changes require
+explicit operator reconciliation rather than implicit alias adoption.
+
+Set `AGAMEMNON_IMPORT_STATE_BRANCH` to an existing branch in `GITHUB_REPO`.
+The service does not create that branch. The existing GitHub credential needs
+read access to registered work issue/comment metadata and read/write access to
+the backing issues and that branch's contents. Never put credentials in the
+registry or commit its operator file. Both variables absent with research
+disabled leaves direct import disabled; partial, empty, malformed, or missing
+configuration with research enabled stops startup before external setup.
+Configured import requires durable persistence and API authentication.
+
+For a new import, Store writes a bounded `prepared` intent, conditionally moves
+that same blob to `creating`, then attempts one backing-issue POST. Each contents
+write needs its exact conditional acknowledgment and same-branch readback under
+the shared budget. Only the invocation that confirmed its own preparation may
+grant creation. A retained `prepared` or `creating` record permits observation
+and reconciliation, not another grant. This includes a lost prepare or grant
+acknowledgment. A unique valid task that later becomes visible is canonical even
+if the auxiliary `linked` write was uncertain. V1 provides no reset, deletion or
+automatic recovery transition for a conclusively unstarted retained attempt.
+
+An empty scan, timeout, client disconnect or controller restart cannot disprove
+an earlier possible POST. Before enabling this version, positively reconcile
+pre-upgrade operations with a unique exact backing task or authoritative evidence
+that creation was never dispatched or was definitively rejected. Quiescing the
+old importer alone is insufficient. Keep imports disabled for an uncertain
+backing namespace; do not establish fresh fences as a substitute for that proof.
+
+Run one active controller. The SHA-conditional record is import creation
+metadata, not a distributed controller lease, task claim, scheduler or queue.
+Generic create, work-identity retarget, delivery replacement and split paths
+check retained ownership and the shared attempt namespace before acquiring work.
+Missing configuration or failed reconciliation refuses those mutations, even
+when import routes are disabled. Nonconflicting memory-mode operations and
+existing same-identity reads/state-only updates retain their existing behavior.
+Valid preexisting research/direct tasks replay without rewriting provenance or
+requiring a new attempt record.
+
+HMAS hydration and ownership scans reject duplicate JSON member names, including
+escaped spellings and nested members, before any fence or task write. Malformed
+retained bodies require reconciliation and are not rewritten or skipped. Splits
+check all proposed child IDs and resolved canonical work identities together
+before writing the parent or any child. Distinct work issues and unassigned
+legacy children with issue number zero remain supported.
+
+The fixed GitHub import client uses normal HTTPS verification, no redirects,
+ambient proxy or automatic retry. Its runtime must expose libcurl asynchronous
+DNS (`CURL_VERSION_ASYNCHDNS`); otherwise it returns unavailable before I/O.
+The 30-second monotonic budget includes Store lock acquisition, source lookup,
+complete enumeration, conditional writes/readback, and the possible one POST.
+Each connection uses at most one second or the remaining budget. Enumeration
+uses all states, ten records per page, at most 256 records and 27 requests with
+explicit terminal-page proof. Each compact complete REST record is at most
+512 KiB, each actual response body at most 8 MiB, and aggregate response bodies
+at most 144 MiB. Attempt records are at most 16 KiB. Larger otherwise valid
+histories return unavailable and remain unchanged; these are supported read
+limits, not a new universal HMAS storage limit. Incomplete pagination is never
+absence. Existing generic GitHub methods are not claimed bounded by this profile.
 
 ## Subordinate build jobs
 

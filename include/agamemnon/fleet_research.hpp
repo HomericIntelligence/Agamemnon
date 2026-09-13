@@ -49,6 +49,9 @@ struct ResearchImportResponse {
   int status;
   nlohmann::json body;
 };
+void validate_research_intake_provenance(const nlohmann::json& provenance,
+                                         const std::string& task_id, const std::string& repository,
+                                         int number);
 
 /// Durable metadata admission; deliberately has no publisher or orchestrator.
 class FleetResearchService {

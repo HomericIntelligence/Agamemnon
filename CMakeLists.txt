@@ -88,6 +88,8 @@ add_library(Agamemnon_core STATIC
   src/fleet_build_logs.cpp
   src/fleet_build_config.cpp
   src/fleet_research.cpp
+  src/fleet_issue.cpp
+  src/fleet_issue_config.cpp
   src/projects.cpp
   src/store.cpp
   src/nats_client.cpp

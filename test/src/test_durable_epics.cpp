@@ -1,4 +1,5 @@
 #include "agamemnon/fake_nats_publisher.hpp"
+#include "agamemnon/fleet_issue.hpp"
 #include "agamemnon/github_client.hpp"
 #include "agamemnon/orchestrator.hpp"
 #include "agamemnon/store.hpp"
@@ -12,6 +13,39 @@ class EpicGitHub : public MockGitHubClient {
   bool lose_create_response = false;
   int fail_update = 0;
   int updates = 0;
+  bool reserved_work = false;
+  int work_reads = 0;
+  int fence_reads = 0;
+  json import_work_issue(const std::string& owner, const std::string& name, int number,
+                         ImportContext& context) override {
+    context.checkpoint();
+    ++work_reads;
+    EXPECT_EQ(owner + "/" + name, "homeric/repo");
+    EXPECT_EQ(number, 42);
+    return {{"repository",
+             {{"id", "R_epic_fixture"},
+              {"nameWithOwner", "homeric/repo"},
+              {"issue",
+               {{"__typename", "Issue"},
+                {"id", "I_epic_fixture"},
+                {"number", 42},
+                {"url", "https://github.com/homeric/repo/issues/42"},
+                {"state", "OPEN"},
+                {"title", "Controlled epic"},
+                {"body", "Explicit unreserved work namespace"}}}}}};
+  }
+  std::vector<json> import_list_issues(ImportContext& context) override {
+    context.checkpoint();
+    return list_issues_including_closed("agamemnon-hmas-task");
+  }
+  std::optional<ImportFence> import_read_fence(const std::string& branch, const std::string&,
+                                               ImportContext& context) override {
+    context.checkpoint();
+    ++fence_reads;
+    EXPECT_EQ(branch, "import-state");
+    if (reserved_work) return ImportFence{std::string(40, 'a'), {{"phase", "creating"}}};
+    return std::nullopt;
+  }
   std::vector<json> list_issues_including_closed(std::string_view label) override {
     if (fail_list_on_label == label) throw std::runtime_error("unavailable");
     std::vector<json> result;
@@ -35,6 +69,13 @@ class EpicGitHub : public MockGitHubClient {
     MockGitHubClient::update_issue_body(id, body);
   }
 };
+static std::shared_ptr<IssueImportConfiguration> epic_configuration() {
+  auto config = std::make_shared<IssueImportConfiguration>();
+  config->state_branch = "import-state";
+  config->repositories = json::array(
+      {{{"key", "epic"}, {"repository", "homeric/repo"}, {"repositoryId", "R_epic_fixture"}}});
+  return config;
+}
 static json epic() {
   return {{"schema", "hi/v1"},
           {"msg_id", "registration-1"},
@@ -47,11 +88,11 @@ static const std::string subject = "hi.pipeline.epic.homeric-repo-42.registered"
 TEST(DurableEpics, ReplayUsesOneBriefAndTaskAcrossRestart) {
   auto gh = std::make_shared<EpicGitHub>();
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator first(store, bus);
   const auto id = first.on_epic_registered(subject, epic().dump(), true);
   ASSERT_FALSE(id.empty());
-  Store restarted(gh);
+  Store restarted(gh, epic_configuration());
   Orchestrator second(restarted, bus);
   EXPECT_EQ(second.on_epic_registered(subject, epic().dump(), true), id);
   EXPECT_EQ(gh->created_issues.size(), 2u);
@@ -62,11 +103,29 @@ TEST(DurableEpics, FailedBriefWriteCannotPublishOrCache) {
   auto gh = std::make_shared<EpicGitHub>();
   gh->fail_create = true;
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator orch(store, bus);
   EXPECT_THROW(orch.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
   EXPECT_TRUE(bus.calls.empty());
   EXPECT_TRUE(store.list_task_briefs().empty());
+}
+
+TEST(DurableEpics, MissingConfigurationOrRetainedImportFenceCannotAcquireWork) {
+  for (const bool configured : {false, true}) {
+    SCOPED_TRACE(configured);
+    auto gh = std::make_shared<EpicGitHub>();
+    gh->reserved_work = true;
+    FakeNatsPublisher bus;
+    Store store(gh, configured ? epic_configuration() : nullptr);
+    Orchestrator orchestrator(store, bus);
+    EXPECT_THROW(orchestrator.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+    EXPECT_TRUE(bus.calls.empty());
+    EXPECT_TRUE(store.list_hmas_tasks_by_layer(HmasLayer::L0_ChiefArchitect).empty());
+    EXPECT_EQ(gh->work_reads, configured ? 1 : 0);
+    EXPECT_EQ(gh->fence_reads, configured ? 1 : 0);
+    ASSERT_EQ(gh->created_issues.size(), 1u);
+    EXPECT_EQ(gh->created_issues.begin()->second.at("label"), "agamemnon-brief");
+  }
 }
 
 TEST(DurableEpics, MemoryOnlyAndSubjectMismatchAreRejected) {
@@ -75,7 +134,7 @@ TEST(DurableEpics, MemoryOnlyAndSubjectMismatchAreRejected) {
   Orchestrator orch(memory, bus);
   EXPECT_THROW(orch.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
   auto gh = std::make_shared<EpicGitHub>();
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator durable(store, bus);
   EXPECT_THROW(durable.on_epic_registered("hi.pipeline.epic.other.registered", epic().dump(), true),
                std::invalid_argument);
@@ -85,7 +144,7 @@ TEST(DurableEpics, MemoryOnlyAndSubjectMismatchAreRejected) {
 TEST(DurableEpics, ChangedMessageIdReplaysButChangedPlanConflicts) {
   auto gh = std::make_shared<EpicGitHub>();
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator orch(store, bus);
   auto id = orch.on_epic_registered(subject, epic().dump(), true);
   auto replay = epic();
@@ -100,12 +159,12 @@ TEST(DurableEpics, ChangedMessageIdReplaysButChangedPlanConflicts) {
 TEST(DurableEpics, RepositoryCaseVariantsConvergeAcrossRestart) {
   auto gh = std::make_shared<EpicGitHub>();
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator first(store, bus);
   auto original = epic();
   original["workflow"] = "BuildFeature";
   const auto id = first.on_epic_registered(subject, original.dump(), true);
-  Store restarted(gh);
+  Store restarted(gh, epic_configuration());
   Orchestrator second(restarted, bus);
   auto replay = original;
   replay["msg_id"] = "other-producer-uuid";
@@ -126,7 +185,7 @@ TEST(DurableEpics, RepositoryCaseVariantsConvergeAcrossRestart) {
 TEST(DurableEpics, PriorCaseSensitiveRootRequiresExplicitMigration) {
   auto gh = std::make_shared<EpicGitHub>();
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   HmasTask legacy;
   legacy.id = "epic-root-prior-uppercase-hash";
   legacy.layer = HmasLayer::L0_ChiefArchitect;
@@ -139,7 +198,7 @@ TEST(DurableEpics, PriorCaseSensitiveRootRequiresExplicitMigration) {
                                      {"workflow", "feature"},
                                      {"team_id", "mesh"}};
   store.create_hmas_task(legacy);
-  Store restarted(gh);
+  Store restarted(gh, epic_configuration());
   Orchestrator orch(restarted, bus);
   auto incoming = epic();
   incoming["epic"]["repo"] = "homeric/repo";
@@ -152,7 +211,7 @@ TEST(DurableEpics, UncertainBriefCreateRecoversFromAcknowledgedRead) {
   auto gh = std::make_shared<EpicGitHub>();
   gh->lose_create_response = true;
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator orch(store, bus);
   EXPECT_THROW(orch.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
   EXPECT_TRUE(bus.calls.empty());
@@ -164,7 +223,7 @@ TEST(DurableEpics, UncertainPublicationBeyondDedupWindowRequiresReconciliation) 
   auto gh = std::make_shared<EpicGitHub>();
   gh->fail_update = 2;  // pending intent persisted; publication receipt write fails
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator orch(store, bus);
   EXPECT_THROW(orch.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
   ASSERT_EQ(bus.calls.size(), 1u);
@@ -179,7 +238,7 @@ TEST(DurableEpics, UncertainPublicationBeyondDedupWindowRequiresReconciliation) 
 TEST(DurableEpics, CanonicalChildCompletionWakesParentOnceWithoutCompletingIt) {
   auto gh = std::make_shared<EpicGitHub>();
   FakeNatsPublisher bus;
-  Store store(gh);
+  Store store(gh, epic_configuration());
   Orchestrator orch(store, bus);
   const auto brief = orch.on_epic_registered(subject, epic().dump(), true);
   auto parent = store.list_hmas_tasks_by_brief(brief).at(0);
@@ -200,7 +259,7 @@ TEST(DurableEpics, CanonicalChildCompletionWakesParentOnceWithoutCompletingIt) {
   ASSERT_EQ(bus.calls.size(), 1u);
   EXPECT_EQ(json::parse(bus.calls[0].payload)["operation"], "child_completed");
   EXPECT_EQ(store.get_hmas_task(parent.id)->state, TaskState::Decomposing);
-  Store restarted(gh);
+  Store restarted(gh, epic_configuration());
   Orchestrator after_restart(restarted, bus);
   after_restart.reconcile_parent_wakeups();
   EXPECT_EQ(bus.calls.size(), 1u);
