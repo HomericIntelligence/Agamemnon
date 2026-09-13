@@ -9,9 +9,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # merge_group is intentionally absent: the merge queue runs only the fast
-  # merge-queue-smoke.yml workflow (single merge-queue-smoke job, <5 min).
+  merge_group:
+    types: [checks_requested]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   prepare-ci-image:
@@ -375,7 +378,7 @@ jobs:
   docs:
     name: docs-validate
     runs-on: ubuntu-24.04
-    if: github.event_name == 'pull_request'
+    if: github.event_name != 'push'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Prune stale podman storage (self-hosted disk pressure)
@@ -405,6 +408,7 @@ jobs:
           ASAN_RESULT: ${{ needs.asan.result }}
           PYTHON_ORCHESTRATION_RESULT: ${{ needs.python-orchestration.result }}
           DOCS_RESULT: ${{ needs.docs.result }}
+          EVENT_NAME: ${{ github.event_name }}
           SCHEMA_VALIDATION_RESULT: ${{ needs.schema-validation.result }}
           CYCLONEDX_RESULT: ${{ needs.cyclonedx-validate.result }}
           PORT_SMOKE_RESULT: ${{ needs.port-smoke-test.result }}
@@ -422,9 +426,11 @@ jobs:
             echo "python-orchestration failed"
             exit 1
           fi
-          if [ "$DOCS_RESULT" != "success" ] && [ "$DOCS_RESULT" != "skipped" ]; then
-            echo "docs-validate failed"
-            exit 1
+          if [ "$DOCS_RESULT" != "success" ]; then
+            if [ "$EVENT_NAME" != "push" ] || [ "$DOCS_RESULT" != "skipped" ]; then
+              echo "docs-validate failed"
+              exit 1
+            fi
           fi
           if [ "$SCHEMA_VALIDATION_RESULT" != "success" ]; then
             echo "schema-validation failed"
