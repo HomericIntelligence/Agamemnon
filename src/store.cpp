@@ -3,6 +3,7 @@
 #include "agamemnon/metrics.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
@@ -15,6 +16,32 @@
 #include <utility>
 
 namespace agamemnon {
+
+namespace {
+bool has_research_intake(const HmasTask& task) {
+  return task.delivery.is_object() && task.delivery.contains("researchIntake");
+}
+
+bool research_leaf(const HmasTask& task) {
+  return task.layer == HmasLayer::L3_TaskAgent && task.parent_task_id.empty() &&
+         task.brief_id.empty() && task.module.empty() && task.child_task_ids.empty() &&
+         task.blocked_by.empty();
+}
+
+bool same_research_identity(const HmasTask& original, const HmasTask& updated) {
+  return has_research_intake(original) && has_research_intake(updated) && research_leaf(original) &&
+         research_leaf(updated) && original.id == updated.id && original.repo == updated.repo &&
+         original.issue == updated.issue &&
+         original.delivery["researchIntake"].dump() == updated.delivery["researchIntake"].dump();
+}
+
+bool backing_number(const std::string& value) {
+  int number = 0;
+  const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), number);
+  return error == std::errc{} && end == value.data() + value.size() && number > 0 &&
+         std::to_string(number) == value;
+}
+}  // namespace
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -253,6 +280,12 @@ void Store::ensure_hmas_tasks_loaded_() {
 void Store::persist_hmas_task_(const HmasTask& task) {
   if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
     throw std::runtime_error("HMAS state requires reconciliation");
+  const auto existing = hmas_tasks_.find(task.id);
+  if (has_research_intake(task) ||
+      (existing != hmas_tasks_.end() && has_research_intake(existing->second))) {
+    if (existing == hmas_tasks_.end() || !same_research_identity(existing->second, task))
+      throw std::invalid_argument("Imported research identity is immutable");
+  }
   if (!gh_) return;
   auto number = hmas_task_issue_numbers_.find(task.id);
   if (number == hmas_task_issue_numbers_.end())
@@ -767,6 +800,8 @@ bool Store::remove_fault(const std::string& id) {
 // ── HMAS typed tasks ──────────────────────────────────────────────────────────
 
 void Store::create_hmas_task(const HmasTask& task) {
+  if (has_research_intake(task))
+    throw std::invalid_argument("Use canonical research intake import");
   ensure_hmas_tasks_loaded_();  // also guards write-first race
   std::unique_lock<std::shared_mutex> lk(mutex_);
   if (hmas_tasks_.contains(task.id)) throw std::runtime_error("HMAS task already exists");
@@ -790,6 +825,78 @@ void Store::create_hmas_task(const HmasTask& task) {
   if (!task.brief_id.empty()) {
     hmas_tasks_by_brief_[task.brief_id].push_back(task.id);
   }
+}
+
+std::pair<HmasTask, bool> Store::import_research_task(const HmasTask& proposed) {
+  if (!gh_) throw std::runtime_error("Research import requires GitHub persistence");
+  if (!has_research_intake(proposed) || !research_leaf(proposed) || proposed.id.empty() ||
+      proposed.repo.empty() || proposed.issue <= 0 || proposed.state != TaskState::Pending ||
+      !proposed.assigned_lead_id.empty() || !proposed.fleet_claim.is_null() ||
+      !proposed.fleet_resolution.is_null())
+    throw std::invalid_argument("Invalid proposed research leaf");
+  std::unique_lock<std::shared_mutex> lock(mutex_);
+  // An import never uses a warm cache as evidence that a durable identity is absent.
+  hmas_tasks_loaded_.store(false, std::memory_order_release);
+  const auto issues = gh_->list_issues_including_closed("agamemnon-hmas-task");
+  std::unordered_map<std::string, HmasTask> tasks;
+  std::unordered_map<std::string, std::string> numbers;
+  std::unordered_map<std::string, std::vector<std::string>> briefs;
+  std::unordered_map<std::string, std::string> issue_owners;
+  for (const auto& issue : issues) {
+    try {
+      const auto entity = parse_issue_entity_(issue);
+      if (!entity.is_object() || !entity.contains("id") || !issue.is_object() ||
+          !issue.value("number", json()).is_number_integer() || issue["number"] <= 0 ||
+          issue["number"] > std::numeric_limits<int>::max())
+        throw std::invalid_argument("Malformed HMAS backing record");
+      const auto number = std::to_string(issue["number"].get<int>());
+      if (!backing_number(number) || issue["number"] != std::stoi(number))
+        throw std::invalid_argument("Invalid HMAS backing number");
+      if (entity.value("id", json()) == proposed.id) {
+        const auto canonical = hmas_task_to_json(proposed);
+        // Compare schema-typed identity before the legacy reader can default
+        // missing fields, discard malformed lists, or narrow an issue number.
+        for (const auto* field : {"id", "layer", "repo", "issue", "parent_task_id", "brief_id",
+                                  "module", "child_task_ids", "blocked_by"})
+          if (!entity.contains(field) || entity[field].dump() != canonical[field].dump())
+            throw std::invalid_argument("Invalid raw research identity");
+      }
+      auto task = hmas_task_from_json(entity);
+      if (task.id.empty() || !tasks.emplace(task.id, task).second ||
+          !issue_owners.emplace(number, task.id).second)
+        throw std::invalid_argument("Ambiguous HMAS backing identity");
+      numbers[task.id] = number;
+      if (!task.brief_id.empty()) briefs[task.brief_id].push_back(task.id);
+      if (task.id == proposed.id) {
+        for (const auto* field : {"state", "delivery"})
+          if (!entity.contains(field))
+            throw std::invalid_argument("Incomplete research backing record");
+        if (issue.value("state", json()) != "open" || !same_research_identity(task, proposed))
+          throw std::invalid_argument("Research backing record requires reconciliation");
+      }
+    } catch (const std::exception&) {
+      throw std::invalid_argument("Research backing record requires reconciliation");
+    }
+  }
+  bool created = false;
+  if (!tasks.contains(proposed.id)) {
+    // Do not retry this mutation. Even an empty or invalid acknowledgement is uncertain.
+    const auto number = gh_->create_issue(
+        "hmas-task: " + proposed.id,
+        make_issue_body_("hmas-tasks/" + proposed.id, hmas_task_to_json(proposed)),
+        "agamemnon-hmas-task");
+    if (!backing_number(number) || issue_owners.contains(number))
+      throw std::runtime_error("Research creation was not acknowledged");
+    tasks.emplace(proposed.id, proposed);
+    numbers[proposed.id] = number;
+    created = true;
+  }
+  const auto result = tasks.at(proposed.id);
+  hmas_tasks_ = std::move(tasks);
+  hmas_task_issue_numbers_ = std::move(numbers);
+  hmas_tasks_by_brief_ = std::move(briefs);
+  hmas_tasks_loaded_.store(true, std::memory_order_release);
+  return {result, created};
 }
 
 std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
@@ -863,7 +970,8 @@ bool Store::append_hmas_children(const HmasTask& expected, const std::vector<Hma
     return false;
   auto parent = expected;
   for (const auto& child : children) {
-    if (child.id.empty() || hmas_tasks_.contains(child.id) || !child.fleet_claim.is_null())
+    if (child.id.empty() || hmas_tasks_.contains(child.id) || !child.fleet_claim.is_null() ||
+        has_research_intake(child))
       throw std::invalid_argument("Invalid split child identity");
     parent.child_task_ids.push_back(child.id);
   }

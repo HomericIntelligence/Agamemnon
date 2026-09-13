@@ -12,6 +12,7 @@
 #include <shared_mutex>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "nlohmann/json.hpp"
@@ -80,6 +81,9 @@ class Store {
 
   // ── HMAS typed tasks ───────────────────────────────────────────────────
   void create_hmas_task(const HmasTask& task);
+  /// Reconcile every backing issue before creating or replaying a research leaf.
+  /// The boolean is true only after a new durable creation is acknowledged.
+  std::pair<HmasTask, bool> import_research_task(const HmasTask& proposed);
   /// Returns a value copy of the task; safe to use outside the mutex.
   std::optional<HmasTask> get_hmas_task(const std::string& id);
   bool update_hmas_task_state(const std::string& id, TaskState state);

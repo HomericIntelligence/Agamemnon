@@ -19,7 +19,8 @@ info:
     **Transport:** Internal mesh traffic only (no TLS). Intended to be reached over Tailscale
     (100.x.x.x) or localhost.
 
-    **NATS side-effects:** Mutating endpoints publish events to NATS subjects. See the
+    **NATS side-effects:** Some mutating endpoints publish events to NATS subjects;
+    research intake import persists metadata without dispatch. See the
     `x-nats-events` extension field on each operation and `docs/api/nats-events.md` for the
     full reference.
 
@@ -71,6 +72,63 @@ tags:
       (escalate / complete / state lookup).
 
 paths:
+  /v1/fleet/research-intakes:
+    post:
+      tags: [fleet]
+      operationId: fleetImportResearchIntake
+      summary: Import one confirmed Nestor intake as a durable Pending L3 leaf
+      description: >-
+        Requires a configured Nestor authority and GitHub persistence. Reads only
+        the supported Nestor v1 generation-1 metadata record and verifies its digest
+        and confirmed issue receipt. Exact replay returns the current task state.
+        Does not create a canonical research issue, TaskBrief, Fleet session or NATS
+        publication. Existing worker admission and Fleet start/input/respond remain
+        separate. Duplicate JSON keys, extra fields and invalid UTF-8 are rejected.
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/ResearchImport'}
+      responses:
+        '201':
+          description: New durable, unassigned Pending L3 leaf; no dispatch occurred
+          headers:
+            X-API-Version:
+              description: Current Agamemnon API version
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportReceipt'}
+        '200':
+          description: Unique open backing record replayed with current state and ownership
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportReceipt'}
+        '400':
+          description: Invalid metadata request or serialized body exceeds 4096 bytes
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '404':
+          description: Configured Nestor authority reports no such intake
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
+        '409':
+          description: Unconfirmed or changed intake, or ambiguous/closed/malformed backing identity
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: Import disabled, authority unavailable/invalid, or persistence uncertain
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
   /v1/fleet/projects:
     get:
       tags: [fleet]
@@ -1761,7 +1819,12 @@ components:
           $ref: './fleet.yaml#/components/schemas/Resolution'
         delivery:
           type: object
-          description: Orchestrator-owned durable publication checkpoints; not a task-state authority.
+          description: >-
+            Orchestrator-owned durable checkpoints and immutable research intake
+            provenance; neither is a task-state authority. Generic updates retain
+            researchIntake exactly, including numeric types.
+          properties:
+            researchIntake: {$ref: './fleet.yaml#/components/schemas/ResearchProvenance'}
           additionalProperties: true
         blocked_by:
           type: array

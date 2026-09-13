@@ -11,6 +11,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_version.cpp
   src/test_store.cpp
   src/test_fleet.cpp
+  src/test_fleet_research.cpp
   src/test_projects.cpp
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
