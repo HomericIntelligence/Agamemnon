@@ -152,7 +152,8 @@ add_executable(${PROJECT_NAME}_integration_tests
   src/integration/test_agent_endpoints.cpp
   src/integration/test_task_lifecycle.cpp
   src/integration/test_chaos_endpoints.cpp
-  src/integration/test_peer_discovery_integration.cpp)
+  src/integration/test_peer_discovery_integration.cpp
+  src/integration/test_api_version_header.cpp)
 
 target_compile_features(${PROJECT_NAME}_integration_tests PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_integration_tests PROPERTIES CXX_EXTENSIONS OFF)
