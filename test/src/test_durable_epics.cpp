@@ -3,6 +3,11 @@
 #include "agamemnon/orchestrator.hpp"
 #include "agamemnon/store.hpp"
 
+#include <chrono>
+#include <functional>
+#include <future>
+#include <mutex>
+
 #include <gtest/gtest.h>
 
 namespace agamemnon::test {
@@ -204,5 +209,268 @@ TEST(DurableEpics, CanonicalChildCompletionWakesParentOnceWithoutCompletingIt) {
   Orchestrator after_restart(restarted, bus);
   after_restart.reconcile_parent_wakeups();
   EXPECT_EQ(bus.calls.size(), 1u);
+}
+
+class ConcurrentEpicBus : public FakeNatsPublisher {
+ public:
+  std::function<void()> before_wake;
+  std::function<void()> record_wake;
+
+  bool publish(const std::string& channel, const std::string& payload) override {
+    const bool wake = json::parse(payload).value("operation", "") == "child_completed";
+    if (wake && before_wake) before_wake();
+    std::lock_guard lock(mutex_);
+    if (wake && record_wake) record_wake();
+    return FakeNatsPublisher::publish(channel, payload);
+  }
+
+  void publish_log(const std::string& channel, const std::string& level, const std::string& message,
+                   const json& metadata) override {
+    std::lock_guard lock(mutex_);
+    FakeNatsPublisher::publish_log(channel, level, message, metadata);
+  }
+
+ private:
+  std::mutex mutex_;
+};
+
+enum class ParentMutation { Started, Assigned, Completed };
+class ParentWakeupRace : public ::testing::TestWithParam<ParentMutation> {};
+
+struct WakeupOrder {
+  std::mutex mutex;
+  int sequence = 0;
+  int mutation = 0;
+  int publication = 0;
+};
+
+class OrderedEpicGitHub : public EpicGitHub {
+ public:
+  explicit OrderedEpicGitHub(WakeupOrder& order) : order_(order) {}
+  std::string parent_issue;
+  void update_issue_body(std::string_view id, std::string_view body) override {
+    if (id != parent_issue) {
+      EpicGitHub::update_issue_body(id, body);
+      return;
+    }
+    // The fixture commit and its order record share the publication trace lock.
+    // Preemption after this write cannot let the publication appear earlier.
+    std::lock_guard lock(order_.mutex);
+    EpicGitHub::update_issue_body(id, body);
+    order_.mutation = ++order_.sequence;
+  }
+
+ private:
+  WakeupOrder& order_;
+};
+
+TEST_P(ParentWakeupRace, CanonicalMutationCannotCommitDuringWakePublication) {
+  WakeupOrder order;
+  auto gh = std::make_shared<OrderedEpicGitHub>(order);
+  ConcurrentEpicBus bus;
+  Store store(gh);
+  Orchestrator orch(store, bus);
+  const auto brief = orch.on_epic_registered(subject, epic().dump(), true);
+  const auto parent = store.list_hmas_tasks_by_brief(brief).at(0);
+  for (const auto& [id, issue] : gh->created_issues)
+    if (issue["title"] == "hmas-task: " + parent.id) gh->parent_issue = id;
+  ASSERT_FALSE(gh->parent_issue.empty());
+  HmasTask child;
+  child.id = "completed-race-child";
+  child.brief_id = brief;
+  child.parent_task_id = parent.id;
+  child.layer = HmasLayer::L3_TaskAgent;
+  child.state = TaskState::Completed;
+  child.completed_at = now_iso8601();
+  store.create_hmas_task(child);
+  bus.clear();
+
+  std::future<bool> mutation;
+  bus.before_wake = [&] {
+    mutation = std::async(std::launch::async, [&] {
+      bool changed = false;
+      if (GetParam() == ParentMutation::Started) {
+        orch.on_myrmidon_started(
+            "hi.pipeline.chief-architect.started",
+            json{{"task_id", parent.id}, {"agent_id", "planner"}, {"exec_host", "worker-1"}}
+                .dump());
+        const auto actual = store.get_hmas_task(parent.id);
+        changed = actual && actual->state == TaskState::InProgress &&
+                  actual->assigned_lead_id == "planner@worker-1";
+      } else {
+        auto updated = parent;
+        if (GetParam() == ParentMutation::Assigned)
+          updated.assigned_lead_id = "planner@worker-1";
+        else
+          updated.state = TaskState::Completed;
+        changed = store.update_hmas_task(updated);
+      }
+      return changed;
+    });
+    // Give the competing operation a finite opportunity to finish. The oracle
+    // is the actual committed mutation/publication order, not this wait result.
+    mutation.wait_for(std::chrono::milliseconds(500));
+  };
+  bus.record_wake = [&] {
+    std::lock_guard lock(order.mutex);
+    order.publication = ++order.sequence;
+  };
+  orch.reconcile_parent_wakeups();
+  ASSERT_TRUE(mutation.valid());
+  ASSERT_TRUE(mutation.get());
+  ASSERT_GT(order.publication, 0);
+  ASSERT_GT(order.mutation, 0);
+  ASSERT_EQ(store.get_hmas_task(child.id)->delivery["parentWake"]["phase"], "published");
+  std::cout << "parent wake sequence: publish=" << order.publication
+            << " canonical mutation=" << order.mutation << '\n';
+  EXPECT_LT(order.publication, order.mutation)
+      << "A parent became assigned or ineligible before its wake was published";
+}
+
+INSTANTIATE_TEST_SUITE_P(CanonicalWriters, ParentWakeupRace,
+                         ::testing::Values(ParentMutation::Started, ParentMutation::Assigned,
+                                           ParentMutation::Completed),
+                         [](const auto& info) {
+                           switch (info.param) {
+                             case ParentMutation::Started:
+                               return "Started";
+                             case ParentMutation::Assigned:
+                               return "Assigned";
+                             case ParentMutation::Completed:
+                               return "Completed";
+                           }
+                           return "Unknown";
+                         });
+
+class ReplayEpicBus : public FakeNatsPublisher {
+ public:
+  bool lose_ack = false;
+  bool publish_durable(const std::string& channel, const std::string& payload,
+                       const std::string& message_id) override {
+    FakeNatsPublisher::publish_durable(channel, payload, message_id);
+    return !std::exchange(lose_ack, false);
+  }
+};
+
+TEST(DurableEpics, PendingWakeRejectsChangedCanonicalSnapshots) {
+  using Change = std::function<void(Store&, HmasTask&, HmasTask&, HmasTask&)>;
+  const std::vector<std::pair<std::string, Change>> changes = {
+      {"child state",
+       [](auto& store, auto& child, auto&, auto&) {
+         child.state = TaskState::Failed;
+         ASSERT_TRUE(store.update_hmas_task(child));
+       }},
+      {"child parent",
+       [](auto& store, auto& child, auto&, auto&) {
+         child.parent_task_id = "another-parent";
+         ASSERT_TRUE(store.update_hmas_task(child));
+       }},
+      {"child completion",
+       [](auto& store, auto& child, auto&, auto&) {
+         child.completed_at = "another-completion";
+         ASSERT_TRUE(store.update_hmas_task(child));
+       }},
+      {"child checkpoint",
+       [](auto& store, auto& child, auto&, auto&) {
+         auto changed = child.delivery;
+         changed["parentWake"]["phase"] = "published";
+         ASSERT_TRUE(store.update_hmas_delivery(child.id, child.delivery, changed));
+       }},
+      {"parent assignment",
+       [](auto& store, auto&, auto& parent, auto&) {
+         parent.assigned_lead_id = "other-planner";
+         ASSERT_TRUE(store.update_hmas_task(parent));
+       }},
+      {"parent state",
+       [](auto& store, auto&, auto& parent, auto&) {
+         parent.state = TaskState::Completed;
+         ASSERT_TRUE(store.update_hmas_task(parent));
+       }},
+      {"parent role",
+       [](auto& store, auto&, auto& parent, auto&) {
+         parent.layer = HmasLayer::L2_ModuleLead;
+         ASSERT_TRUE(store.update_hmas_task(parent));
+       }},
+      {"durable root",
+       [](auto& store, auto&, auto&, auto& root) {
+         root.delivery.erase("registration");
+         ASSERT_TRUE(store.update_hmas_task(root));
+       }},
+  };
+  for (const auto& [name, change] : changes) {
+    SCOPED_TRACE(name);
+    auto gh = std::make_shared<EpicGitHub>();
+    ReplayEpicBus bus;
+    Store store(gh);
+    Orchestrator orch(store, bus);
+    const auto brief = orch.on_epic_registered(subject, epic().dump(), true);
+    auto root = store.list_hmas_tasks_by_brief(brief).at(0);
+    HmasTask parent;
+    parent.id = "parked-parent";
+    parent.parent_task_id = root.id;
+    parent.brief_id = brief;
+    parent.layer = HmasLayer::L1_ComponentLead;
+    parent.state = TaskState::Delegated;
+    store.create_hmas_task(parent);
+    HmasTask child;
+    child.id = "snapshot-child";
+    child.parent_task_id = parent.id;
+    child.brief_id = brief;
+    child.layer = HmasLayer::L3_TaskAgent;
+    child.state = TaskState::Completed;
+    child.completed_at = now_iso8601();
+    store.create_hmas_task(child);
+    bus.clear();
+    bus.lose_ack = true;
+    EXPECT_THROW(orch.reconcile_parent_wakeups(), std::runtime_error);
+    ASSERT_EQ(bus.calls.size(), 1u);
+    const auto expected_child = *store.get_hmas_task(child.id);
+    const auto expected_parent = *store.get_hmas_task(parent.id);
+    child = expected_child;
+    ASSERT_EQ(child.delivery["parentWake"]["phase"], "pending");
+    change(store, child, parent, root);
+    ASSERT_FALSE(::testing::Test::HasFatalFailure());
+    int publications = 0;
+    EXPECT_FALSE(
+        store.publish_hmas_parent_wakeup(expected_child, expected_parent, [&] { ++publications; }));
+    EXPECT_EQ(publications, 0);
+    EXPECT_EQ(bus.calls.size(), 1u);
+  }
+}
+
+TEST(DurableEpics, ParentPublicationLossReplaysSameIntentAcrossRestart) {
+  for (const bool broker_ack_lost : {true, false}) {
+    SCOPED_TRACE(broker_ack_lost ? "broker acknowledgment" : "GitHub receipt");
+    auto gh = std::make_shared<EpicGitHub>();
+    ReplayEpicBus bus;
+    Store store(gh);
+    Orchestrator orch(store, bus);
+    const auto brief = orch.on_epic_registered(subject, epic().dump(), true);
+    const auto parent = store.list_hmas_tasks_by_brief(brief).at(0);
+    HmasTask child;
+    child.id = "replayed-child";
+    child.parent_task_id = parent.id;
+    child.brief_id = brief;
+    child.layer = HmasLayer::L3_TaskAgent;
+    child.state = TaskState::Completed;
+    child.completed_at = now_iso8601();
+    store.create_hmas_task(child);
+    bus.clear();
+    bus.lose_ack = broker_ack_lost;
+    if (!broker_ack_lost) gh->fail_update = gh->updates + 2;
+    EXPECT_THROW(orch.reconcile_parent_wakeups(), std::runtime_error);
+    ASSERT_EQ(bus.calls.size(), 1u);
+    Store restarted(gh);
+    Orchestrator resumed(restarted, bus);
+    ASSERT_EQ(restarted.get_hmas_task(child.id)->delivery["parentWake"]["phase"], "pending");
+    resumed.reconcile_parent_wakeups();
+    ASSERT_EQ(bus.calls.size(), 2u);
+    EXPECT_EQ(bus.calls[0].subject, bus.calls[1].subject);
+    EXPECT_EQ(bus.calls[0].payload, bus.calls[1].payload);
+    EXPECT_EQ(restarted.get_hmas_task(child.id)->delivery["parentWake"]["phase"], "published");
+    EXPECT_EQ(restarted.get_hmas_task(parent.id)->state, TaskState::Decomposing);
+    resumed.reconcile_parent_wakeups();
+    EXPECT_EQ(bus.calls.size(), 2u);
+  }
 }
 }  // namespace agamemnon::test

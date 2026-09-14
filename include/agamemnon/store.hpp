@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -104,6 +105,11 @@ class Store {
   bool append_hmas_children(const HmasTask& expected, const std::vector<HmasTask>& children);
   /// Metadata-only compare-and-write, including Fleet-owned tasks; no state/claim mutation.
   bool update_hmas_delivery(const std::string& id, const json& expected, const json& delivery);
+  /// Publish only while both snapshots remain current and the parent is parked
+  /// in a durable epic. Holds the HMAS read lock through the bounded callback;
+  /// the callback must perform transport only and must not call Store or GitHub.
+  bool publish_hmas_parent_wakeup(const HmasTask& child, const HmasTask& parent,
+                                  const std::function<void()>& publish);
   /// Durable exclusive reservation; false means ineligible or another owner.
   bool reserve_hmas_fleet_claim(const std::string& id, const json& claim);
   /// A matching worker observation may start work; it cannot complete a task.

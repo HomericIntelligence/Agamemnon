@@ -956,6 +956,36 @@ bool Store::update_hmas_delivery(const std::string& id, const json& expected,
   return true;
 }
 
+bool Store::publish_hmas_parent_wakeup(const HmasTask& child, const HmasTask& parent,
+                                       const std::function<void()>& publish) {
+  if (!gh_) throw std::runtime_error("Parent wakeup requires GitHub persistence");
+  ensure_hmas_tasks_loaded_();
+  std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  const auto current_child = hmas_tasks_.find(child.id);
+  const auto current_parent = hmas_tasks_.find(parent.id);
+  if (current_child == hmas_tasks_.end() || current_parent == hmas_tasks_.end() ||
+      hmas_task_to_json(current_child->second) != hmas_task_to_json(child) ||
+      hmas_task_to_json(current_parent->second) != hmas_task_to_json(parent) ||
+      child.state != TaskState::Completed || child.parent_task_id != parent.id ||
+      child.brief_id != parent.brief_id || !parent.fleet_claim.is_null() ||
+      !parent.assigned_lead_id.empty() ||
+      (parent.state != TaskState::Decomposing && parent.state != TaskState::Delegated))
+    return false;
+  const bool durable_tree =
+      std::any_of(hmas_tasks_.begin(), hmas_tasks_.end(), [&](const auto& row) {
+        const auto& task = row.second;
+        return task.brief_id == parent.brief_id && task.parent_task_id.empty() &&
+               task.delivery.contains("registration");
+      });
+  if (!durable_tree) return false;
+  // Canonical assignment, claims, state changes and invalidation require the
+  // write lock. Keep those operations outside this transport publication.
+  publish();
+  return true;
+}
+
 bool Store::observe_hmas_fleet_start(const std::string& id, const json& claim) {
   ensure_hmas_tasks_loaded_();
   std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
