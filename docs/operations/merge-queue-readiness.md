@@ -18,4 +18,4 @@ groups.
 
 Enabling or changing the live ruleset, branch protection, queue policy, or merge method is an
 administrative operation outside workflow-readiness changes. For the initial rollout, track
-activation and the post-merge queue smoke check in issue #452.
+activation and a representative merge-group check cycle in issue #491.
