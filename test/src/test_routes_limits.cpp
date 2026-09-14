@@ -6,15 +6,6 @@ namespace agamemnon::test {
 using json = nlohmann::json;
 
 class RoutesLimitsTest : public RouteTestFixture {
- public:
-  RoutesLimitsTest() {
-    // Preserve original order: bind first, then register_routes
-    // (test_routes_limits.cpp:25-30).
-    bind_before_register_routes_ = true;
-    // Original fixture never called wait_until_ready().
-    skip_wait_until_ready_ = true;
-  }
-
  protected:
   // Original helper: fresh client per call with a 5-second connect timeout.
   httplib::Client client() const {

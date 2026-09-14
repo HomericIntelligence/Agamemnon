@@ -1,6 +1,5 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include <cerrno>
-#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -58,8 +57,7 @@ TEST_F(HealthcheckTest, HealthcheckSucceedsOnHTTP200) {
   // Start server in background thread
   std::thread server_thread([this] { server_->listen_after_bind(); });
 
-  // Give server time to start
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  server_->wait_until_ready();
 
   // Run healthcheck
   int exit_code = RunHealthcheck(port);
@@ -81,7 +79,7 @@ TEST_F(HealthcheckTest, HealthcheckFailsOnHTTP500) {
   ASSERT_GT(port, 0);
 
   std::thread server_thread([this] { server_->listen_after_bind(); });
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  server_->wait_until_ready();
 
   int exit_code = RunHealthcheck(port);
   EXPECT_EQ(exit_code, 1) << "healthcheck should exit 1 on HTTP 500";
@@ -124,7 +122,7 @@ TEST_F(HealthcheckTest, HealthcheckFailsOnHTTP404) {
   ASSERT_GT(port, 0);
 
   std::thread server_thread([this] { server_->listen_after_bind(); });
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  server_->wait_until_ready();
 
   int exit_code = RunHealthcheck(port);
   EXPECT_EQ(exit_code, 1) << "healthcheck should exit 1 on HTTP 404";
