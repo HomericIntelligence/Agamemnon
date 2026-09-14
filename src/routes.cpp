@@ -147,6 +147,18 @@ static bool require_string_if_present(httplib::Response& res, const json& body,
   return true;
 }
 
+// Returns false and sets 400 if body does not contain field_name. Use for required string
+// fields on create endpoints. Pairs with require_string_if_present for required-string
+// semantics. NOTE: PATCH/PUT routes must NOT use this — they allow partial updates.
+static bool require_field_present(httplib::Response& res, const json& body,
+                                  const std::string& field_name) {
+  if (!body.contains(field_name)) {
+    reply_bad_request(res, "'" + field_name + "' is required");
+    return false;
+  }
+  return true;
+}
+
 // Returns false and sets 400 if any element of a JSON array is not a string.
 static bool require_string_array(httplib::Response& res, const json& arr,
                                  const std::string& field_name) {
@@ -322,6 +334,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   server.Post("/v1/agents", [sp, np](const httplib::Request& req, httplib::Response& res) {
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_field_present(res, body, "name")) return;
     if (!require_string_if_present(res, body, "name")) return;
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
@@ -484,6 +497,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   server.Post("/v1/teams", [sp, np](const httplib::Request& req, httplib::Response& res) {
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_field_present(res, body, "name")) return;
     if (!require_string_if_present(res, body, "name")) return;
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
@@ -572,6 +586,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     std::string team_id = req.matches[1];
     json body;
     if (!parse_body(req, res, body)) return;
+    if (!require_field_present(res, body, "subject")) return;
     if (!require_string_if_present(res, body, "subject")) return;
     if (body.contains("subject") &&
         !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
