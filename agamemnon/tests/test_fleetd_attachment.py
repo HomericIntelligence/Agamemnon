@@ -1120,13 +1120,11 @@ def test_unsupported_address_family_falls_back_to_real_ipv4_peer(
 
 @pytest.fixture(scope="module")
 def local_tls_identity(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, Path]:
-    """Generate a private, throwaway localhost identity using the available OpenSSL task."""
+    """Generate a private, throwaway localhost identity using the available OpenSSL binary."""
     root = tmp_path_factory.mktemp("fleetd-local-tls")
     key, certificate = root / "key.pem", root / "certificate.pem"
     generated = subprocess.run(
         [
-            "just",
-            "--command",
             "openssl",
             "req",
             "-x509",
