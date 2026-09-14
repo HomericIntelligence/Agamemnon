@@ -64,6 +64,21 @@ REQUIRED_CONTEXT_JOBS = {
     "All Static Analysis Checks": ("static-analysis.yml", "check-all"),
 }
 
+# ── clang-tidy must stay out of the Build and Test matrix (issue #515) ──────
+# clang-tidy costs 55-95s per translation unit. When it is enabled by default,
+# every Build and Test matrix job inherits it, which pinned each one at its
+# 30-minute `timeout-minutes` cap and cancelled them under concurrent PR load —
+# so the required ubuntu-24.04-* contexts never reported and PRs sat BLOCKED.
+# Enforcement belongs to the jobs that opt in explicitly.
+ANALYZERS_PATH = REPO_ROOT / "cmake" / "StaticAnalyzers.cmake"
+CLANG_TIDY_JOBS_THAT_OPT_IN = (
+    ("_required.yml", "lint"),
+    ("static-analysis.yml", "clang-tidy"),
+)
+CLANG_TIDY_OPTION = re.compile(
+    r'option\(\s*\$\{PROJECT_NAME\}_ENABLE_CLANG_TIDY\s+"[^"]*"\s+(ON|OFF)\s*\)'
+)
+
 
 def _load_workflow(path: Path = WORKFLOW_PATH) -> dict:
     """Load a workflow as a parsed YAML dict."""
@@ -428,6 +443,43 @@ def test_dependency_scan_runs_the_bound_pip_audit_command() -> None:
     assert "--skip-editable" in command_line, (
         "Dependency scan dropped --skip-editable, widening the audited set"
     )
+
+
+def test_build_matrix_does_not_pay_for_clang_tidy() -> None:
+    """clang-tidy must be opt-in, or the matrix races its own timeout (issue #515)."""
+    option = CLANG_TIDY_OPTION.search(ANALYZERS_PATH.read_text())
+    assert option is not None, (
+        "cmake/StaticAnalyzers.cmake no longer declares "
+        "Agamemnon_ENABLE_CLANG_TIDY"
+    )
+    assert option.group(1) == "OFF", (
+        "ENABLE_CLANG_TIDY defaults ON, so every Build and Test matrix job pays "
+        "55-95s per TU and is cancelled at its 30-minute timeout (issue #515)"
+    )
+
+    build_test = _load_workflow(WORKFLOW_DIR / "build-test.yml")
+    enabling_steps = [
+        f"{job_id}:{step.get('name')}"
+        for job_id, job in build_test["jobs"].items()
+        for step in (job.get("steps") or [])
+        if "ENABLE_CLANG_TIDY" in str(step.get("run", ""))
+    ]
+    assert not enabling_steps, (
+        "build-test.yml enables clang-tidy — enforcement belongs to the lint and "
+        f"clang-tidy jobs (issue #515): {enabling_steps}"
+    )
+
+
+@pytest.mark.parametrize(("filename", "job_id"), CLANG_TIDY_JOBS_THAT_OPT_IN)
+def test_dedicated_jobs_still_enable_clang_tidy(filename: str, job_id: str) -> None:
+    """Defaulting the option off must not drop clang-tidy enforcement (issue #515)."""
+    workflow = _load_workflow(WORKFLOW_DIR / filename)
+    steps = workflow["jobs"][job_id]["steps"]
+
+    assert any(
+        "-DAgamemnon_ENABLE_CLANG_TIDY=ON" in str(step.get("run", ""))
+        for step in steps
+    ), f"{filename}:{job_id} no longer enables clang-tidy (issue #515)"
 
 
 def test_gitleaks_scan_step_is_blocking() -> None:
