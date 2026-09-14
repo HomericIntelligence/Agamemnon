@@ -32,7 +32,7 @@ class HealthcheckTest : public ::testing::Test {
   // Helper: run healthcheck binary via system() with PORT env var set
   // Returns the exit code from the healthcheck process
   int RunHealthcheck(int port) {
-    std::string cmd = "PORT=" + std::to_string(port) + " ./build/healthcheck";
+    std::string cmd = "PORT=" + std::to_string(port) + " '" + HEALTHCHECK_BINARY_PATH + "'";
     int exit_code = system(cmd.c_str());
     if (WIFEXITED(exit_code)) {
       return WEXITSTATUS(exit_code);
