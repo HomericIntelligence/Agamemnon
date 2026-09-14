@@ -63,7 +63,7 @@ just docs-validate
 | Ninja | 1.11 | |
 | GCC or Clang | GCC 12+ / Clang 15+ | C++20 support required, no compiler extensions |
 | Conan | 2.0 | Package manager for cpp-httplib, nlohmann_json, gtest — installed via uv (`uv sync`) |
-| OpenSSL | 3.0 | Runtime: `libssl3`; build: `libssl-dev` (apt) |
+| OpenSSL | 3.0 | Build: `libssl-dev` (apt). Not a direct runtime dependency — Conan links OpenSSL statically into the binaries (issue #279) |
 | uv | 0.5+ | Manages the build toolchain (CMake, Ninja, Conan, gcovr, pre-commit) as locked PyPI wheels (ADR-018) |
 
 > **System dependencies.** The C++ *compiler* is the system GCC/Clang
