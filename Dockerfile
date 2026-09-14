@@ -76,7 +76,7 @@ RUN cmake -B build -G Ninja \
     && cmake --build build --target Agamemnon_server Agamemnon_healthcheck
 
 # ── Runtime image ─────────────────────────────────────────────────────────────
-FROM debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+FROM debian:13-slim@sha256:d7e12182ce18b85b93007c1dedf31f2d29e01ccf3182cc4017c709b6259bc132
 
 # NOTE (issue #279): NO libssl3 here. Conan links OpenSSL statically
 # (openssl/3.6.2 with default shared=False -> libssl.a/libcrypto.a baked into
