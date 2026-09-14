@@ -13,6 +13,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
+  src/test_store_concurrent_per_collection.cpp   # #184
   src/test_routes.cpp
   src/test_routes_malformed.cpp
   src/test_routes_no_internal_leak.cpp   # #164
