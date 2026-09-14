@@ -41,20 +41,21 @@ TEST_F(RoutesTest, VersionEndpoint) {
 
 // ── POST /v1/agents with empty body ───────────────────────────────────────────
 
-TEST_F(RoutesTest, PostAgentEmptyBody) {
+TEST_F(RoutesTest, PostAgentEmptyBodyRejected) {
+  // Issue #188: `name` is required; empty body must be rejected with 400.
   auto res = client_->Post("/v1/agents", "{}", "application/json");
   ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 201);
+  EXPECT_EQ(res->status, 400);
   json body = json::parse(res->body);
-  EXPECT_TRUE(body.contains("agent"));
-  EXPECT_EQ(body["agent"]["name"], "unnamed");
+  EXPECT_TRUE(body.contains("error"));
+  EXPECT_NE(body["error"].get<std::string>().find("name"), std::string::npos);
 }
 
-TEST_F(RoutesTest, PostAgentEmptyBodyString) {
-  // Completely empty body string → parsed as empty object by parse_body
+TEST_F(RoutesTest, PostAgentEmptyBodyStringRejected) {
+  // Completely empty body string → parsed as empty object → fails name-required check.
   auto res = client_->Post("/v1/agents", "", "application/json");
   ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 201);
+  EXPECT_EQ(res->status, 400);
 }
 
 // ── POST /v1/agents with malformed JSON ───────────────────────────────────────
@@ -256,5 +257,38 @@ TEST_F(RoutesTest, StopNonExistentAgentHttp) {
 
 // ── GET /v1/workflows ─────────────────────────────────────────────────────────
 // Endpoint removed; coverage lives in test_main.cpp::RoutesRemovedTest.WorkflowsEndpointRemoved.
+
+// ── Issue #188: required-field enforcement on create endpoints ────────────────
+
+TEST_F(RoutesTest, PostAgentMissingNameReturns400) {
+  // `role` present but `name` omitted → 400 (was: 201 with name defaulted to "unnamed").
+  auto res = client_->Post("/v1/agents", R"({"role":"worker"})", "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  json body = json::parse(res->body);
+  EXPECT_NE(body["error"].get<std::string>().find("name"), std::string::npos);
+}
+
+TEST_F(RoutesTest, PostTeamMissingNameReturns400) {
+  auto res = client_->Post("/v1/teams", R"({"agentIds":[]})", "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  json body = json::parse(res->body);
+  EXPECT_NE(body["error"].get<std::string>().find("name"), std::string::npos);
+}
+
+TEST_F(RoutesTest, PostTaskMissingSubjectReturns400) {
+  auto team_res = client_->Post("/v1/teams", R"({"name":"req-team"})", "application/json");
+  ASSERT_TRUE(team_res);
+  ASSERT_EQ(team_res->status, 201);
+  std::string team_id = json::parse(team_res->body)["team"]["id"];
+
+  auto res = client_->Post("/v1/teams/" + team_id + "/tasks", R"({"description":"no subject"})",
+                           "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);
+  json body = json::parse(res->body);
+  EXPECT_NE(body["error"].get<std::string>().find("subject"), std::string::npos);
+}
 
 }  // namespace agamemnon::test

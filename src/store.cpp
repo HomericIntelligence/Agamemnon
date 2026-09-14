@@ -95,11 +95,11 @@ json Store::parse_issue_entity_(const json& issue) {
 
 // ensure_*_loaded_ helpers (#161 — drop mutex during GitHub HTTP fetch)
 //
-// IMPORTANT: These functions MUST be called WITHOUT holding mutex_. They use
-// std::call_once to guarantee exactly one network fetch across all racing
-// threads, then acquire mutex_ internally to merge results. After returning,
-// the caller re-acquires mutex_ for map operations. The atomic flags allow
-// a cheap early-exit on the hot (already-loaded) path.
+// IMPORTANT: Call these functions without holding their collection's mutex.
+// Legacy collections use call_once and fetch before taking their collection
+// lock. HMAS hydration instead holds hmas_mutex_ across the fetch and publishes
+// a complete replacement only on success. It can retry after an uncertain write;
+// other collections remain independent while HMAS state is reconciled.
 void Store::ensure_agents_loaded_() {
   // Fast-path: already loaded (atomic, no lock needed).
   if (agents_loaded_.load(std::memory_order_acquire)) return;
@@ -114,7 +114,7 @@ void Store::ensure_agents_loaded_() {
         agents_loaded_.store(true, std::memory_order_release);
         return;
       }
-      std::unique_lock<std::shared_mutex> lk(mutex_);
+      std::unique_lock<std::shared_mutex> lk(agents_mutex_);
       for (auto& issue : issues) {
         json entity = parse_issue_entity_(issue);
         if (entity.is_null() || !entity.contains("id")) {
@@ -145,7 +145,7 @@ void Store::ensure_teams_loaded_() {
         teams_loaded_.store(true, std::memory_order_release);
         return;
       }
-      std::unique_lock<std::shared_mutex> lk(mutex_);
+      std::unique_lock<std::shared_mutex> lk(teams_mutex_);
       for (auto& issue : issues) {
         json entity = parse_issue_entity_(issue);
         if (entity.is_null() || !entity.contains("id")) {
@@ -176,7 +176,7 @@ void Store::ensure_tasks_loaded_() {
         tasks_loaded_.store(true, std::memory_order_release);
         return;
       }
-      std::unique_lock<std::shared_mutex> lk(mutex_);
+      std::unique_lock<std::shared_mutex> lk(tasks_mutex_);
       for (auto& issue : issues) {
         json entity = parse_issue_entity_(issue);
         if (entity.is_null() || !entity.contains("id")) {
@@ -207,7 +207,7 @@ void Store::ensure_faults_loaded_() {
         faults_loaded_.store(true, std::memory_order_release);
         return;
       }
-      std::unique_lock<std::shared_mutex> lk(mutex_);
+      std::unique_lock<std::shared_mutex> lk(faults_mutex_);
       for (auto& issue : issues) {
         json entity = parse_issue_entity_(issue);
         if (entity.is_null() || !entity.contains("id")) {
@@ -227,7 +227,7 @@ void Store::ensure_faults_loaded_() {
 
 void Store::ensure_hmas_tasks_loaded_() {
   if (hmas_tasks_loaded_.load(std::memory_order_acquire)) return;
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   if (hmas_tasks_loaded_.load(std::memory_order_acquire)) return;
   if (gh_) {
     std::unordered_map<std::string, HmasTask> tasks;
@@ -278,7 +278,7 @@ void Store::ensure_briefs_loaded_() {
         briefs_loaded_.store(true, std::memory_order_release);
         return;
       }
-      std::unique_lock<std::shared_mutex> lk(mutex_);
+      std::unique_lock<std::shared_mutex> lk(briefs_mutex_);
       for (auto& issue : issues) {
         json entity = parse_issue_entity_(issue);
         if (entity.is_null() || !entity.contains("id")) {
@@ -301,37 +301,52 @@ void Store::ensure_briefs_loaded_() {
   }
 }
 
-std::unordered_map<std::string, json>* Store::pick_map_(std::string_view label) {
+std::shared_mutex& Store::collection_mutex_(Collection c) noexcept {
+  switch (c) {
+    case Collection::kAgents:
+      return agents_mutex_;
+    case Collection::kTeams:
+      return teams_mutex_;
+    case Collection::kTasks:
+      return tasks_mutex_;
+    case Collection::kFaults:
+      return faults_mutex_;
+  }
+  return agents_mutex_;  // unreachable; silences -Wreturn-type
+}
+
+Store::CollectionRef Store::pick_collection_(std::string_view label) {
   if (label == "agamemnon-agent") {
     ensure_agents_loaded_();
-    return &agents_;
+    return {&agents_, &agents_mutex_};
   }
   if (label == "agamemnon-team") {
     ensure_teams_loaded_();
-    return &teams_;
+    return {&teams_, &teams_mutex_};
   }
   if (label == "agamemnon-task") {
     ensure_tasks_loaded_();
-    return &tasks_;
+    return {&tasks_, &tasks_mutex_};
   }
   if (label == "agamemnon-fault") {
     ensure_faults_loaded_();
-    return &faults_;
+    return {&faults_, &faults_mutex_};
   }
-  return nullptr;
+  return {nullptr, nullptr};
 }
 
 bool Store::apply_github_event(std::string_view entity_label, std::string_view action,
                                const json& issue_shape, std::string_view updated_at) {
-  auto* map = pick_map_(entity_label);
-  if (!map) return false;
+  CollectionRef ref = pick_collection_(entity_label);
+  if (!ref.map) return false;
   json entity = parse_issue_entity_(issue_shape);
   if (entity.is_null() || !entity.contains("id")) return false;
   const std::string id = entity["id"].get<std::string>();
   if (issue_shape.contains("number"))
     entity["_github_issue"] = std::to_string(issue_shape["number"].get<int>());
 
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(*ref.mtx);
+  auto* map = ref.map;
   auto it = map->find(id);
 
   // closed/reopened are terminal state transitions — always apply (no LWW skip).
@@ -392,8 +407,8 @@ std::size_t Store::reconcile_from_github() {
 // ── Agents ────────────────────────────────────────────────────────────────────
 
 json Store::create_agent(const json& body) {
-  ensure_agents_loaded_();  // hydrate before acquiring mutex_ (#161)
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  ensure_agents_loaded_();  // hydrate before acquiring agents_mutex_ (#161)
+  std::unique_lock<std::shared_mutex> lk(agents_mutex_);
   std::string id = generate_uuid();
   json agent;
   agent["id"] = id;
@@ -425,7 +440,7 @@ json Store::create_agent(const json& body) {
 
 json Store::get_agent(const std::string& id) {
   ensure_agents_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(agents_mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   return it->second;
@@ -433,7 +448,7 @@ json Store::get_agent(const std::string& id) {
 
 json Store::get_agent_by_name(const std::string& name) {
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(agents_mutex_);
   for (auto& [id, agent] : agents_) {
     if (agent.value("name", "") == name) return agent;
   }
@@ -442,7 +457,7 @@ json Store::get_agent_by_name(const std::string& name) {
 
 json Store::list_agents(std::size_t limit, std::size_t offset) {
   ensure_agents_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(agents_mutex_);
   // #340: deterministic pagination — collect into sorted vector, then slice.
   std::vector<std::pair<std::string, json>> sorted(agents_.begin(), agents_.end());
   std::sort(sorted.begin(), sorted.end(),
@@ -459,7 +474,7 @@ json Store::update_agent(const std::string& id, const json& fields) {
   // body.items() throws type_error.306 on a null json. See #209.
   if (!fields.is_object()) return nullptr;
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(agents_mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   for (auto& [key, val] : fields.items()) {
@@ -476,7 +491,7 @@ json Store::update_agent(const std::string& id, const json& fields) {
 
 bool Store::delete_agent(const std::string& id) {
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(agents_mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return false;
   if (gh_ && it->second.contains("_github_issue")) {
@@ -489,7 +504,7 @@ bool Store::delete_agent(const std::string& id) {
 
 json Store::start_agent(const std::string& id) {
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(agents_mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   it->second["status"] = "online";
@@ -502,7 +517,7 @@ json Store::start_agent(const std::string& id) {
 
 json Store::stop_agent(const std::string& id) {
   ensure_agents_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(agents_mutex_);
   auto it = agents_.find(id);
   if (it == agents_.end()) return nullptr;
   it->second["status"] = "offline";
@@ -517,7 +532,7 @@ json Store::stop_agent(const std::string& id) {
 
 json Store::create_team(const json& body) {
   ensure_teams_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(teams_mutex_);
   std::string id = generate_uuid();
   json team;
   team["id"] = id;
@@ -540,7 +555,7 @@ json Store::create_team(const json& body) {
 
 json Store::get_team(const std::string& id) {
   ensure_teams_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(teams_mutex_);
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   return it->second;
@@ -548,7 +563,7 @@ json Store::get_team(const std::string& id) {
 
 json Store::list_teams(std::size_t limit, std::size_t offset) {
   ensure_teams_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(teams_mutex_);
   // #340: deterministic pagination — sort by key then slice.
   std::vector<std::pair<std::string, json>> sorted(teams_.begin(), teams_.end());
   std::sort(sorted.begin(), sorted.end(),
@@ -562,7 +577,7 @@ json Store::list_teams(std::size_t limit, std::size_t offset) {
 
 json Store::update_team(const std::string& id, const json& body) {
   ensure_teams_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(teams_mutex_);
   auto it = teams_.find(id);
   if (it == teams_.end()) return nullptr;
   if (body.contains("agentIds"))
@@ -580,7 +595,7 @@ json Store::update_team(const std::string& id, const json& body) {
 
 bool Store::delete_team(const std::string& id) {
   ensure_teams_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(teams_mutex_);
   auto it = teams_.find(id);
   if (it == teams_.end()) return false;
   if (gh_ && it->second.contains("_github_issue")) {
@@ -594,7 +609,7 @@ bool Store::delete_team(const std::string& id) {
 
 json Store::create_task(const std::string& team_id, const json& body) {
   ensure_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(tasks_mutex_);
   std::string id = generate_uuid();
   json task;
   task["id"] = id;
@@ -629,7 +644,7 @@ json Store::get_task(const std::string& team_id, const std::string& task_id) {
   // wildcard — callers must provide the owning team for cross-team safety.
   if (team_id.empty()) return nullptr;
   ensure_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(tasks_mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (it->second.value("teamId", "") != team_id) return nullptr;
@@ -643,7 +658,7 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
   // #222: require a non-empty team_id to prevent cross-team writes.
   if (team_id.empty()) return nullptr;
   ensure_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(tasks_mutex_);
   auto it = tasks_.find(task_id);
   if (it == tasks_.end()) return nullptr;
   if (it->second.value("teamId", "") != team_id) return nullptr;
@@ -669,7 +684,7 @@ json Store::update_task(const std::string& team_id, const std::string& task_id, 
 
 json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, std::size_t offset) {
   ensure_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(tasks_mutex_);
   // #340: deterministic pagination — collect team tasks, sort by key, then slice.
   std::vector<std::pair<std::string, json>> team_tasks;
   for (auto& [id, task] : tasks_) {
@@ -687,7 +702,7 @@ json Store::list_tasks_for_team(const std::string& team_id, std::size_t limit, s
 
 json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
   ensure_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(tasks_mutex_);
   // #340: deterministic pagination — sort by key then slice.
   std::vector<std::pair<std::string, json>> sorted(tasks_.begin(), tasks_.end());
   std::sort(sorted.begin(), sorted.end(),
@@ -701,7 +716,7 @@ json Store::list_all_tasks(std::size_t limit, std::size_t offset) {
 
 void Store::mark_task_completed(const std::string& task_id) {
   ensure_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(tasks_mutex_);
   auto it = tasks_.find(task_id);
   if (it != tasks_.end()) {
     std::string old_status = it->second.value("status", "pending");
@@ -719,7 +734,7 @@ void Store::mark_task_completed(const std::string& task_id) {
 
 json Store::list_faults(std::size_t limit, std::size_t offset) {
   ensure_faults_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(faults_mutex_);
   // #340: deterministic pagination — sort by key then slice.
   std::vector<std::pair<std::string, json>> sorted(faults_.begin(), faults_.end());
   std::sort(sorted.begin(), sorted.end(),
@@ -733,7 +748,7 @@ json Store::list_faults(std::size_t limit, std::size_t offset) {
 
 json Store::create_fault(const std::string& type) {
   ensure_faults_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(faults_mutex_);
   std::string id = generate_uuid();
   json fault;
   fault["id"] = id;
@@ -754,7 +769,7 @@ json Store::create_fault(const std::string& type) {
 
 bool Store::remove_fault(const std::string& id) {
   ensure_faults_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(faults_mutex_);
   auto it = faults_.find(id);
   if (it == faults_.end()) return false;
   if (gh_ && it->second.contains("_github_issue")) {
@@ -768,7 +783,9 @@ bool Store::remove_fault(const std::string& id) {
 
 void Store::create_hmas_task(const HmasTask& task) {
   ensure_hmas_tasks_loaded_();  // also guards write-first race
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   if (hmas_tasks_.contains(task.id)) throw std::runtime_error("HMAS task already exists");
   if (!task.fleet_claim.is_null())
     throw std::runtime_error("Use the canonical Fleet claim operation");
@@ -794,7 +811,9 @@ void Store::create_hmas_task(const HmasTask& task) {
 
 std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
   ensure_hmas_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return std::nullopt;
   return it->second;  // value copy — safe to use outside the lock
@@ -803,7 +822,7 @@ std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
 bool Store::update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
                                                          const EscalationRecord& escalation) {
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
   if (!it->second.fleet_claim.is_null())
@@ -818,7 +837,7 @@ bool Store::update_hmas_task_state_and_record_escalation(const std::string& id, 
 
 bool Store::update_hmas_task_state(const std::string& id, TaskState state) {
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
   if (!it->second.fleet_claim.is_null())
@@ -832,7 +851,7 @@ bool Store::update_hmas_task_state(const std::string& id, TaskState state) {
 
 bool Store::update_hmas_task(const HmasTask& task) {
   ensure_hmas_tasks_loaded_();  // review fix: run hydration even on write-first paths
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(task.id);
   if (it == hmas_tasks_.end()) return false;
   if (!it->second.fleet_claim.is_null())
@@ -856,7 +875,7 @@ bool Store::update_hmas_task(const HmasTask& task) {
 
 bool Store::append_hmas_children(const HmasTask& expected, const std::vector<HmasTask>& children) {
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   const auto found = hmas_tasks_.find(expected.id);
   if (found == hmas_tasks_.end() || !found->second.fleet_claim.is_null() ||
       hmas_task_to_json(found->second) != hmas_task_to_json(expected))
@@ -894,7 +913,7 @@ bool Store::append_hmas_children(const HmasTask& expected, const std::vector<Hma
 bool Store::reserve_hmas_fleet_claim(const std::string& id, const json& claim) {
   if (!gh_) throw std::runtime_error("Fleet claims require GitHub persistence");
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
     throw std::runtime_error("HMAS state requires reconciliation");
   auto found = hmas_tasks_.find(id);
@@ -927,7 +946,7 @@ bool Store::update_hmas_delivery(const std::string& id, const json& expected,
                                  const json& delivery) {
   if (!gh_) throw std::runtime_error("Durable delivery requires GitHub persistence");
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end() || it->second.delivery != expected) return false;
   auto updated = it->second;
@@ -939,7 +958,7 @@ bool Store::update_hmas_delivery(const std::string& id, const json& expected,
 
 bool Store::observe_hmas_fleet_start(const std::string& id, const json& claim) {
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
     throw std::runtime_error("HMAS state requires reconciliation");
   auto found = hmas_tasks_.find(id);
@@ -958,7 +977,7 @@ bool Store::observe_hmas_fleet_start(const std::string& id, const json& claim) {
 std::optional<HmasTask> Store::resolve_hmas_fleet_task(const std::string& id, const json& claim,
                                                        const json& decision) {
   ensure_hmas_tasks_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
     throw std::runtime_error("HMAS state requires reconciliation");
   auto found = hmas_tasks_.find(id);
@@ -984,7 +1003,9 @@ std::optional<HmasTask> Store::resolve_hmas_fleet_task(const std::string& id, co
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
   ensure_hmas_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   std::vector<HmasTask> out;
   for (const auto& [id, task] : hmas_tasks_) {
     if (task.layer == layer) out.push_back(task);
@@ -994,7 +1015,9 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent_id) {
   ensure_hmas_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   std::vector<HmasTask> out;
   for (const auto& [id, task] : hmas_tasks_) {
     if (task.parent_task_id == parent_id) out.push_back(task);
@@ -1004,7 +1027,9 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_id) {
   ensure_hmas_tasks_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   std::vector<HmasTask> out;
   auto idx_it = hmas_tasks_by_brief_.find(brief_id);
   if (idx_it == hmas_tasks_by_brief_.end()) return out;
@@ -1020,7 +1045,7 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_i
 
 void Store::create_task_brief(const TaskBrief& brief) {
   ensure_briefs_loaded_();
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(briefs_mutex_);
   if (gh_) {
     // Truncate by code points, not bytes, to avoid splitting UTF-8 sequences
     std::string truncated_title;
@@ -1044,7 +1069,7 @@ void Store::create_task_brief(const TaskBrief& brief) {
 
 void Store::ensure_durable_task_brief(const TaskBrief& brief) {
   if (!gh_) throw std::runtime_error("Durable brief requires GitHub persistence");
-  std::unique_lock<std::shared_mutex> lk(mutex_);
+  std::unique_lock<std::shared_mutex> lk(briefs_mutex_);
   std::string issue_number;
   // Always enumerate: this also reconciles a lost create response on retry.
   for (const auto& issue : gh_->list_issues_including_closed("agamemnon-brief")) {
@@ -1067,7 +1092,7 @@ void Store::ensure_durable_task_brief(const TaskBrief& brief) {
 
 std::optional<TaskBrief> Store::get_task_brief(const std::string& id) {
   ensure_briefs_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(briefs_mutex_);
   auto it = task_briefs_.find(id);
   if (it == task_briefs_.end()) return std::nullopt;
   return it->second;
@@ -1075,7 +1100,7 @@ std::optional<TaskBrief> Store::get_task_brief(const std::string& id) {
 
 std::vector<TaskBrief> Store::list_task_briefs() {
   ensure_briefs_loaded_();
-  std::shared_lock<std::shared_mutex> lk(mutex_);
+  std::shared_lock<std::shared_mutex> lk(briefs_mutex_);
   std::vector<TaskBrief> out;
   out.reserve(task_briefs_.size());
   for (const auto& [_, b] : task_briefs_) out.push_back(b);

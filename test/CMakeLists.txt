@@ -15,6 +15,8 @@ add_executable(${PROJECT_NAME}_tests
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
+  src/test_store_concurrent_per_collection.cpp   # #184
+  src/test_store_uncertainty_race.cpp
   src/test_routes.cpp
   src/test_routes_malformed.cpp
   src/test_routes_no_internal_leak.cpp   # #164
@@ -112,12 +114,51 @@ target_link_libraries(${PROJECT_NAME}_routes_tests
 
 gtest_discover_tests(${PROJECT_NAME}_routes_tests DISCOVERY_TIMEOUT 120)
 
+# ── Healthcheck binary tests (issue #279) ────────────────────────────────────
+# Exercises the built Agamemnon_healthcheck binary end-to-end. Without this
+# target test/src/test_healthcheck.cpp was orphaned and `ctest -R Healthcheck`
+# silently matched zero tests.
+add_executable(${PROJECT_NAME}_healthcheck_tests src/test_healthcheck.cpp)
+
+target_compile_features(${PROJECT_NAME}_healthcheck_tests PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_healthcheck_tests PROPERTIES CXX_EXTENSIONS OFF)
+
+# Build the binary-under-test first, and tell the test where it landed
+# ($<TARGET_FILE> is the absolute path — survives binaryDir/output-dir changes).
+add_dependencies(${PROJECT_NAME}_healthcheck_tests ${PROJECT_NAME}_healthcheck)
+target_compile_definitions(${PROJECT_NAME}_healthcheck_tests PRIVATE
+  HEALTHCHECK_BINARY_PATH="$<TARGET_FILE:${PROJECT_NAME}_healthcheck>")
+
+target_include_directories(${PROJECT_NAME}_healthcheck_tests
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_SOURCE_DIR}/src)
+
+target_compile_options(${PROJECT_NAME}_healthcheck_tests PRIVATE
+  -Wno-old-style-cast
+  -Wno-useless-cast
+  -Wno-conversion
+  -Wno-sign-conversion
+  -Wno-shadow
+  -Wno-format-nonliteral
+  -Wno-double-promotion
+  -Wno-cast-align)
+
+target_link_libraries(${PROJECT_NAME}_healthcheck_tests
+  PRIVATE
+    GTest::gtest_main
+    httplib::httplib
+    Threads::Threads)
+
+gtest_discover_tests(${PROJECT_NAME}_healthcheck_tests DISCOVERY_TIMEOUT 120)
+
 # ── Integration tests ────────────────────────────────────────────────────────
 add_executable(${PROJECT_NAME}_integration_tests
   src/integration/test_agent_endpoints.cpp
   src/integration/test_task_lifecycle.cpp
   src/integration/test_chaos_endpoints.cpp
-  src/integration/test_peer_discovery_integration.cpp)
+  src/integration/test_peer_discovery_integration.cpp
+  src/integration/test_api_version_header.cpp)
 
 target_compile_features(${PROJECT_NAME}_integration_tests PRIVATE cxx_std_20)
 set_target_properties(${PROJECT_NAME}_integration_tests PROPERTIES CXX_EXTENSIONS OFF)

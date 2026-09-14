@@ -41,6 +41,18 @@ class Store {
   /// Attach a MetricsRegistry for instrumentation (nullable; pass nullptr to disable).
   void set_metrics(MetricsRegistry* metrics) noexcept { metrics_ = metrics; }
 
+  /// Identifies a single store collection and its dedicated mutex (#184).
+  enum class Collection { kAgents, kTeams, kTasks, kFaults };
+
+  /// Testing seam ONLY (#184): exclusively locks one collection's mutex for the
+  /// duration of fn(), letting concurrency tests pin one collection and assert
+  /// independent progress on the others. Not for production use.
+  template <typename F>
+  auto with_collection_locked(Collection c, F&& fn) -> decltype(fn()) {
+    std::unique_lock<std::shared_mutex> lk(collection_mutex_(c));
+    return fn();
+  }
+
   // ── Agents ─────────────────────────────────────────────────────────────
   json create_agent(const json& body);
   json get_agent(const std::string& id);
@@ -117,21 +129,35 @@ class Store {
  private:
   std::shared_ptr<IGitHubClient> gh_;
   MetricsRegistry* metrics_ = nullptr;
-  mutable std::shared_mutex mutex_;
+
+  // One mutex per collection (#184): agents_/teams_/tasks_/faults_ each get
+  // their own shared_mutex so operations on different collections proceed in
+  // parallel. hmas_mutex_ covers hmas_tasks_, hmas_tasks_by_brief_, and
+  // hmas_task_issue_numbers_; briefs_mutex_ covers task_briefs_ and
+  // brief_issue_numbers_. No function ever holds two collection mutexes at once.
+  mutable std::shared_mutex agents_mutex_;
+  mutable std::shared_mutex teams_mutex_;
+  mutable std::shared_mutex tasks_mutex_;
+  mutable std::shared_mutex faults_mutex_;
+  mutable std::shared_mutex hmas_mutex_;
+  mutable std::shared_mutex briefs_mutex_;
+
   std::unordered_map<std::string, json> agents_;
   std::unordered_map<std::string, json> teams_;
   std::unordered_map<std::string, json> tasks_;
   std::unordered_map<std::string, json> faults_;
   std::unordered_map<std::string, HmasTask> hmas_tasks_;
-  // Secondary index: brief_id -> task ids. Maintained under the same write
-  // lock as hmas_tasks_; read under shared_lock by list_hmas_tasks_by_brief.
+  // Secondary index: brief_id -> task ids. Maintained under the same
+  // hmas_mutex_ write lock as hmas_tasks_; read under shared_lock by
+  // list_hmas_tasks_by_brief.
   // #156: avoids O(n) full-map scan on every myrmidon completion.
   std::unordered_map<std::string, std::vector<std::string>> hmas_tasks_by_brief_;
   std::unordered_map<std::string, TaskBrief> task_briefs_;
   std::unordered_map<std::string, std::string> hmas_task_issue_numbers_;
   std::unordered_map<std::string, std::string> brief_issue_numbers_;
 
-  // Atomic flags: checked outside the lock; once_flags guard the single fetch.
+  // Atomic flags: checked outside the lock. Legacy once_flags guard a single
+  // fetch; retryable HMAS hydration and invalidation use hmas_mutex_.
   std::atomic<bool> agents_loaded_{false};
   std::atomic<bool> teams_loaded_{false};
   std::atomic<bool> tasks_loaded_{false};
@@ -144,24 +170,36 @@ class Store {
   mutable std::once_flag faults_once_;
   mutable std::once_flag briefs_once_;
 
-  // Called while holding mutex_; loads entity type from GitHub on first access.
+  // Called without holding a collection mutex; each loader locks internally.
   void ensure_agents_loaded_();
   void ensure_teams_loaded_();
   void ensure_tasks_loaded_();
   void ensure_faults_loaded_();
   void ensure_hmas_tasks_loaded_();
-  // Called under mutex_; an uncertain response invalidates HMAS reads/writes.
+  // Called under hmas_mutex_; an uncertain response invalidates HMAS state.
   void persist_hmas_task_(const HmasTask& task);
   void ensure_briefs_loaded_();
+
+  // Returns the mutex guarding the given collection.
+  std::shared_mutex& collection_mutex_(Collection c) noexcept;
+
+  // Map + its mutex, returned together so apply_github_event can lock the
+  // right collection. map is nullptr for unknown labels (previous pick_map_
+  // semantics).
+  struct CollectionRef {
+    std::unordered_map<std::string, json>* map;
+    std::shared_mutex* mtx;
+  };
+
+  // Returns the collection matching the agamemnon-* label; map == nullptr on
+  // unknown label.
+  CollectionRef pick_collection_(std::string_view entity_label);
 
   // Parses the JSON payload embedded in an issue body; returns nullptr on failure.
   static json parse_issue_entity_(const json& issue);
 
   // Builds a GitHub issue body containing a labelled JSON block.
   static std::string make_issue_body_(std::string_view entity_type, const json& entity);
-
-  // Returns the map matching the agamemnon-* label, or nullptr on unknown label.
-  std::unordered_map<std::string, json>* pick_map_(std::string_view entity_label);
 };
 
 }  // namespace agamemnon

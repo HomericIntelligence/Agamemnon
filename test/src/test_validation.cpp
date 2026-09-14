@@ -7,7 +7,6 @@
 #include "agamemnon/store.hpp"
 
 #define CPPHTTPLIB_NO_EXCEPTIONS
-#include <chrono>
 #include <memory>
 #include <string>
 #include <thread>
@@ -32,10 +31,9 @@ class ValidationTest : public ::testing::Test {
     register_routes(server_, store_, *nats_, rate_limiter_, auth_, metrics_, *orchestrator_);
 
     port_ = server_.bind_to_any_port("127.0.0.1");
+    ASSERT_GT(port_, 0) << "bind_to_any_port failed";
     server_thread_ = std::thread([this] { server_.listen_after_bind(); });
-
-    // Give the server a moment to accept connections after bind.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    server_.wait_until_ready();
   }
 
   void TearDown() override {
