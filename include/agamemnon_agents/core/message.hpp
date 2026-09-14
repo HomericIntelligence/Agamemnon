@@ -137,8 +137,9 @@ struct KeystoneMessage {
   std::optional<std::string> correlation_id;  ///< Optional correlation ID for distributed tracing
 
   // Payload and timing
-  [[deprecated("command is a legacy/convenience field; use payload with ActionType instead")]]
-  std::string command;                 ///< Command string to execute (legacy/convenience)
+  [[deprecated(
+      "command is a legacy/convenience field; use payload with ActionType instead")]] std::string
+      command;                         ///< Command string to execute (legacy/convenience)
   std::optional<std::string> payload;  ///< Optional payload data
   std::chrono::system_clock::time_point timestamp;  ///< Message timestamp
 

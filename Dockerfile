@@ -78,14 +78,24 @@ RUN cmake -B build -G Ninja \
 # ── Runtime image ─────────────────────────────────────────────────────────────
 FROM debian:13-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-    libssl3 \
-    && rm -rf /var/lib/apt/lists/*
+# NOTE (issue #279): NO libssl3 here. Conan links OpenSSL statically
+# (openssl/3.6.2 with default shared=False -> libssl.a/libcrypto.a baked into
+# Agamemnon_server), so neither binary should have a runtime NEEDED entry for
+# libssl3/libcrypto.so.3. The RUN gate below enforces this at image-build time:
+# if a dependency change (e.g. a Conan profile switch to shared OpenSSL) ever
+# reintroduces a NEEDED entry, the build fails instead of shipping an image
+# whose binaries abort at startup with a missing loader object.
 
 COPY --from=builder /src/build/Agamemnon_server /usr/local/bin/Agamemnon_server
 COPY --from=builder /src/build/Agamemnon_healthcheck /usr/local/bin/Agamemnon_healthcheck
+
+# Guard (issue #279): fail the build on any runtime OpenSSL shared-library
+# dependency in the shipped binaries.
+RUN if ldd /usr/local/bin/Agamemnon_server /usr/local/bin/Agamemnon_healthcheck \
+        | grep -E 'libssl|libcrypto'; then \
+        echo 'FAIL: runtime NEEDED entry on libssl/libcrypto (issue #279 regression)'; \
+        exit 1; \
+    fi
 
 EXPOSE 8080
 
