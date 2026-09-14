@@ -3,7 +3,7 @@
 # uv provides the CMake / Ninja / Conan build toolchain as locked wheels
 # (Odysseus ADR-018). Pinned by digest for reproducibility. This is a podman-safe
 # named stage — the `COPY --from=uv` below lifts only the static `uv` binary.
-FROM ghcr.io/astral-sh/uv:0.12.2@sha256:069a51314a7bb6031777a9273205fe1b0b19e914ef418207d1338b268df641dd AS uv
+FROM ghcr.io/astral-sh/uv:0.12.8@sha256:d1cbaeadc234fe19c0d93daabcf5e98738cd93c6d1dd4918ef6aa30735feb23a AS uv
 
 FROM ubuntu:26.04@sha256:678c6550cc43645e08669028bc177f50be4e7c5b8cca677067b1914d4afc7a03 AS builder
 
