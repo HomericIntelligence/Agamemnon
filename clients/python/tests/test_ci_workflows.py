@@ -78,6 +78,15 @@ CLANG_TIDY_JOBS_THAT_OPT_IN = (
 CLANG_TIDY_OPTION = re.compile(
     r'option\(\s*\$\{PROJECT_NAME\}_ENABLE_CLANG_TIDY\s+"[^"]*"\s+(ON|OFF)\s*\)'
 )
+# Same defect class, sibling option (#517): cppcheck was left defaulting ON when
+# clang-tidy was fixed in #515, and the regex above deliberately matches only
+# clang-tidy, which is how it went unnoticed.
+CPPCHECK_OPTION = re.compile(
+    r'option\(\s*\$\{PROJECT_NAME\}_ENABLE_CPPCHECK\s+"[^"]*"\s+(ON|OFF)\s*\)'
+)
+ANALYZER_OPTION = re.compile(
+    r'option\(\s*\$\{PROJECT_NAME\}_ENABLE_(CLANG_TIDY|CPPCHECK)\s+"[^"]*"\s+(ON|OFF)\s*\)'
+)
 
 
 def _load_workflow(path: Path = WORKFLOW_PATH) -> dict:
@@ -467,6 +476,46 @@ def test_build_matrix_does_not_pay_for_clang_tidy() -> None:
     assert not enabling_steps, (
         "build-test.yml enables clang-tidy — enforcement belongs to the lint and "
         f"clang-tidy jobs (issue #515): {enabling_steps}"
+    )
+
+
+def test_build_matrix_does_not_pay_for_cppcheck() -> None:
+    """cppcheck must be opt-in too, or installing it re-breaks the matrix (issue #517)."""
+    option = CPPCHECK_OPTION.search(ANALYZERS_PATH.read_text())
+    assert option is not None, (
+        "cmake/StaticAnalyzers.cmake no longer declares Agamemnon_ENABLE_CPPCHECK"
+    )
+    assert option.group(1) == "OFF", (
+        "ENABLE_CPPCHECK defaults ON, so every Build and Test matrix job runs "
+        "cppcheck per TU as soon as it is installed — the #515 failure mode "
+        "(issue #517)"
+    )
+
+    build_test = _load_workflow(WORKFLOW_DIR / "build-test.yml")
+    enabling_steps = [
+        f"{job_id}:{step.get('name')}"
+        for job_id, job in build_test["jobs"].items()
+        for step in (job.get("steps") or [])
+        if "ENABLE_CPPCHECK" in str(step.get("run", ""))
+    ]
+    assert not enabling_steps, (
+        "build-test.yml enables cppcheck — enforcement belongs to a dedicated job "
+        f"(issue #517): {enabling_steps}"
+    )
+
+
+def test_no_analyzer_defaults_on() -> None:
+    """Guard the class, not just the instances: no analyzer may default ON (#517)."""
+    defaults = dict(
+        (name, state) for name, state in ANALYZER_OPTION.findall(ANALYZERS_PATH.read_text())
+    )
+    assert set(defaults) == {"CLANG_TIDY", "CPPCHECK"}, (
+        f"expected both analyzer options in cmake/StaticAnalyzers.cmake, found {sorted(defaults)}"
+    )
+    on_by_default = sorted(name for name, state in defaults.items() if state != "OFF")
+    assert not on_by_default, (
+        "these analyzers default ON, so they run in every build configuration and "
+        f"its matrix jobs pay for them (issues #515, #517): {on_by_default}"
     )
 
 
