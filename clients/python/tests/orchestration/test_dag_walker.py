@@ -416,21 +416,32 @@ class TestBackgroundScan:
         """A raised exception in advance_dag() must not terminate the scan loop."""
         walker = DAGWalker(tasks=[], agents=[], scan_interval=0.02)
         call_count = 0
+        # Wait for the second call instead of assuming a fixed number of scan
+        # intervals fits inside a wall-clock sleep. The loop sleeps *before*
+        # each advance_dag(), so a contended runner can delay its timers past a
+        # fixed budget and admit only one iteration — which reads as a false
+        # "the loop died" failure. Issue #513.
+        recovered = asyncio.Event()
 
         async def failing_advance() -> list:
             nonlocal call_count
             call_count += 1
             if call_count < 2:
                 raise RuntimeError("transient failure")
+            recovered.set()
             return []
 
         walker.advance_dag = failing_advance  # type: ignore[method-assign]
 
         stop_event = asyncio.Event()
         scan_task = walker.start_background_scan(stop_event)
-        await asyncio.sleep(0.07)
-        stop_event.set()
-        await scan_task
+        try:
+            # If the loop really did terminate on the exception this times out
+            # and the test still fails, so the assertion keeps its teeth.
+            await asyncio.wait_for(recovered.wait(), timeout=5.0)
+        finally:
+            stop_event.set()
+            await scan_task
 
         assert call_count >= 2
 
