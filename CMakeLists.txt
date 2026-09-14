@@ -254,10 +254,7 @@ target_include_directories(
 target_link_libraries(
   ${PROJECT_NAME}_healthcheck
   PRIVATE
-    httplib::httplib
-    OpenSSL::SSL
-    OpenSSL::Crypto
-)
+    httplib::httplib)
 
 target_compile_options(${PROJECT_NAME}_healthcheck PRIVATE
   -Wno-old-style-cast

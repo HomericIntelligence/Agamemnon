@@ -1,4 +1,17 @@
-option(${PROJECT_NAME}_ENABLE_CLANG_TIDY "Enable clang-tidy" ON)
+# Default OFF: clang-tidy costs 55-95s per translation unit, and the Build and
+# Test matrix (6 entries x debug/release x gcc/clang, plus ASAN) inherits this
+# default. That pinned every matrix job at its 30-minute timeout-minutes cap and
+# cancelled them under normal concurrent PR load, so the required
+# ubuntu-24.04-* contexts never reported and PRs sat permanently BLOCKED (#515).
+#
+# clang-tidy is enforced by the two jobs that opt in explicitly, so nothing is
+# lost by defaulting it off here:
+#   - .github/workflows/_required.yml  -> the required `lint` job
+#   - .github/workflows/static-analysis.yml -> `clang-tidy`, feeds
+#     "All Static Analysis Checks"
+# The Dockerfile and scripts/lint.sh already pass -D...=OFF for the same reason.
+# Pass -D${PROJECT_NAME}_ENABLE_CLANG_TIDY=ON to build/analyse locally.
+option(${PROJECT_NAME}_ENABLE_CLANG_TIDY "Enable clang-tidy" OFF)
 option(${PROJECT_NAME}_ENABLE_CPPCHECK "Enable cppcheck" ON)
 
 if(${PROJECT_NAME}_ENABLE_CLANG_TIDY)
