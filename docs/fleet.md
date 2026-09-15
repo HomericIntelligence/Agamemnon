@@ -49,6 +49,88 @@ new input while their result remains uncertain.
 An interrupt or cancel supersedes older pending controls. Its correlated stop
 fact completes the stop command so a later explicit resume can renew admission.
 
+## Import a Nestor research intake
+
+The [system architecture](https://github.com/HomericIntelligence/Odysseus/blob/main/docs/architecture.md)
+keeps Nestor research authority separate from the Agamemnon task graph.
+Nestor owns research content and the canonical research issue. Agamemnon can
+admit a confirmed intake as a standalone Pending L3 execution leaf. Import does
+not research, create a second canonical work issue, create a TaskBrief, create a
+Fleet session, or dispatch work. The HMAS backing issue is the existing durable
+coordination record for that leaf.
+
+An operator configures all three values: `AGAMEMNON_NESTOR_URL`,
+`AGAMEMNON_NESTOR_API_KEY`, and `AGAMEMNON_NESTOR_NAMESPACE`. With all three absent,
+the route returns 503. A partial or invalid configuration stops server startup
+before peer discovery or service attachment. Enabled import requires GitHub
+persistence and the existing authenticated API middleware. Keep the namespace
+stable for the same Nestor authority; changing it creates a different identity.
+
+The configured URL is an HTTPS origin with certificate and hostname verification,
+without user information, a query, a fragment, or a base path. Plain HTTP is
+limited to numeric loopback origins. The lookup uses the configured Nestor
+credential, disables ambient proxies, refuses redirects, connects within two
+seconds and limits the complete lookup to five seconds and 64 KiB. These bounds
+apply to Nestor lookup; GitHub persistence uses the existing backing client.
+
+1. Obtain the immutable `intakeId` and `requestDigest` from Nestor's intake receipt.
+2. Send an authenticated `POST /v1/fleet/research-intakes` with exactly:
+
+   ```json
+   {
+     "schema": "hi/agamemnon/research-import/v1",
+     "intakeId": "research-01",
+     "requestDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   }
+   ```
+
+   The example digest illustrates its format; use the actual digest from Nestor.
+   The request is limited to 4096 UTF-8 bytes. Duplicate keys, extra fields and
+   invalid identifiers are rejected. Do not send a URL, credential, repository,
+   title, prompt, or research body.
+3. A 201 response confirms a new durable Pending leaf; 200 is an exact replay and
+   reports its current state. The metadata receipt contains the stable `taskId`,
+   provenance, canonical issue reference and routing values `domain: research`,
+   `hmasRole: task-agent`, `stage: research`.
+4. After the separate worker and environment admission gates are satisfied, use
+   the existing Fleet create/start/input/respond flow with that task and routing.
+   Submit private content only through existing attachment references. Import
+   itself never publishes to Keystone or grants worker admission.
+
+The task ID is `research-` plus SHA-256 of canonical sorted JSON containing
+`schema: hi/agamemnon/research-task-key/v1`, the configured namespace, and intake
+ID. The request digest is verified provenance, not an alternate task identity.
+Only the supported Nestor v1 generation-1 created record is accepted. Its issue
+receipt confirms creation; it does not establish research completion or the
+current live state of the canonical issue.
+
+The Store serializes import against task mutations and scans all open and closed
+HMAS backing records on each attempt. One open matching record is replayed;
+closed, duplicate, malformed or changed identities return 409 for explicit
+reconciliation. An uncertain creation returns 503. Retrying first rechecks the
+durable records, so a committed write with a lost acknowledgement can be reused
+without another create. A failed authoritative scan cannot confirm absence.
+
+`delivery.researchIntake` retains only its schema, namespace, intake ID, request
+and body digests, generation, attempt ID, canonical issue, and creation and
+confirmation timestamps. Import uses generic task text and never copies the
+research title or body. Later Store writes cannot replace that provenance or
+its bound repository, issue, or leaf structure. Numeric types remain immutable;
+a floating-point value cannot replace an integer in the provenance. Replay preserves current state,
+assignment, claim, resolution, and unrelated delivery checkpoints.
+
+Invalid input returns 400; absent intake returns 404; unconfirmed intake or a
+provenance conflict returns 409. Disabled lookup, malformed/unavailable Nestor,
+incomplete GitHub enumeration, or uncertain persistence returns 503 with a
+non-sensitive error code. The API version header follows the existing API.
+
+Run one controller only. GitHub does not provide a distributed compare-and-swap
+lease for this import. Disable new import by removing all three configuration
+values; existing tasks and Fleet controls remain durable. Do not delete backing
+records or change the namespace to retry a conflict. This component does not
+implement Nestor interviews, Telemachy workflow promotion, research-worker
+isolation, or live model acceptance; those remain separate component gates.
+
 ## Worker and attachment contracts
 
 Task-backed starts use

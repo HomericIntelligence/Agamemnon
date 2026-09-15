@@ -23,15 +23,20 @@ Agamemnon receives researched briefs from ProjectNestor and manages:
 - REST API: `/v1/*` (coordination) and `/v1/chaos/*` (chaos injection for ProjectCharybdis)
 - Peer discovery via Tailscale (100.x.x.x scan)
 
-Agamemnon does **not** perform research (Nestor's responsibility), provide UI (Odysseus), or make
-myrmidon-level decisions (myrmidons communicate peer-to-peer directly).
+Nestor owns research questions, content, and the canonical research issue. Agamemnon may import
+a confirmed Nestor intake reference as a durable Pending L3 execution leaf; import does not
+dispatch work or grant worker admission. Later execution uses existing Fleet controls and
+separate environment gates. See [the research import contract](docs/fleet.md#import-a-nestor-research-intake).
+Agamemnon does **not** provide UI (Odysseus) or make myrmidon-level decisions
+(myrmidons communicate peer-to-peer directly).
 
 ### Key Principles
 
 1. **Pull-based:** Agamemnon enqueues work. Myrmidons pull when ready. MaxAckPending=1.
 2. **GitHub = backing store:** All task state lives in GitHub Issues/Projects.
 3. **Bidirectional:** Agents can clarify upstream at every stage.
-4. **No research:** Receives researched briefs only. All research is Nestor's responsibility.
+4. **Research ownership:** Nestor owns content and handoff. Agamemnon receives briefs and may
+   admit confirmed intake metadata for later execution, without researching or dispatching at import.
 5. **HMAS hierarchy:** L0→L3 internal orchestration primitives manage delegation and escalation.
 
 ---

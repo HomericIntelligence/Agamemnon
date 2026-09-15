@@ -23,6 +23,96 @@ components:
       required: true
       schema: {type: string, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$'}
   schemas:
+    ResearchImportError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_research_import
+            - research_import_unavailable
+            - nestor_unavailable
+            - nestor_intake_not_found
+            - nestor_record_invalid
+            - nestor_intake_unconfirmed
+            - nestor_intake_changed
+            - research_import_conflict
+            - research_persistence_uncertain
+    ResearchImport:
+      type: object
+      additionalProperties: false
+      required: [schema, intakeId, requestDigest]
+      description: Immutable Nestor reference only; the serialized UTF-8 body is limited to 4096 bytes.
+      properties:
+        schema: {type: string, enum: [hi/agamemnon/research-import/v1]}
+        intakeId: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{7,63}$'}
+        requestDigest: {type: string, pattern: '^[a-f0-9]{64}$'}
+    ResearchIssue:
+      type: object
+      additionalProperties: false
+      required: [repository, number, url]
+      properties:
+        repository:
+          type: string
+          maxLength: 200
+          pattern: '^[a-z0-9_-]+/[a-z0-9_.-]+$'
+          description: Canonical lower-case owner/repository; consecutive dots are rejected.
+        number: {type: integer, minimum: 1, maximum: 2147483647}
+        url:
+          type: string
+          format: uri
+          description: Exact https://github.com/{repository}/issues/{number} URL.
+    ResearchProvenance:
+      type: object
+      additionalProperties: false
+      required:
+        - schema
+        - namespace
+        - intakeId
+        - requestDigest
+        - bodyDigest
+        - generation
+        - attemptId
+        - issue
+        - createdAt
+        - confirmedAt
+      description: >-
+        Immutable delivery.researchIntake metadata. Confirms canonical issue creation,
+        not research completion or current live issue status. Private content is excluded.
+      properties:
+        schema: {type: string, enum: [hi/agamemnon/research-intake/v1]}
+        namespace: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'}
+        intakeId: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{7,63}$'}
+        requestDigest: {type: string, pattern: '^[a-f0-9]{64}$'}
+        bodyDigest: {type: string, pattern: '^[a-f0-9]{64}$'}
+        generation: {type: integer, enum: [1]}
+        attemptId: {type: string, pattern: '^[a-f0-9]{32}$'}
+        issue: {$ref: '#/components/schemas/ResearchIssue'}
+        createdAt: {type: string, format: date-time}
+        confirmedAt: {type: string, format: date-time}
+    ResearchImportReceipt:
+      type: object
+      additionalProperties: false
+      required: [schema, taskId, state, provenance, issue, routing]
+      properties:
+        schema: {type: string, enum: [hi/agamemnon/research-import-receipt/v1]}
+        taskId: {type: string, pattern: '^research-[a-f0-9]{64}$'}
+        state:
+          type: string
+          enum: [Pending, Decomposing, Delegated, InProgress, Escalated, Completed, Failed]
+          description: Pending for a new leaf; exact replay preserves its current state.
+        provenance: {$ref: '#/components/schemas/ResearchProvenance'}
+        issue: {$ref: '#/components/schemas/ResearchIssue'}
+        routing:
+          type: object
+          additionalProperties: false
+          required: [domain, hmasRole, stage]
+          properties:
+            domain: {type: string, enum: [research]}
+            hmasRole: {type: string, enum: [task-agent]}
+            stage: {type: string, enum: [research]}
     ProjectsHealth:
       type: object
       required: [schema, state, authority, direction, stageProjection, items]

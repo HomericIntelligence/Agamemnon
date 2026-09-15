@@ -4,6 +4,7 @@
 #include "agamemnon/circuit_breaker.hpp"
 #include "agamemnon/dead_letter_queue.hpp"
 #include "agamemnon/fleet.hpp"
+#include "agamemnon/fleet_research.hpp"
 #include "agamemnon/github_webhook.hpp"
 #include "agamemnon/hmas_types.hpp"
 #include "agamemnon/metrics.hpp"
@@ -218,7 +219,14 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 // register_routes is the public entry point invoked from server_main.cpp.
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
-                     Orchestrator& orchestrator, std::shared_ptr<FleetService> fleet) {
+                     Orchestrator& orchestrator, std::shared_ptr<FleetService> fleet,
+                     std::shared_ptr<FleetResearchService> research) {
+  if (research) {
+    httplib::Request unauthenticated;
+    unauthenticated.path = "/v1/fleet/research-intakes";
+    if (auth.validate(unauthenticated))
+      throw std::invalid_argument("Research import requires authenticated route middleware");
+  }
   Store* sp = &store;
   NatsPublisher* np = &nats;
   // Production NatsClient overrides dead_letter_queue()/circuit_breaker() to
@@ -274,6 +282,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   server.set_payload_max_length(kMaxBodyBytes);
   if (!fleet) fleet = std::make_shared<FleetService>(store, nats, &orchestrator);
   register_fleet_routes(server, std::move(fleet));
+  register_fleet_research_routes(server, std::move(research));
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
