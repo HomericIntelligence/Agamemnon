@@ -12,7 +12,16 @@
 # The Dockerfile and scripts/lint.sh already pass -D...=OFF for the same reason.
 # Pass -D${PROJECT_NAME}_ENABLE_CLANG_TIDY=ON to build/analyse locally.
 option(${PROJECT_NAME}_ENABLE_CLANG_TIDY "Enable clang-tidy" OFF)
-option(${PROJECT_NAME}_ENABLE_CPPCHECK "Enable cppcheck" ON)
+
+# cppcheck gets the same treatment for the same reason (#517). Nothing installs it --
+# no workflow does, and the ubuntu-24.04 runner image does not ship it -- so this branch
+# currently only reaches `message(WARNING "cppcheck not found")`. Defaulting it ON
+# anyway means that the moment anyone installs cppcheck, *every* build configuration
+# (the six-entry Build and Test matrix plus install, package, release, sanitizers,
+# coverage, CodeQL and integration tests) starts running it per translation unit. That
+# is precisely how #515 pinned those jobs at their 30-minute cap. Opt in explicitly with
+# -D${PROJECT_NAME}_ENABLE_CPPCHECK=ON.
+option(${PROJECT_NAME}_ENABLE_CPPCHECK "Enable cppcheck" OFF)
 
 if(${PROJECT_NAME}_ENABLE_CLANG_TIDY)
   find_program(CLANGTIDY clang-tidy)
