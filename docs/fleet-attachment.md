@@ -173,6 +173,21 @@ the consumer's acknowledgment wait above the renewal interval, and leave enough
 headroom for controller validation and attachment latency. A timeout preserves
 uncertainty; it does not prove that a provider turn stopped.
 
+Durable authority HTTP calls use one monotonic operation deadline through name
+resolution, each TCP connection attempt, TLS handshake, request writes, response
+headers, chunk metadata, and body reads. Numeric IP addresses connect directly.
+Hostnames use an owned resolver process with only the host and port as command
+arguments. The fixed helper inherits the parent's environment. The adapter closes
+unsuccessful sockets and reaps that exact process. The
+one-second resolver cleanup allowance cannot extend successful result eligibility.
+TLS retains the standard verified SSL context and original hostname.
+
+An expired authority read cannot authorize worker delivery or acknowledge work.
+A timeout during fact confirmation retains the existing execution receipt for
+reconciliation and replay. Local regression tests use finite loopback peers,
+controlled resolver and connection delays, and actual TLS handshakes. These
+fixtures do not qualify remote transport or production scheduling.
+
 ## Run a bounded canary
 
 Run the bridge where its private spool and worker socket are accessible. Remote

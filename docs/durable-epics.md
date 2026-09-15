@@ -83,6 +83,16 @@ not complete the parent, approve a PR, or infer completion from a worker activit
 fact. Only parked, unassigned parents without Fleet claims are eligible in this
 slice; active or uncertain parent ownership must first be reconciled.
 
+After recording pending intent, publication checks the current child and parent
+snapshots and the durable tree under the Store's HMAS read lock. It keeps that
+lock through the bounded broker operation, so canonical assignment, claims, state
+changes and cache invalidation cannot commit during the send. A changed snapshot
+suppresses the send and retains pending intent. The retry age is checked after
+the lock wait. Broker failure or a lost GitHub receipt preserves the same message
+identity and uncertainty rules. The lock is released before writing the receipt.
+This protects eligibility at publication; a recipient must still obtain canonical
+admission before execution because ownership can change while a message is queued.
+
 ## Reproducible validation and remaining gates
 
 The standard CMake test build registers `fleet_jetstream` with the `integration`

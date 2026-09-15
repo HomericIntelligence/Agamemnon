@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import http.client
+import io
+import ipaddress
 import os
 import selectors
 import socket
+import ssl
 import stat
 import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit
 
 from .common import (
@@ -27,6 +32,102 @@ from .common import (
 from .observations import ObservationSink
 
 ATTACH_SCHEMA = "hi/keystone/fleet-attach/v1"
+_RESOLVE = """
+import json, socket, sys
+addresses = socket.getaddrinfo(sys.argv[1], int(sys.argv[2]), type=socket.SOCK_STREAM)
+data = json.dumps({'addresses': addresses})
+if len(data) > 16384:
+    raise SystemExit(2)
+sys.stdout.write(data)
+"""
+
+
+def _addresses(host: str, port: int, deadline: Deadline) -> list[Any]:
+    """Keep uncancellable name resolution in one owned, bounded child process."""
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+    if address is not None and "%" not in host:
+        family = socket.AF_INET if address.version == 4 else socket.AF_INET6
+        endpoint = (host, port) if address.version == 4 else (host, port, 0, 0)
+        return [(family, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", endpoint)]
+    deadline.remaining()
+    process = subprocess.Popen(
+        [sys.executable, "-I", "-S", "-c", _RESOLVE, host, str(port)],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        try:
+            data, _ = process.communicate(timeout=deadline.remaining())
+        except subprocess.TimeoutExpired:
+            raise BridgeError("deadline_exceeded") from None
+        deadline.remaining()
+        require(process.returncode == 0, "durable_read_failed")
+        addresses = decode(data, 16384).get("addresses")
+        if not isinstance(addresses, list) or not 0 < len(addresses) <= 128:
+            raise BridgeError("durable_read_failed")
+        return addresses
+    finally:
+        # Reaping is cleanup only; it cannot extend successful request eligibility.
+        try:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=1)
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+
+
+def _connect(host: str, port: int, deadline: Deadline) -> socket.socket:
+    """Apply the remaining budget to each address, closing every unsuccessful socket."""
+    for family, kind, protocol, _name, address in _addresses(host, port, deadline):
+        connection = None
+        try:
+            connection = socket.socket(family, kind, protocol)
+            connection.settimeout(deadline.remaining())
+            connection.connect(tuple(address))
+            deadline.remaining()
+            return connection
+        except OSError:
+            if connection is not None:
+                connection.close()
+        except BaseException:
+            if connection is not None:
+                connection.close()
+            raise
+    raise OSError("authority connection failed")
+
+
+class _DeadlineReader(io.RawIOBase):
+    """Apply the same budget to every receive within buffered HTTP parsing."""
+
+    def __init__(self, sock: socket.socket, deadline: Deadline) -> None:
+        self.sock, self.deadline = sock, deadline
+        self.source = sock.makefile("rb", buffering=0)
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: Any) -> int | None:
+        self.sock.settimeout(self.deadline.remaining())
+        count = self.source.readinto(buffer)
+        self.deadline.remaining()
+        return count
+
+    def close(self) -> None:
+        try:
+            self.source.close()
+        finally:
+            super().close()
+
+
+class _HTTPSConnection(http.client.HTTPSConnection):
+    """Type the standard-library context without replacing its verification settings."""
+
+    _context: ssl.SSLContext
 
 
 class DurableClient:
@@ -53,12 +154,23 @@ class DurableClient:
 
     def _request(self, method: str, path: str, timeout: float, body: Json | None = None) -> Json:
         deadline = Deadline(timeout)
-        factory = (
-            http.client.HTTPSConnection
-            if self.url.scheme == "https"
-            else http.client.HTTPConnection
-        )
+
+        class Response(http.client.HTTPResponse):
+            def __init__(
+                self,
+                sock: socket.socket,
+                debuglevel: int = 0,
+                method: str | None = None,
+                url: str | None = None,
+            ) -> None:
+                super().__init__(sock, debuglevel, method, url)
+                self.fp.close()
+                self.fp = io.BufferedReader(_DeadlineReader(sock, deadline))
+
+        factory = _HTTPSConnection if self.url.scheme == "https" else http.client.HTTPConnection
         connection = factory(self.url.hostname or "", self.url.port, timeout=deadline.remaining())
+        connection.response_class = Response
+        response = None
         try:
             headers = {"Accept": "application/json"}
             if self.token:
@@ -67,22 +179,43 @@ class DurableClient:
             if payload is not None:
                 require(len(payload) <= 16 * 1024, "fact_limit")
                 headers["Content-Type"] = "application/json"
-            connection.request(method, path, body=payload, headers=headers)
+                headers["Content-Length"] = str(len(payload))
+            connection.sock = _connect(connection.host, connection.port, deadline)
+            if isinstance(connection, _HTTPSConnection):
+                connection.sock.settimeout(deadline.remaining())
+                connection.sock = connection._context.wrap_socket(
+                    connection.sock, server_hostname=connection.host, do_handshake_on_connect=False
+                )
+                connection.sock.settimeout(deadline.remaining())
+                connection.sock.do_handshake()
+                deadline.remaining()
+            connection.putrequest(method, path)
+            for name, value in headers.items():
+                connection.putheader(name, value)
+            assert connection.sock is not None
+            connection.sock.settimeout(deadline.remaining())
+            connection.endheaders()
+            if payload is not None:
+                connection.sock.settimeout(deadline.remaining())
+                connection.send(payload)
+            deadline.remaining()
             response = connection.getresponse()
             require(response.status == 200, "durable_read_failed")  # No redirect following.
             data = bytearray()
             while len(data) <= 512 * 1024:
-                remaining = deadline.remaining()
-                if connection.sock is not None:
-                    connection.sock.settimeout(remaining)
+                deadline.remaining()
                 chunk = response.read1(min(8192, 512 * 1024 + 1 - len(data)))
                 if not chunk:
                     break
                 data.extend(chunk)
-            return decode(bytes(data), 512 * 1024)
+            result = decode(bytes(data), 512 * 1024)
+            deadline.remaining()
+            return result
         except (OSError, ValueError, http.client.HTTPException):
             raise BridgeError("durable_read_failed") from None
         finally:
+            if response is not None:
+                response.close()
             connection.close()
 
     def get_command(self, command_id: str, timeout: float) -> Json:

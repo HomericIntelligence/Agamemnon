@@ -9,10 +9,11 @@ The queue commit must report all 18 required contexts. The three required workfl
 - `build-test.yml`: `All Build/Test Checks` and its four compiler/build-type matrix contexts.
 - `static-analysis.yml`: `All Static Analysis Checks`.
 
-`merge-queue-smoke.yml` remains a separate five-minute smoke check. Its result cannot replace those
-18 contexts. Required job names, permissions, aggregate result checks, scanner policies, and
-matrix entries remain part of the required-check contract. The existing optional PR-only docs
-job and tag-only publishing workflows retain their separate event rules.
+The former `merge-queue-smoke.yml` workflow is removed. Required job names, permissions, aggregate
+result checks, scanner policies, and matrix entries remain part of the required-check contract.
+Documentation validation runs on PR and merge-group commits; only a push may skip that job.
+Tag-only publishing workflows retain their separate event rules. Each required workflow uses an
+event-scoped concurrency group so PR and merge-group runs cannot cancel one another.
 
 `clients/python/tests/test_ci_workflows.py` checks queue subscriptions, exact context names and
 required-job eligibility. It also executes the aggregate shell blocks with controlled successful
@@ -20,5 +21,6 @@ and failed dependency results. These tests do not execute a hosted merge group o
 A complete local CI result and the required hosted checks on the final source remain necessary
 before merge. A queued commit must then receive its own required checks.
 
-Changing the live ruleset, branch protection, queue policy, or merge method is an administrative
-operation outside this workflow correction. Track the operational queue observation in issue #491.
+Enabling or changing the live ruleset, branch protection, queue policy, or merge method is an
+administrative operation outside workflow-readiness changes. For the initial rollout, track
+activation and a representative merge-group check cycle in issue #491.

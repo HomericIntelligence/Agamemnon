@@ -4,6 +4,7 @@
 #include "agamemnon/planning_breakdown.hpp"
 #include "agamemnon/state_machine.hpp"
 
+#include <optional>
 #include <string>
 
 #include "nlohmann/json.hpp"
@@ -89,7 +90,8 @@ class Orchestrator {
   void delegate_unblocked_children(const std::string& parent_id);
   std::string register_epic_durable(const std::string& subject, const std::string& payload);
   void publish_checkpoint(HmasTask task, const std::string& key, const std::string& subject,
-                          const json& envelope);
+                          const json& envelope,
+                          const std::optional<HmasTask>& parent = std::nullopt);
 };
 
 }  // namespace agamemnon

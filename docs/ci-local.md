@@ -7,6 +7,20 @@ architecture to amd64 or request emulation. The compiler and system libraries
 come from the existing Ubuntu package policy; Python build tools use the root
 `uv.lock`. These policies are distinct from the seven checksum-pinned binaries.
 
+The image also prepares the Python client's locked `lint` dependency group in
+the existing `/opt/agamemnon-venv`. Its inexact synchronization retains the root
+toolchain packages so the unchanged security command uses the prepared shared
+environment. Image inputs include `clients/python/pyproject.toml`, its `uv.lock`,
+and `agamemnon/pyproject.toml`, whose relative editable source is recorded in the
+client lock. Changes to any of these inputs require a new image qualification.
+The separate `uv tool` installation of pip-audit does not provision this group.
+
+Each local CI step runs in a disposable container. Installed packages and UV
+cache changes from an earlier step are not shared with later steps. Preparing
+the audit group in the image avoids repeating that acquisition in the security
+step; it does not remove the scanners' need to access advisory services. Audit
+findings and acquisition or service failures remain fatal.
+
 ## Release inputs
 
 The native installer retains these versions and their existing amd64 checksums.
@@ -42,6 +56,7 @@ the existing CTest launcher, which creates a loopback broker with private storag
    ```bash
    just ci-tools-test python3
    just ci-reports-test python3
+   just ci-audit-test python3 /path/to/uv-0.12.1
    ```
 
    These tests execute the image's uv installation command and the installer
@@ -51,6 +66,13 @@ the existing CTest launcher, which creates a loopback broker with private storag
    image execution. The report tests use private Git repositories to check that
    root reports leave source status unchanged while nested files and tracked
    source changes remain visible. They do not run scanners.
+   The audit test executes the image's metadata-copy and uv-sync instructions
+   with actual uv 0.12.1 and tiny private wheel fixtures, with network access
+   disabled. It checks audit readiness, retention of a root package, and stale
+   client-lock rejection. This verifies resolver behavior rather than the real
+   Linux dependency inventory or a vulnerability scan. Set
+   `AGAMEMNON_AUDIT_TEST_ARTIFACT_DIR` to retain its fixture files and every uv
+   invocation/output for review.
 3. Build the actual image with the existing Podman recipe:
 
    ```bash

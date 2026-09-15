@@ -34,6 +34,8 @@ add_executable(fleet_contract_tests ${ROOT}/test/src/test_fleet.cpp
     ${ROOT}/test/src/test_github_client.cpp
     ${ROOT}/test/src/test_store.cpp
     ${ROOT}/test/src/test_store_edge_cases.cpp
+    ${ROOT}/test/src/test_store_concurrent_per_collection.cpp
+    ${ROOT}/test/src/test_store_uncertainty_race.cpp
     ${ROOT}/test/src/test_store_hydration.cpp
     ${ROOT}/test/src/test_orchestrator_persistence.cpp
     ${ROOT}/test/src/test_orchestrator.cpp ${ROOT}/test/src/test_hmas_types.cpp)
