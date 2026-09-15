@@ -95,12 +95,11 @@ json Store::parse_issue_entity_(const json& issue) {
 
 // ensure_*_loaded_ helpers (#161 — drop mutex during GitHub HTTP fetch)
 //
-// IMPORTANT: These functions MUST be called WITHOUT holding their collection's
-// mutex (see #184: each collection has its own std::shared_mutex). They use
-// std::call_once to guarantee exactly one network fetch across all racing
-// threads, then acquire that collection's mutex internally to merge results.
-// After returning, the caller re-acquires it for map operations. The atomic
-// flags allow a cheap early-exit on the hot (already-loaded) path.
+// IMPORTANT: Call these functions without holding their collection's mutex.
+// Legacy collections use call_once and fetch before taking their collection
+// lock. HMAS hydration instead holds hmas_mutex_ across the fetch and publishes
+// a complete replacement only on success. It can retry after an uncertain write;
+// other collections remain independent while HMAS state is reconciled.
 void Store::ensure_agents_loaded_() {
   // Fast-path: already loaded (atomic, no lock needed).
   if (agents_loaded_.load(std::memory_order_acquire)) return;
@@ -228,43 +227,42 @@ void Store::ensure_faults_loaded_() {
 
 void Store::ensure_hmas_tasks_loaded_() {
   if (hmas_tasks_loaded_.load(std::memory_order_acquire)) return;
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (hmas_tasks_loaded_.load(std::memory_order_acquire)) return;
   if (gh_) {
-    std::call_once(hmas_tasks_once_, [this]() {
-      std::vector<json> issues;
-      try {
-        issues = gh_->list_issues("agamemnon-hmas-task");
-      } catch (const std::exception& e) {
-        std::cerr << "[agamemnon] hydration error (hmas-tasks): " << e.what() << "\n";
-        hmas_tasks_loaded_.store(true, std::memory_order_release);
-        return;
-      }
-      std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
-      for (auto& issue : issues) {
-        json entity = parse_issue_entity_(issue);
-        if (entity.is_null() || !entity.contains("id")) {
-          std::cerr << "[agamemnon] skipping malformed hmas-task issue\n";
-          continue;
-        }
-        try {
-          HmasTask t = hmas_task_from_json(entity);
-          if (issue.contains("number"))
-            hmas_task_issue_numbers_[t.id] = std::to_string(issue["number"].get<int>());
-          const std::string brief_id = t.brief_id;
-          const std::string task_id = t.id;
-          hmas_tasks_[t.id] = std::move(t);
-          // #156: keep the brief_id -> task ids secondary index consistent with
-          // the hydrated tasks so list_hmas_tasks_by_brief() works after restart.
-          if (!brief_id.empty()) {
-            hmas_tasks_by_brief_[brief_id].push_back(task_id);
-          }
-        } catch (const std::exception& e) {
-          std::cerr << "[agamemnon] failed to deserialize hmas-task: " << e.what() << "\n";
-        }
-      }
-      hmas_tasks_loaded_.store(true, std::memory_order_release);
-    });
-  } else {
-    hmas_tasks_loaded_.store(true, std::memory_order_release);
+    std::unordered_map<std::string, HmasTask> tasks;
+    std::unordered_map<std::string, std::string> numbers;
+    std::unordered_map<std::string, std::vector<std::string>> briefs;
+    for (const auto& issue : gh_->list_issues_including_closed("agamemnon-hmas-task")) {
+      auto entity = parse_issue_entity_(issue);
+      if (!entity.is_object() || !entity.contains("id") || !issue.contains("number"))
+        throw std::runtime_error("Malformed HMAS backing issue; reconciliation required");
+      auto task = hmas_task_from_json(entity);
+      if (task.id.empty() || !tasks.emplace(task.id, task).second)
+        throw std::runtime_error("Duplicate or empty HMAS task identity");
+      numbers[task.id] = std::to_string(issue.at("number").get<int>());
+      if (!task.brief_id.empty()) briefs[task.brief_id].push_back(task.id);
+    }
+    hmas_tasks_ = std::move(tasks);
+    hmas_task_issue_numbers_ = std::move(numbers);
+    hmas_tasks_by_brief_ = std::move(briefs);
+  }
+  hmas_tasks_loaded_.store(true, std::memory_order_release);
+}
+
+void Store::persist_hmas_task_(const HmasTask& task) {
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  if (!gh_) return;
+  auto number = hmas_task_issue_numbers_.find(task.id);
+  if (number == hmas_task_issue_numbers_.end())
+    throw std::runtime_error("HMAS task has no durable backing issue: " + task.id);
+  try {
+    gh_->update_issue_body(number->second,
+                           make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)));
+  } catch (...) {
+    hmas_tasks_loaded_.store(false, std::memory_order_release);
+    throw;
   }
 }
 
@@ -786,12 +784,24 @@ bool Store::remove_fault(const std::string& id) {
 void Store::create_hmas_task(const HmasTask& task) {
   ensure_hmas_tasks_loaded_();  // also guards write-first race
   std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  if (hmas_tasks_.contains(task.id)) throw std::runtime_error("HMAS task already exists");
+  if (!task.fleet_claim.is_null())
+    throw std::runtime_error("Use the canonical Fleet claim operation");
   if (gh_) {
     const std::string title = "hmas-task: " + task.id;
-    std::string issue_num =
-        gh_->create_issue(title, make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)),
-                          "agamemnon-hmas-task");
-    if (!issue_num.empty()) hmas_task_issue_numbers_[task.id] = issue_num;
+    try {
+      std::string issue_num = gh_->create_issue(
+          title, make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)),
+          "agamemnon-hmas-task");
+      if (issue_num.empty())
+        throw std::runtime_error("GitHub did not acknowledge HMAS task creation");
+      hmas_task_issue_numbers_[task.id] = issue_num;
+    } catch (...) {
+      hmas_tasks_loaded_.store(false, std::memory_order_release);
+      throw;
+    }
   }
   hmas_tasks_[task.id] = task;
   if (!task.brief_id.empty()) {
@@ -802,6 +812,8 @@ void Store::create_hmas_task(const HmasTask& task) {
 std::optional<HmasTask> Store::get_hmas_task(const std::string& id) {
   ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return std::nullopt;
   return it->second;  // value copy — safe to use outside the lock
@@ -813,19 +825,13 @@ bool Store::update_hmas_task_state_and_record_escalation(const std::string& id, 
   std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
-  it->second.state = new_state;
-  it->second.escalations.push_back(escalation);
-  if (gh_) {
-    auto num_it = hmas_task_issue_numbers_.find(id);
-    if (num_it != hmas_task_issue_numbers_.end()) {
-      gh_->update_issue_body(num_it->second,
-                             make_issue_body_("hmas-tasks/" + id, hmas_task_to_json(it->second)));
-    } else {
-      std::cerr << "[agamemnon] update_hmas_task_state_and_record_escalation: "
-                << "no GitHub issue number for " << id
-                << "; in-memory updated, GitHub NOT updated\n";
-    }
-  }
+  if (!it->second.fleet_claim.is_null())
+    throw std::runtime_error("Fleet-owned task requires a generation-fenced transition");
+  auto updated = it->second;
+  updated.state = new_state;
+  updated.escalations.push_back(escalation);
+  persist_hmas_task_(updated);
+  it->second = std::move(updated);
   return true;
 }
 
@@ -834,17 +840,12 @@ bool Store::update_hmas_task_state(const std::string& id, TaskState state) {
   std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(id);
   if (it == hmas_tasks_.end()) return false;
-  it->second.state = state;
-  if (gh_) {
-    auto num_it = hmas_task_issue_numbers_.find(id);
-    if (num_it != hmas_task_issue_numbers_.end()) {
-      gh_->update_issue_body(num_it->second,
-                             make_issue_body_("hmas-tasks/" + id, hmas_task_to_json(it->second)));
-    } else {
-      std::cerr << "[agamemnon] update_hmas_task_state: no GitHub issue number for " << id
-                << "; in-memory updated, GitHub NOT updated\n";
-    }
-  }
+  if (!it->second.fleet_claim.is_null())
+    throw std::runtime_error("Fleet-owned task requires a generation-fenced transition");
+  auto updated = it->second;
+  updated.state = state;
+  persist_hmas_task_(updated);
+  it->second = std::move(updated);
   return true;
 }
 
@@ -853,6 +854,9 @@ bool Store::update_hmas_task(const HmasTask& task) {
   std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
   auto it = hmas_tasks_.find(task.id);
   if (it == hmas_tasks_.end()) return false;
+  if (!it->second.fleet_claim.is_null())
+    throw std::runtime_error("Fleet-owned task requires a generation-fenced transition");
+  persist_hmas_task_(task);
   const std::string old_brief = it->second.brief_id;
   it->second = task;
   if (old_brief != task.brief_id) {
@@ -866,22 +870,172 @@ bool Store::update_hmas_task(const HmasTask& task) {
       hmas_tasks_by_brief_[task.brief_id].push_back(task.id);
     }
   }
-  if (gh_) {
-    auto num_it = hmas_task_issue_numbers_.find(task.id);
-    if (num_it != hmas_task_issue_numbers_.end()) {
-      gh_->update_issue_body(num_it->second,
-                             make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)));
-    } else {
-      std::cerr << "[agamemnon] update_hmas_task: no GitHub issue number for " << task.id
-                << "; in-memory updated, GitHub NOT updated\n";
+  return true;
+}
+
+bool Store::append_hmas_children(const HmasTask& expected, const std::vector<HmasTask>& children) {
+  ensure_hmas_tasks_loaded_();
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  const auto found = hmas_tasks_.find(expected.id);
+  if (found == hmas_tasks_.end() || !found->second.fleet_claim.is_null() ||
+      hmas_task_to_json(found->second) != hmas_task_to_json(expected))
+    return false;
+  auto parent = expected;
+  for (const auto& child : children) {
+    if (child.id.empty() || hmas_tasks_.contains(child.id) || !child.fleet_claim.is_null())
+      throw std::invalid_argument("Invalid split child identity");
+    parent.child_task_ids.push_back(child.id);
+  }
+  // This is not a multi-issue transaction. A failed child create leaves known
+  // parent links and prevents Fleet leaf admission until explicit reconciliation.
+  persist_hmas_task_(parent);
+  found->second = parent;
+  for (const auto& child : children) {
+    if (gh_) {
+      try {
+        const auto number =
+            gh_->create_issue("hmas-task: " + child.id,
+                              make_issue_body_("hmas-tasks/" + child.id, hmas_task_to_json(child)),
+                              "agamemnon-hmas-task");
+        if (number.empty()) throw std::runtime_error("GitHub did not acknowledge split child");
+        hmas_task_issue_numbers_[child.id] = number;
+      } catch (...) {
+        hmas_tasks_loaded_.store(false, std::memory_order_release);
+        throw;
+      }
     }
+    hmas_tasks_[child.id] = child;
+    if (!child.brief_id.empty()) hmas_tasks_by_brief_[child.brief_id].push_back(child.id);
   }
   return true;
+}
+
+bool Store::reserve_hmas_fleet_claim(const std::string& id, const json& claim) {
+  if (!gh_) throw std::runtime_error("Fleet claims require GitHub persistence");
+  ensure_hmas_tasks_loaded_();
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  auto found = hmas_tasks_.find(id);
+  if (found == hmas_tasks_.end()) return false;
+  const auto& task = found->second;
+  if (!task.fleet_claim.is_null())
+    return task.fleet_claim == claim && task.state != TaskState::Completed &&
+           task.state != TaskState::Failed;
+  if (task.layer != HmasLayer::L3_TaskAgent || !task.child_task_ids.empty() ||
+      task.state != TaskState::Pending || !task.assigned_lead_id.empty())
+    return false;
+  for (const auto& dependency : task.blocked_by) {
+    auto blocker = hmas_tasks_.find(dependency);
+    if (blocker == hmas_tasks_.end() || blocker->second.state != TaskState::Completed) return false;
+  }
+  if (!claim.is_object() || claim.value("schema", "") != "hi/fleet/claim/v1" ||
+      !claim.contains("generation") || !claim["generation"].is_number_integer() ||
+      claim["generation"].get<std::int64_t>() < 1)
+    throw std::invalid_argument("Invalid Fleet claim schema");
+  auto updated = task;
+  updated.fleet_claim = claim;
+  updated.assigned_lead_id = claim.at("agentId").get<std::string>();
+  updated.state = TaskState::Delegated;
+  persist_hmas_task_(updated);
+  found->second = std::move(updated);
+  return true;
+}
+
+bool Store::update_hmas_delivery(const std::string& id, const json& expected,
+                                 const json& delivery) {
+  if (!gh_) throw std::runtime_error("Durable delivery requires GitHub persistence");
+  ensure_hmas_tasks_loaded_();
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  auto it = hmas_tasks_.find(id);
+  if (it == hmas_tasks_.end() || it->second.delivery != expected) return false;
+  auto updated = it->second;
+  updated.delivery = delivery;
+  persist_hmas_task_(updated);
+  it->second = std::move(updated);
+  return true;
+}
+
+bool Store::publish_hmas_parent_wakeup(const HmasTask& child, const HmasTask& parent,
+                                       const std::function<void()>& publish) {
+  if (!gh_) throw std::runtime_error("Parent wakeup requires GitHub persistence");
+  ensure_hmas_tasks_loaded_();
+  std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  const auto current_child = hmas_tasks_.find(child.id);
+  const auto current_parent = hmas_tasks_.find(parent.id);
+  if (current_child == hmas_tasks_.end() || current_parent == hmas_tasks_.end() ||
+      hmas_task_to_json(current_child->second) != hmas_task_to_json(child) ||
+      hmas_task_to_json(current_parent->second) != hmas_task_to_json(parent) ||
+      child.state != TaskState::Completed || child.parent_task_id != parent.id ||
+      child.brief_id != parent.brief_id || !parent.fleet_claim.is_null() ||
+      !parent.assigned_lead_id.empty() ||
+      (parent.state != TaskState::Decomposing && parent.state != TaskState::Delegated))
+    return false;
+  const bool durable_tree =
+      std::any_of(hmas_tasks_.begin(), hmas_tasks_.end(), [&](const auto& row) {
+        const auto& task = row.second;
+        return task.brief_id == parent.brief_id && task.parent_task_id.empty() &&
+               task.delivery.contains("registration");
+      });
+  if (!durable_tree) return false;
+  // Canonical assignment, claims, state changes and invalidation require the
+  // write lock. Keep those operations outside this transport publication.
+  publish();
+  return true;
+}
+
+bool Store::observe_hmas_fleet_start(const std::string& id, const json& claim) {
+  ensure_hmas_tasks_loaded_();
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  auto found = hmas_tasks_.find(id);
+  if (found == hmas_tasks_.end() || found->second.fleet_claim.is_null() ||
+      found->second.fleet_claim != claim)
+    return false;
+  if (found->second.state == TaskState::InProgress) return true;
+  if (found->second.state != TaskState::Delegated) return false;
+  auto updated = found->second;
+  updated.state = TaskState::InProgress;
+  persist_hmas_task_(updated);
+  found->second = std::move(updated);
+  return true;
+}
+
+std::optional<HmasTask> Store::resolve_hmas_fleet_task(const std::string& id, const json& claim,
+                                                       const json& decision) {
+  ensure_hmas_tasks_loaded_();
+  std::unique_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
+  auto found = hmas_tasks_.find(id);
+  if (found == hmas_tasks_.end() || found->second.fleet_claim.is_null() ||
+      found->second.fleet_claim != claim)
+    return std::nullopt;
+  const auto& task = found->second;
+  if (!task.fleet_resolution.is_null())
+    return task.fleet_resolution == decision ? std::optional<HmasTask>(task) : std::nullopt;
+  const auto outcome = decision.at("outcome").get<std::string>();
+  if ((outcome != "completed" && outcome != "failed") ||
+      (task.state != TaskState::InProgress && task.state != TaskState::Delegated) ||
+      (outcome == "completed" && task.state != TaskState::InProgress))
+    return std::nullopt;
+  auto updated = task;
+  updated.fleet_resolution = decision;
+  updated.state = outcome == "completed" ? TaskState::Completed : TaskState::Failed;
+  updated.completed_at = now_iso8601();
+  persist_hmas_task_(updated);
+  found->second = updated;
+  return updated;
 }
 
 std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
   ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   std::vector<HmasTask> out;
   for (const auto& [id, task] : hmas_tasks_) {
     if (task.layer == layer) out.push_back(task);
@@ -892,6 +1046,8 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_layer(HmasLayer layer) {
 std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent_id) {
   ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   std::vector<HmasTask> out;
   for (const auto& [id, task] : hmas_tasks_) {
     if (task.parent_task_id == parent_id) out.push_back(task);
@@ -902,6 +1058,8 @@ std::vector<HmasTask> Store::list_hmas_tasks_by_parent(const std::string& parent
 std::vector<HmasTask> Store::list_hmas_tasks_by_brief(const std::string& brief_id) {
   ensure_hmas_tasks_loaded_();
   std::shared_lock<std::shared_mutex> lk(hmas_mutex_);
+  if (!hmas_tasks_loaded_.load(std::memory_order_acquire))
+    throw std::runtime_error("HMAS state requires reconciliation");
   std::vector<HmasTask> out;
   auto idx_it = hmas_tasks_by_brief_.find(brief_id);
   if (idx_it == hmas_tasks_by_brief_.end()) return out;
@@ -936,6 +1094,29 @@ void Store::create_task_brief(const TaskBrief& brief) {
         make_issue_body_("briefs/" + brief.id, task_brief_to_json(brief)), "agamemnon-brief");
     if (!issue_num.empty()) brief_issue_numbers_[brief.id] = issue_num;
   }
+  task_briefs_[brief.id] = brief;
+}
+
+void Store::ensure_durable_task_brief(const TaskBrief& brief) {
+  if (!gh_) throw std::runtime_error("Durable brief requires GitHub persistence");
+  std::unique_lock<std::shared_mutex> lk(briefs_mutex_);
+  std::string issue_number;
+  // Always enumerate: this also reconciles a lost create response on retry.
+  for (const auto& issue : gh_->list_issues_including_closed("agamemnon-brief")) {
+    auto entity = parse_issue_entity_(issue);
+    if (!entity.is_object()) throw std::runtime_error("Invalid durable brief record");
+    if (entity.value("id", "") != brief.id) continue;
+    if (!issue_number.empty() || entity != task_brief_to_json(brief))
+      throw std::invalid_argument("Conflicting durable brief registration");
+    issue_number = std::to_string(issue.at("number").get<int>());
+  }
+  if (issue_number.empty()) {
+    issue_number = gh_->create_issue(
+        "brief: " + brief.id, make_issue_body_("briefs/" + brief.id, task_brief_to_json(brief)),
+        "agamemnon-brief");
+    if (issue_number.empty()) throw std::runtime_error("GitHub did not acknowledge brief creation");
+  }
+  brief_issue_numbers_[brief.id] = issue_number;
   task_briefs_[brief.id] = brief;
 }
 

@@ -10,10 +10,13 @@ find_package(prometheus-cpp REQUIRED)
 add_executable(${PROJECT_NAME}_tests
   src/test_version.cpp
   src/test_store.cpp
+  src/test_fleet.cpp
+  src/test_projects.cpp
   src/test_parse_port.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
   src/test_store_concurrent_per_collection.cpp   # #184
+  src/test_store_uncertainty_race.cpp
   src/test_routes.cpp
   src/test_routes_malformed.cpp
   src/test_routes_no_internal_leak.cpp   # #164
@@ -29,6 +32,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_shutdown.cpp
   src/test_hmas_types.cpp
   src/test_orchestrator.cpp
+  src/test_durable_epics.cpp
   src/test_planning_breakdown.cpp
   src/test_state_machine.cpp
   src/test_github_client.cpp
@@ -185,6 +189,22 @@ target_link_libraries(${PROJECT_NAME}_integration_tests
 
 gtest_discover_tests(${PROJECT_NAME}_integration_tests
   PROPERTIES LABELS "integration")
+
+# Durable transport always runs through its private-broker launcher. Registering
+# it with CTest includes all eight cases in both the required hosted test jobs and
+# scripts/run_ci_local.sh; a missing broker is a failure, never a skipped suite.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(AGAMEMNON_TEST_NATS_SERVER "nats-server" CACHE STRING
+  "Broker executable used only for isolated JetStream test processes")
+add_executable(${PROJECT_NAME}_durable_transport_tests src/test_nats_durable.cpp)
+target_compile_features(${PROJECT_NAME}_durable_transport_tests PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_durable_transport_tests PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(${PROJECT_NAME}_durable_transport_tests PRIVATE
+  Agamemnon_core GTest::gtest_main Threads::Threads)
+add_test(NAME fleet_jetstream COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/fleet/private_jetstream.py
+  ${AGAMEMNON_TEST_NATS_SERVER} $<TARGET_FILE:${PROJECT_NAME}_durable_transport_tests>)
+set_tests_properties(fleet_jetstream PROPERTIES LABELS "integration" TIMEOUT 60 RUN_SERIAL TRUE)
 
 # ── Ported HMAS agent executor + work-stealing tests (ADR-015) ───────────────
 # Behavioural ports of Keystone's agent / work-stealing gtests, adapted to use

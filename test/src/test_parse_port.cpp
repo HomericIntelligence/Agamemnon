@@ -4,6 +4,13 @@
 
 namespace agamemnon::test {
 
+TEST(ServerBinding, PreservesDefaultAndUsesExplicitLoopbackAddress) {
+  EXPECT_STREQ(server_bind_address(nullptr), "0.0.0.0");
+  EXPECT_STREQ(server_bind_address(""), "0.0.0.0");
+  EXPECT_STREQ(server_bind_address("127.0.0.1"), "127.0.0.1");
+  EXPECT_STREQ(server_bind_address("::1"), "::1");
+}
+
 TEST(ParsePortTest, ValidPorts) {
   EXPECT_EQ(parse_port("8080").port.value(), 8080);
   EXPECT_EQ(parse_port("1").port.value(), 1);

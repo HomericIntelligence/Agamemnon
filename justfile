@@ -45,6 +45,54 @@ agamemnon-lint:
 agamemnon-typecheck:
   cd agamemnon && uv run --group dev mypy src/agamemnon/
 
+# Focused native Fleet/API tests; CMAKE_PREFIX_PATH can point at cached dependencies.
+fleet-test:
+  cmake -S test/fleet -B build/fleet
+  cmake --build build/fleet --parallel 2
+  ctest --test-dir build/fleet --output-on-failure
+
+fleet-client-test python='python3':
+  PYTHONPATH="clients/python/src${PYTHONPATH:+:$PYTHONPATH}" {{python}} -m unittest discover -s clients/python/tests -p test_fleet_client.py -v
+
+# Exports only actual FleetService-produced envelopes from the bounded contract test.
+fleet-export output:
+  FLEET_CONTRACT_OUTPUT='{{output}}' build/fleet/fleet_contract_tests --gtest_filter=FleetRoutes.ExportLifecycleEnvelopes
+
+# Check independently captured bridge facts against the actual native controller.
+fleet-import input:
+  build/fleet/fleet_fact_import '{{input}}'
+
+# Link the real server using an existing nats.c build, without dependency fetching.
+fleet-native-build nats_prefix:
+  cmake -S test/fleet -B build/fleet -DFLEET_NATIVE_NATS_PREFIX='{{nats_prefix}}'
+  cmake --build build/fleet --parallel 2
+  ctest --test-dir build/fleet --output-on-failure
+
+fleet-nats-test:
+  cmake -S test/fleet -B build/fleet
+  cmake --build build/fleet --target fleet_nats_endpoint_tests --parallel 2
+  ctest --test-dir build/fleet -R fleet_nats_endpoint --output-on-failure
+
+# Launches a fresh loopback-only broker with private ephemeral storage.
+fleet-jetstream-test nats_server='nats-server' python='python3':
+  {{python}} test/fleet/private_jetstream.py '{{nats_server}}' build/fleet/fleet_jetstream_tests
+
+fleet-startup-test evidence_root python='python3':
+  {{python}} test/fleet/startup_preflight.py --binary build/fleet/fleet_native_server --root '{{evidence_root}}'
+
+fleet-format clang_format='clang-format':
+  {{clang_format}} -i include/agamemnon/fleet.hpp src/fleet.cpp test/src/test_fleet.cpp include/agamemnon/projects.hpp src/projects.cpp test/src/test_projects.cpp test/fleet/import_bridge_facts.cpp
+
+fleet-format-check clang_format='clang-format':
+  {{clang_format}} --dry-run --Werror include/agamemnon/fleet.hpp src/fleet.cpp test/src/test_fleet.cpp include/agamemnon/projects.hpp src/projects.cpp test/src/test_projects.cpp test/fleet/import_bridge_facts.cpp
+
+fleet-client-lint python='python3':
+  {{python}} -m ruff check clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py
+  {{python}} -m ruff format --check clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py
+
+fleet-client-format python='python3':
+  {{python}} -m ruff format clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py
+
 coverage: deps-coverage
   uv run -- cmake --preset coverage && uv run -- cmake --build --preset coverage && ./scripts/coverage.sh
 
@@ -85,6 +133,18 @@ release VERSION push='true':
 # Build the CI container image (ci/Containerfile)
 ci-build:
     podman build -f ci/Containerfile -t agamemnon-ci:local .
+
+# Controlled installer contracts; no image, network or dependency installation.
+ci-tools-test python='python3':
+    PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_tools.py -v
+
+# Actual pinned uv with private local wheels; no network, container or scanner.
+ci-audit-test python='python3' uv='uv':
+    PYTHONDONTWRITEBYTECODE=1 UV_AUDIT_TEST_BINARY='{{uv}}' {{python}} -m unittest discover -s test/ci -p test_ci_audit.py -v
+
+# Check report ignore boundaries with private Git repositories; no scanners run.
+ci-reports-test python='python3':
+    PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_reports.py -v
 
 # Run the full required-check suite in the container
 ci-check:
@@ -133,3 +193,17 @@ ci-uv-check:
 # Run actionlint in the container
 ci-actionlint:
     ./scripts/run_ci_local.sh actionlint
+
+# Bounded attachment tests in an already provisioned Python 3.11+ environment.
+fleet-attachment-test python='python3':
+  PYTHONPATH="agamemnon/src${PYTHONPATH:+:$PYTHONPATH}" {{python}} -m pytest agamemnon/tests/test_fleetd_attachment.py agamemnon/tests/test_fleetd_observations.py -q
+
+# Preserve argument boundaries; the adapter only consumes previously admitted work.
+[positional-arguments]
+fleet-attachment-run *args:
+  PYTHONPATH="agamemnon/src${PYTHONPATH:+:$PYTHONPATH}" "${FLEET_ATTACHMENT_PYTHON:-python3}" -m agamemnon.fleetd "$@"
+
+# Builds the fixture-only receiver for the explicit Telemachy cross-repo contract.
+fleet-epic-import-build:
+  cmake -S test/fleet -B build/fleet
+  cmake --build build/fleet --target fleet_epic_import --parallel 2

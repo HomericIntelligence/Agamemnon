@@ -171,38 +171,43 @@ CurlGitHubClient::Response CurlGitHubClient::do_get(const std::string& url) cons
 
 CurlGitHubClient::Response CurlGitHubClient::do_post(const std::string& url,
                                                      const std::string& payload) const {
-  return CurlGitHubClient::with_retry("POST", url, [&]() -> Response {
-    CURL* curl = curl_easy_init();
-    if (!curl) throw std::runtime_error("curl_easy_init failed");
+  // Creation and GraphQL mutations can commit before their response is lost.
+  // Reconcile durable identity at the caller before any subsequent attempt.
+  return do_post_once(url, payload);
+}
 
-    Response resp;
-    struct curl_slist* headers = nullptr;
-    std::string auth_header = "Authorization: Bearer " + token_;
-    headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
-    headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
-    headers = curl_slist_append(headers, auth_header.c_str());
-    headers = curl_slist_append(headers, "Content-Type: application/json");
-    headers = curl_slist_append(headers, "User-Agent: Agamemnon/1.0");
+CurlGitHubClient::Response CurlGitHubClient::do_post_once(const std::string& url,
+                                                          const std::string& payload) const {
+  CURL* curl = curl_easy_init();
+  if (!curl) throw std::runtime_error("curl_easy_init failed");
 
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
-    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
-    curl_easy_setopt(curl, CURLOPT_HEADERDATA, &resp.retry_after);
+  Response resp;
+  struct curl_slist* headers = nullptr;
+  std::string auth_header = "Authorization: Bearer " + token_;
+  headers = curl_slist_append(headers, "Accept: application/vnd.github+json");
+  headers = curl_slist_append(headers, "X-GitHub-Api-Version: 2022-11-28");
+  headers = curl_slist_append(headers, auth_header.c_str());
+  headers = curl_slist_append(headers, "Content-Type: application/json");
+  headers = curl_slist_append(headers, "User-Agent: Agamemnon/1.0");
 
-    CURLcode rc = curl_easy_perform(curl);
-    if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.c_str());
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
+  curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, header_callback);
+  curl_easy_setopt(curl, CURLOPT_HEADERDATA, &resp.retry_after);
 
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
+  CURLcode rc = curl_easy_perform(curl);
+  if (rc == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &resp.status);
 
-    if (rc != CURLE_OK)
-      throw std::runtime_error(std::string("curl POST failed: ") + curl_easy_strerror(rc));
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
 
-    return resp;
-  });
+  if (rc != CURLE_OK)
+    throw std::runtime_error(std::string("curl POST failed: ") + curl_easy_strerror(rc));
+
+  return resp;
 }
 
 // ── do_patch ──────────────────────────────────────────────────────────────────
@@ -247,34 +252,35 @@ CurlGitHubClient::Response CurlGitHubClient::do_patch(const std::string& url,
 // ── Public API ────────────────────────────────────────────────────────────────
 
 std::vector<json> CurlGitHubClient::list_issues(std::string_view label) {
+  return list_issues_(label, "open");
+}
+
+std::vector<json> CurlGitHubClient::list_issues_including_closed(std::string_view label) {
+  return list_issues_(label, "all");
+}
+
+std::vector<json> CurlGitHubClient::list_issues_(std::string_view label, std::string_view state) {
   std::vector<json> results;
   int page = 1;
   while (true) {
     std::string url = "https://api.github.com/repos/" + repo_ +
-                      "/issues?state=open&labels=" + std::string(label) +
+                      "/issues?state=" + std::string(state) + "&labels=" + std::string(label) +
                       "&per_page=100&page=" + std::to_string(page);
-    Response resp;
-    try {
-      resp = do_get(url);
-    } catch (const std::exception& e) {
-      std::cerr << "[agamemnon] GitHub list_issues error: " << e.what() << "\n";
-      break;
-    }
+    Response resp = do_get(url);
 
     if (resp.status != 200) {
-      std::cerr << "[agamemnon] GitHub list_issues HTTP " << resp.status << "\n";
-      break;
+      throw std::runtime_error("GitHub list_issues HTTP " + std::to_string(resp.status));
     }
 
     json arr;
     try {
       arr = json::parse(resp.body);
     } catch (...) {
-      std::cerr << "[agamemnon] GitHub list_issues: malformed JSON response\n";
-      break;
+      throw std::runtime_error("GitHub list_issues: malformed JSON response");
     }
 
-    if (!arr.is_array() || arr.empty()) break;
+    if (!arr.is_array()) throw std::runtime_error("GitHub list_issues: expected array");
+    if (arr.empty()) break;
 
     for (auto& issue : arr) results.push_back(issue);
 
@@ -282,6 +288,17 @@ std::vector<json> CurlGitHubClient::list_issues(std::string_view label) {
     ++page;
   }
   return results;
+}
+
+json CurlGitHubClient::graphql(const std::string& query, const json& variables) {
+  const auto response = do_post("https://api.github.com/graphql",
+                                json{{"query", query}, {"variables", variables}}.dump());
+  if (response.status != 200) throw std::runtime_error("GitHub GraphQL transport failed");
+  const auto document = json::parse(response.body, nullptr, false);
+  if (!document.is_object() || !document.contains("data") || !document["data"].is_object() ||
+      (document.contains("errors") && !document["errors"].empty()))
+    throw std::runtime_error("GitHub GraphQL response was not acknowledged");
+  return document["data"];
 }
 
 std::string CurlGitHubClient::create_issue(std::string_view title, std::string_view body,
@@ -293,17 +310,16 @@ std::string CurlGitHubClient::create_issue(std::string_view title, std::string_v
 
   Response resp = do_post(url, payload.dump());
   if (resp.status != 201) {
-    std::cerr << "[agamemnon] GitHub create_issue HTTP " << resp.status << ": " << resp.body
-              << "\n";
-    return "";
+    throw std::runtime_error("GitHub create_issue HTTP " + std::to_string(resp.status));
   }
 
   try {
     auto result = json::parse(resp.body);
-    return std::to_string(result["number"].get<int>());
+    int number = result.at("number").get<int>();
+    if (number <= 0) throw std::runtime_error("invalid issue number");
+    return std::to_string(number);
   } catch (...) {
-    std::cerr << "[agamemnon] GitHub create_issue: malformed response\n";
-    return "";
+    throw std::runtime_error("GitHub create_issue: malformed response");
   }
 }
 
@@ -314,7 +330,7 @@ void CurlGitHubClient::update_issue_body(std::string_view issue_number, std::str
 
   Response resp = do_patch(url, payload.dump());
   if (resp.status != 200) {
-    std::cerr << "[agamemnon] GitHub update_issue_body HTTP " << resp.status << "\n";
+    throw std::runtime_error("GitHub update_issue_body HTTP " + std::to_string(resp.status));
   }
 }
 
@@ -325,7 +341,7 @@ void CurlGitHubClient::close_issue(std::string_view issue_number) {
 
   Response resp = do_patch(url, payload.dump());
   if (resp.status != 200) {
-    std::cerr << "[agamemnon] GitHub close_issue HTTP " << resp.status << "\n";
+    throw std::runtime_error("GitHub close_issue HTTP " + std::to_string(resp.status));
   }
 }
 

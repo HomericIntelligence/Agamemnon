@@ -13,6 +13,9 @@ dependencies = [
     "nats-py>=2.0,<3",
 ]
 
+[project.scripts]
+agamemnon-fleetd = "agamemnon.fleetd.__main__:main"
+
 [project.optional-dependencies]
 dev = [
     "mypy>=1.8.0,<2",

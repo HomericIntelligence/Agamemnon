@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -34,6 +35,9 @@ std::string now_iso8601();
 class Store {
  public:
   explicit Store(std::shared_ptr<IGitHubClient> gh = nullptr) : gh_(std::move(gh)) {}
+
+  /// Fleet shares this backing store; it never permits memory-only operation.
+  std::shared_ptr<IGitHubClient> github_client() const { return gh_; }
 
   /// Attach a MetricsRegistry for instrumentation (nullable; pass nullptr to disable).
   void set_metrics(MetricsRegistry* metrics) noexcept { metrics_ = metrics; }
@@ -96,12 +100,30 @@ class Store {
   bool update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
                                                     const EscalationRecord& escalation);
   bool update_hmas_task(const HmasTask& task);
+  /// Serialize legacy planning against Fleet admission. Persist parent links
+  /// before child creation so a partial write cannot leave untracked children.
+  bool append_hmas_children(const HmasTask& expected, const std::vector<HmasTask>& children);
+  /// Metadata-only compare-and-write, including Fleet-owned tasks; no state/claim mutation.
+  bool update_hmas_delivery(const std::string& id, const json& expected, const json& delivery);
+  /// Publish only while both snapshots remain current and the parent is parked
+  /// in a durable epic. Holds the HMAS read lock through the bounded callback;
+  /// the callback must perform transport only and must not call Store or GitHub.
+  bool publish_hmas_parent_wakeup(const HmasTask& child, const HmasTask& parent,
+                                  const std::function<void()>& publish);
+  /// Durable exclusive reservation; false means ineligible or another owner.
+  bool reserve_hmas_fleet_claim(const std::string& id, const json& claim);
+  /// A matching worker observation may start work; it cannot complete a task.
+  bool observe_hmas_fleet_start(const std::string& id, const json& claim);
+  std::optional<HmasTask> resolve_hmas_fleet_task(const std::string& id, const json& claim,
+                                                  const json& decision);
   std::vector<HmasTask> list_hmas_tasks_by_layer(HmasLayer layer);
   std::vector<HmasTask> list_hmas_tasks_by_parent(const std::string& parent_id);
   std::vector<HmasTask> list_hmas_tasks_by_brief(const std::string& brief_id);
 
   // ── TaskBriefs (HMAS root submissions) ─────────────────────────────────
   void create_task_brief(const TaskBrief& brief);
+  /// Strict all-state reconciliation for deterministic durable registrations.
+  void ensure_durable_task_brief(const TaskBrief& brief);
   std::optional<TaskBrief> get_task_brief(const std::string& id);
   std::vector<TaskBrief> list_task_briefs();
 
@@ -140,7 +162,8 @@ class Store {
   std::unordered_map<std::string, std::string> hmas_task_issue_numbers_;
   std::unordered_map<std::string, std::string> brief_issue_numbers_;
 
-  // Atomic flags: checked outside the lock; once_flags guard the single fetch.
+  // Atomic flags: checked outside the lock. Legacy once_flags guard a single
+  // fetch; retryable HMAS hydration and invalidation use hmas_mutex_.
   std::atomic<bool> agents_loaded_{false};
   std::atomic<bool> teams_loaded_{false};
   std::atomic<bool> tasks_loaded_{false};
@@ -151,16 +174,16 @@ class Store {
   mutable std::once_flag teams_once_;
   mutable std::once_flag tasks_once_;
   mutable std::once_flag faults_once_;
-  mutable std::once_flag hmas_tasks_once_;
   mutable std::once_flag briefs_once_;
 
-  // Called while holding the collection's mutex; loads entity type from GitHub
-  // on first access.
+  // Called without holding a collection mutex; each loader locks internally.
   void ensure_agents_loaded_();
   void ensure_teams_loaded_();
   void ensure_tasks_loaded_();
   void ensure_faults_loaded_();
   void ensure_hmas_tasks_loaded_();
+  // Called under hmas_mutex_; an uncertain response invalidates HMAS state.
+  void persist_hmas_task_(const HmasTask& task);
   void ensure_briefs_loaded_();
 
   // Returns the mutex guarding the given collection.
