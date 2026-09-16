@@ -138,8 +138,8 @@ class NatsServerFixture : public ::testing::Test {
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    ASSERT_TRUE(ready_) << "nats-server did not become ready within 5 s on " << "ports "
-                        << nats_port_ << "/" << monitor_port_;
+    ASSERT_TRUE(ready_) << "nats-server did not become ready within 5 s on "
+                        << "ports " << nats_port_ << "/" << monitor_port_;
 
     // Make the env-var configuration path of discover_nats_url see the
     // ephemeral ports and a generous timeout for slow CI runners.

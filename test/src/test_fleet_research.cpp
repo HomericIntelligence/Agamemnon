@@ -1,6 +1,7 @@
 #include "agamemnon/auth.hpp"
 #include "agamemnon/fake_nats_publisher.hpp"
 #include "agamemnon/fleet.hpp"
+#include "agamemnon/fleet_issue.hpp"
 #include "agamemnon/fleet_research.hpp"
 #include "agamemnon/github_client.hpp"
 #include "agamemnon/metrics.hpp"
@@ -16,8 +17,12 @@
 #include <chrono>
 #include <cstdlib>
 #include <functional>
+#include <future>
+#include <iomanip>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -32,6 +37,14 @@ namespace agamemnon::test {
 namespace {
 const std::string research_task_id =
     "research-fa881bdde8da181cf538c601534b2c1ea548bd7addcb0efdf48bc5b904b0cb95";
+
+std::shared_ptr<IssueImportConfiguration> research_import_state() {
+  auto config = std::make_shared<IssueImportConfiguration>();
+  config->state_branch = "import-state";
+  config->repositories = json::array(
+      {{{"key", "research"}, {"repository", "homeric/research"}, {"repositoryId", "R_research"}}});
+  return config;
+}
 
 json canonical_intake() {
   return {{"schema", "hi/nestor/intake/v1"},
@@ -93,6 +106,61 @@ class RetainedResearchGitHub : public MockGitHubClient {
   bool unavailable = false;
   int scans = 0;
   std::vector<json> retained;
+  std::map<std::string, ImportFence> fences;
+  unsigned int fence_version = 0;
+  std::barrier<>* absent_fence_readers = nullptr;
+
+  json import_work_issue(const std::string& owner, const std::string& name, int number,
+                         ImportContext& context) override {
+    context.checkpoint();
+    const auto repo = owner + "/" + name;
+    return {{"repository",
+             {{"id", "R_research"},
+              {"nameWithOwner", repo},
+              {"issue",
+               {{"__typename", "Issue"},
+                {"id", "I_research_" + std::to_string(number)},
+                {"number", number},
+                {"url", "https://github.com/" + repo + "/issues/" + std::to_string(number)},
+                {"state", "OPEN"},
+                {"title", "Existing canonical research"},
+                {"body", "Research content"}}}}}};
+  }
+  std::vector<json> import_list_issues(ImportContext& context) override {
+    context.checkpoint();
+    return list_issues_including_closed("agamemnon-hmas-task");
+  }
+  std::optional<ImportFence> import_read_fence(const std::string& branch, const std::string& key,
+                                               ImportContext& context) override {
+    context.checkpoint();
+    EXPECT_EQ(branch, "import-state");
+    {
+      std::lock_guard lock(mutex);
+      if (fences.contains(key)) return fences.at(key);
+    }
+    if (absent_fence_readers) absent_fence_readers->arrive_and_wait();
+    return std::nullopt;
+  }
+  ImportFence import_write_fence(const std::string& branch, const std::string& key,
+                                 const json& document, const std::optional<std::string>& expected,
+                                 ImportContext& context) override {
+    context.checkpoint();
+    EXPECT_EQ(branch, "import-state");
+    std::lock_guard lock(mutex);
+    if ((expected && (!fences.contains(key) || fences.at(key).sha != *expected)) ||
+        (!expected && fences.contains(key)))
+      throw std::runtime_error("conditional conflict");
+    std::ostringstream sha;
+    sha << std::hex << std::setfill('0') << std::setw(40) << ++fence_version;
+    ImportFence result{sha.str(), document};
+    fences[key] = result;
+    return result;
+  }
+  std::string import_create_issue(std::string_view title, std::string_view body,
+                                  ImportContext& context) override {
+    context.checkpoint();
+    return create_issue(title, body, "agamemnon-hmas-task");
+  }
 
   std::vector<json> list_issues_including_closed(std::string_view label) override {
     std::lock_guard lock(mutex);
@@ -142,13 +210,681 @@ class ControlledNestor : public NestorIntakeSource {
     return {status, record.dump()};
   }
 };
+
+class DelayedResearchGitHub : public RetainedResearchGitHub {
+ public:
+  int create_attempts = 0;
+  std::string delayed_title;
+  std::string delayed_body;
+  std::string delayed_label;
+
+  std::string create_issue(std::string_view title, std::string_view body,
+                           std::string_view label) override {
+    ++create_attempts;
+    if (create_attempts == 1) {
+      delayed_title = title;
+      delayed_body = body;
+      delayed_label = label;
+      throw std::runtime_error("simulated lost response with server still creating");
+    }
+    return RetainedResearchGitHub::create_issue(title, body, label);
+  }
+
+  void finish_original_create() {
+    MockGitHubClient::create_issue(delayed_title, delayed_body, delayed_label);
+  }
+};
+}  // namespace
+
+TEST(FleetResearchDurableAttempt, EmptyScanAfterRestartCannotAuthorizeReplacementCreate) {
+  auto github = std::make_shared<DelayedResearchGitHub>();
+  auto source = std::make_shared<ControlledNestor>();
+  AuthMiddleware auth{"research-import-test-key"};
+  const json request{{"schema", "hi/agamemnon/research-import/v1"},
+                     {"intakeId", "research-01"},
+                     {"requestDigest", std::string(64, 'a')}};
+  {
+    Store initial(github, research_import_state());
+    FleetResearchService service(initial, source, "nestor-main", auth);
+    EXPECT_EQ(service.import_request(request).status, 503);
+    EXPECT_TRUE(github->created_issues.empty());
+  }
+  Store restarted(github, research_import_state());
+  FleetResearchService retry(restarted, source, "nestor-main", auth);
+  EXPECT_EQ(retry.import_request(request).status, 503);
+  EXPECT_EQ(github->create_attempts, 1);
+  EXPECT_TRUE(github->created_issues.empty());
+  github->finish_original_create();
+  const auto recovered = retry.import_request(request);
+  EXPECT_EQ(recovered.status, 200);
+  EXPECT_EQ(recovered.body.value("taskId", ""), research_task_id);
+  EXPECT_EQ(github->create_attempts, 1);
+  EXPECT_EQ(github->created_issues.size(), 1u);
+}
+
+TEST(FleetResearchDurableAttempt, BothEntryOrdersPreserveOneCanonicalOwnerAndReturnTypedConflict) {
+  for (const bool direct_first : {true, false}) {
+    SCOPED_TRACE(direct_first);
+    auto github = std::make_shared<RetainedResearchGitHub>();
+    auto config = research_import_state();
+    auto source = std::make_shared<ControlledNestor>();
+    Store store{github, config};
+    AuthMiddleware auth{"research-import-test-key"};
+    FleetResearchService research{store, source, "nestor-main", auth};
+    FleetIssueService direct{store, config, auth};
+    const auto inspection = direct.inspect("research", 42, std::nullopt);
+    ASSERT_EQ(inspection.status, 200);
+    const json direct_request{{"schema", "hi/agamemnon/issue-import/v1"},
+                              {"repositoryKey", "research"},
+                              {"issueNumber", 42},
+                              {"repositoryId", inspection.body["repositoryId"]},
+                              {"issueId", inspection.body["issueId"]},
+                              {"plan", inspection.body["plan"]}};
+    const json research_request{{"schema", "hi/agamemnon/research-import/v1"},
+                                {"intakeId", "research-01"},
+                                {"requestDigest", std::string(64, 'a')}};
+    if (direct_first)
+      ASSERT_EQ(direct.import_request(direct_request).status, 201);
+    else
+      ASSERT_EQ(research.import_request(research_request).status, 201);
+    const auto before = github->created_issues;
+    const auto reservations = github->fences.size();
+    Store restarted{github, config};
+    if (direct_first) {
+      FleetResearchService other{restarted, source, "nestor-main", auth};
+      const auto rejected = other.import_request(research_request);
+      EXPECT_EQ(rejected.status, 409);
+      EXPECT_EQ(rejected.body.value("error", ""), "work_issue_already_imported");
+    } else {
+      FleetIssueService other{restarted, config, auth};
+      const auto rejected = other.import_request(direct_request);
+      EXPECT_EQ(rejected.status, 409);
+      EXPECT_EQ(rejected.body.value("error", ""), "work_issue_already_imported");
+    }
+    EXPECT_EQ(github->created_issues, before);
+    EXPECT_EQ(github->fences.size(), reservations);
+    EXPECT_EQ(github->created_issues.size(), 1u);
+  }
+}
+
+TEST(FleetResearchDurableAttempt, DuplicateRawHmasMembersBlockBothImportsBeforeMutation) {
+  const std::vector<std::string> issue_members = {"\"issue\":0", "\"issue\":42,\"issue\":0",
+                                                  "\"issue\":42.0,\"issue\":0",
+                                                  "\"issue\":42,\"iss\\u0075e\":0"};
+  for (const bool direct_entry : {false, true}) {
+    for (std::size_t variant = 0; variant < issue_members.size(); ++variant) {
+      SCOPED_TRACE(direct_entry);
+      SCOPED_TRACE(variant);
+      auto github = std::make_shared<RetainedResearchGitHub>();
+      auto config = research_import_state();
+      auto source = std::make_shared<ControlledNestor>();
+      Store store{github, config};
+      AuthMiddleware auth{"research-import-test-key"};
+      FleetIssueService direct{store, config, auth};
+      FleetResearchService research{store, source, "nestor-main", auth};
+      const auto inspected = direct.inspect("research", 42, std::nullopt);
+      ASSERT_EQ(inspected.status, 200);
+      const json direct_request{{"schema", "hi/agamemnon/issue-import/v1"},
+                                {"repositoryKey", "research"},
+                                {"issueNumber", 42},
+                                {"repositoryId", inspected.body["repositoryId"]},
+                                {"issueId", inspected.body["issueId"]},
+                                {"plan", inspected.body["plan"]}};
+      const json research_request{{"schema", "hi/agamemnon/research-import/v1"},
+                                  {"intakeId", "research-01"},
+                                  {"requestDigest", std::string(64, 'a')}};
+      HmasTask legacy{};
+      legacy.id = "controlled-legacy-record";
+      legacy.repo = "homeric/research";
+      legacy.layer = HmasLayer::L3_TaskAgent;
+      legacy.state = TaskState::Pending;
+      auto retained = backing_issue(legacy);
+      auto body = retained["body"].get<std::string>();
+      const auto offset = body.find("\"issue\":0");
+      ASSERT_NE(offset, std::string::npos);
+      // The duplicate remains literal text inside the durable body. A JSON
+      // object builder would erase the malformed member before the real parser.
+      body.replace(offset, std::string("\"issue\":0").size(), issue_members[variant]);
+      retained["body"] = body;
+      github->retained = {retained};
+      const int status = direct_entry ? direct.import_request(direct_request).status
+                                      : research.import_request(research_request).status;
+      if (variant == 0) {
+        EXPECT_EQ(status, 201);
+        EXPECT_EQ(github->created_issues.size(), 1u);
+      } else {
+        EXPECT_EQ(status, 409);
+        EXPECT_TRUE(github->created_issues.empty());
+        EXPECT_TRUE(github->fences.empty());
+        EXPECT_EQ(github->fence_version, 0u);
+        EXPECT_TRUE(github->calls.empty());
+      }
+      EXPECT_EQ(github->retained, std::vector<json>{retained});
+    }
+  }
+}
+
+TEST(FleetResearchDurableAttempt, DuplicateNestedNumericMembersCannotReplayTypedImports) {
+  for (const bool direct_entry : {false, true}) {
+    SCOPED_TRACE(direct_entry);
+    auto github = std::make_shared<RetainedResearchGitHub>();
+    auto config = research_import_state();
+    auto source = std::make_shared<ControlledNestor>();
+    Store store{github, config};
+    AuthMiddleware auth{"research-import-test-key"};
+    FleetIssueService direct{store, config, auth};
+    FleetResearchService research{store, source, "nestor-main", auth};
+    const auto inspected = direct.inspect("research", 42, std::nullopt);
+    ASSERT_EQ(inspected.status, 200);
+    const json direct_request{{"schema", "hi/agamemnon/issue-import/v1"},
+                              {"repositoryKey", "research"},
+                              {"issueNumber", 42},
+                              {"repositoryId", inspected.body["repositoryId"]},
+                              {"issueId", inspected.body["issueId"]},
+                              {"plan", inspected.body["plan"]}};
+    const json research_request{{"schema", "hi/agamemnon/research-import/v1"},
+                                {"intakeId", "research-01"},
+                                {"requestDigest", std::string(64, 'a')}};
+    std::string task_id;
+    if (direct_entry) {
+      const auto first = direct.import_request(direct_request);
+      ASSERT_EQ(first.status, 201);
+      task_id = first.body.at("taskId").get<std::string>();
+    } else {
+      const auto first = research.import_request(research_request);
+      ASSERT_EQ(first.status, 201);
+      task_id = first.body.at("taskId").get<std::string>();
+    }
+    const auto task = store.get_hmas_task(task_id).value();
+    auto body = backing_issue(task)["body"].get<std::string>();
+    const std::string member = direct_entry ? "\"number\":42" : "\"generation\":1";
+    const std::string duplicate =
+        direct_entry ? "\"number\":42.0,\"number\":42" : "\"generation\":1.0,\"generation\":1";
+    const auto offset = body.find(member);
+    ASSERT_NE(offset, std::string::npos);
+    body.replace(offset, member.size(), duplicate);
+    github->created_issues.at("1")["body"] = body;
+    const auto before = github->created_issues;
+    const auto fence_version = github->fence_version;
+    Store restarted{github, config};
+    FleetIssueService retry_direct{restarted, config, auth};
+    FleetResearchService retry_research{restarted, source, "nestor-main", auth};
+    const int status = direct_entry ? retry_direct.import_request(direct_request).status
+                                    : retry_research.import_request(research_request).status;
+    EXPECT_EQ(status, 409);
+    EXPECT_THROW(restarted.get_hmas_task(task.id), std::runtime_error);
+    EXPECT_EQ(github->created_issues, before);
+    EXPECT_EQ(github->fence_version, fence_version);
+  }
+}
+
+TEST(FleetResearchDurableAttempt, DuplicateRawMembersBlockWarmGenericGuardAndColdHydration) {
+  auto github = std::make_shared<RetainedResearchGitHub>();
+  auto config = research_import_state();
+  Store store{github, config};
+  HmasTask unrelated{};
+  unrelated.id = "already-cached-unrelated";
+  unrelated.layer = HmasLayer::L3_TaskAgent;
+  unrelated.state = TaskState::Pending;
+  store.create_hmas_task(unrelated);
+  auto hidden = unrelated;
+  hidden.id = "ambiguous-work-owner";
+  hidden.repo = "homeric/research";
+  auto record = backing_issue(hidden);
+  auto body = record["body"].get<std::string>();
+  const auto offset = body.find("\"issue\":0");
+  ASSERT_NE(offset, std::string::npos);
+  body.replace(offset, std::string("\"issue\":0").size(), "\"issue\":42,\"issue\":0");
+  record["body"] = body;
+  github->retained = {record};
+  const auto before = github->created_issues;
+  auto proposed = hidden;
+  proposed.id = "replacement-owner";
+  proposed.issue = 42;
+  EXPECT_THROW(store.create_hmas_task(proposed), std::runtime_error);
+  EXPECT_EQ(github->created_issues, before);
+  EXPECT_TRUE(github->fences.empty());
+  Store restarted{github, config};
+  EXPECT_THROW(restarted.get_hmas_task(hidden.id), std::runtime_error);
+  EXPECT_EQ(github->retained, std::vector<json>{record});
+}
+
+TEST(FleetResearchDurableAttempt, RealSplitRejectsDuplicateProposedWorkBeforeAnyWrite) {
+  auto github = std::make_shared<RetainedResearchGitHub>();
+  Store store{github, research_import_state()};
+  FakeNatsPublisher publisher;
+  Orchestrator orchestrator{store, publisher};
+  HmasTask parent{};
+  parent.id = "unowned-split-parent";
+  parent.repo = "homeric/research";
+  parent.layer = HmasLayer::L3_TaskAgent;
+  parent.state = TaskState::InProgress;
+  store.create_hmas_task(parent);
+  const auto before = github->created_issues;
+  EXPECT_THROW(
+      orchestrator.split_task(parent.id, json::array({{{"title", "first"}, {"issue", 42}},
+                                                      {{"title", "second"}, {"issue", 42}}})),
+      std::invalid_argument);
+  EXPECT_EQ(github->created_issues, before);
+  EXPECT_TRUE(store.get_hmas_task(parent.id)->child_task_ids.empty());
+  EXPECT_TRUE(github->fences.empty());
+  EXPECT_TRUE(publisher.calls.empty());
+}
+
+TEST(FleetResearchDurableAttempt, SplitBatchRejectsDuplicateIdsAndCanonicalRepositoryAliases) {
+  for (const bool duplicate_id : {true, false}) {
+    SCOPED_TRACE(duplicate_id);
+    auto github = std::make_shared<RetainedResearchGitHub>();
+    Store store{github, research_import_state()};
+    HmasTask parent{};
+    parent.id = "batch-parent";
+    parent.layer = HmasLayer::L3_TaskAgent;
+    parent.state = TaskState::InProgress;
+    store.create_hmas_task(parent);
+    auto first = parent;
+    first.id = "first-child";
+    first.state = TaskState::Pending;
+    first.repo = "homeric/research";
+    first.issue = duplicate_id ? 0 : 42;
+    auto second = first;
+    if (!duplicate_id) {
+      second.id = "second-child";
+      second.repo = "HOMERIC/RESEARCH";
+    }
+    const auto before = github->created_issues;
+    EXPECT_THROW(store.append_hmas_children(parent, {first, second}), std::invalid_argument);
+    EXPECT_EQ(github->created_issues, before);
+    EXPECT_TRUE(store.get_hmas_task(parent.id)->child_task_ids.empty());
+    EXPECT_TRUE(github->fences.empty());
+  }
+}
+
+TEST(FleetResearchDurableAttempt, RealSplitPreservesDistinctWorkAndUnassignedLegacyChildren) {
+  for (const bool configured : {true, false}) {
+    SCOPED_TRACE(configured);
+    auto github = std::make_shared<RetainedResearchGitHub>();
+    Store store{github, configured ? research_import_state() : nullptr};
+    FakeNatsPublisher publisher;
+    Orchestrator orchestrator{store, publisher};
+    HmasTask parent{};
+    parent.id = "valid-split-parent";
+    parent.repo = "homeric/research";
+    parent.layer = HmasLayer::L3_TaskAgent;
+    parent.state = TaskState::InProgress;
+    store.create_hmas_task(parent);
+    const auto result = orchestrator.split_task(
+        parent.id, json::array({{{"title", "first"}, {"issue", configured ? 42 : 0}},
+                                {{"title", "second"}, {"issue", configured ? 43 : 0}}}));
+    ASSERT_TRUE(result.contains("created"));
+    const auto ids = result.at("created").get<std::vector<std::string>>();
+    ASSERT_EQ(ids.size(), 2u);
+    EXPECT_NE(ids[0], ids[1]);
+    EXPECT_EQ(store.get_hmas_task(parent.id)->child_task_ids, ids);
+    EXPECT_EQ(github->created_issues.size(), 3u);
+    EXPECT_TRUE(github->fences.empty());
+    Store restarted{github, configured ? research_import_state() : nullptr};
+    EXPECT_EQ(restarted.get_hmas_task(ids[0])->issue, configured ? 42 : 0);
+    EXPECT_EQ(restarted.get_hmas_task(ids[1])->issue, configured ? 43 : 0);
+    EXPECT_EQ(restarted.get_hmas_task(ids[1])->blocked_by,
+              (std::vector<std::string>{parent.id, ids[0]}));
+  }
+}
+
+TEST(FleetResearchDurableAttempt, ConcurrentSourcesShareTheStoreMutexAndCreateOneOwner) {
+  auto github = std::make_shared<RetainedResearchGitHub>();
+  auto config = research_import_state();
+  auto source = std::make_shared<ControlledNestor>();
+  Store store{github, config};
+  AuthMiddleware auth{"research-import-test-key"};
+  FleetResearchService research{store, source, "nestor-main", auth};
+  FleetIssueService direct{store, config, auth};
+  const auto inspection = direct.inspect("research", 42);
+  ASSERT_EQ(inspection.status, 200);
+  const json direct_request{{"schema", "hi/agamemnon/issue-import/v1"},
+                            {"repositoryKey", "research"},
+                            {"issueNumber", 42},
+                            {"repositoryId", inspection.body["repositoryId"]},
+                            {"issueId", inspection.body["issueId"]},
+                            {"plan", inspection.body["plan"]}};
+  const json research_request{{"schema", "hi/agamemnon/research-import/v1"},
+                              {"intakeId", "research-01"},
+                              {"requestDigest", std::string(64, 'a')}};
+  std::barrier start{2};
+  int direct_status = 0, research_status = 0;
+  std::thread first([&] {
+    start.arrive_and_wait();
+    direct_status = direct.import_request(direct_request).status;
+  });
+  std::thread second([&] {
+    start.arrive_and_wait();
+    research_status = research.import_request(research_request).status;
+  });
+  first.join();
+  second.join();
+  EXPECT_EQ(std::min(direct_status, research_status), 201);
+  EXPECT_EQ(std::max(direct_status, research_status), 409);
+  EXPECT_EQ(github->created_issues.size(), 1u);
+  EXPECT_EQ(github->fences.size(), 1u);
+}
+
+TEST(FleetResearchDurableAttempt, TwoConditionalIntentContendersCannotBothObtainAWriteGrant) {
+  auto github = std::make_shared<RetainedResearchGitHub>();
+  auto config = research_import_state();
+  auto source = std::make_shared<ControlledNestor>();
+  Store first_store{github, config}, second_store{github, config};
+  AuthMiddleware auth{"research-import-test-key"};
+  FleetResearchService first_service{first_store, source, "nestor-main", auth};
+  FleetResearchService second_service{second_store, source, "nestor-main", auth};
+  const json request{{"schema", "hi/agamemnon/research-import/v1"},
+                     {"intakeId", "research-01"},
+                     {"requestDigest", std::string(64, 'a')}};
+  std::barrier readers{2};
+  github->absent_fence_readers = &readers;
+  int first_status = 0, second_status = 0;
+  std::thread first([&] { first_status = first_service.import_request(request).status; });
+  std::thread second([&] { second_status = second_service.import_request(request).status; });
+  first.join();
+  second.join();
+  github->absent_fence_readers = nullptr;
+  EXPECT_EQ(std::min(first_status, second_status), 201);
+  EXPECT_EQ(std::max(first_status, second_status), 503);
+  EXPECT_EQ(github->created_issues.size(), 1u);
+  EXPECT_EQ(github->fences.size(), 1u);
+  EXPECT_EQ(github->fence_version, 3u);
+}
+
+TEST(FleetResearchDurableAttempt, MalformedResearchIdentityCannotHydrateOrRewriteLegacyDefaults) {
+  for (int mutation = 0; mutation != 6; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto github = std::make_shared<RetainedResearchGitHub>();
+    auto raw = hmas_task_to_json(imported_task());
+    if (mutation == 0) raw["child_task_ids"] = false;
+    if (mutation == 1) raw["issue"] = 42.5;
+    if (mutation == 2) raw["delivery"]["researchIntake"]["generation"] = 1.0;
+    if (mutation == 3) raw["delivery"].erase("researchIntake");
+    if (mutation == 4) raw["delivery"]["researchIntake"]["namespace"] = "different";
+    if (mutation == 5) raw["module"] = "not-a-leaf";
+    github->retained = {{{"number", 7},
+                         {"state", "open"},
+                         {"body", "## AgamemnonEntity: hmas-tasks/" + research_task_id +
+                                      "\n\n```json\n" + raw.dump() + "\n```\n"}}};
+    const auto before = github->retained;
+    Store store{github, research_import_state()};
+    EXPECT_THROW(store.get_hmas_task(research_task_id), std::exception);
+    EXPECT_THROW(store.update_hmas_task_state(research_task_id, TaskState::Completed),
+                 std::exception);
+    EXPECT_EQ(github->retained, before);
+  }
+}
+
+TEST(FleetResearchDurableAttempt, DisabledRolloutDoesNotReplaceAPreUpgradeCreateStillInFlight) {
+  auto github = std::make_shared<DelayedResearchGitHub>();
+  const auto legacy = imported_task();
+  // Controlled old-client boundary: the request reached create_issue without
+  // the new fence protocol and its remote outcome is still pending.
+  const auto body = backing_issue(legacy).at("body").get<std::string>();
+  EXPECT_THROW(github->create_issue("hmas-task: " + legacy.id, body, "agamemnon-hmas-task"),
+               std::runtime_error);
+  ASSERT_TRUE(github->created_issues.empty());
+  ASSERT_TRUE(github->fences.empty());
+  auto source = std::make_shared<ControlledNestor>();
+  AuthMiddleware auth{"research-import-test-key"};
+  Store disabled{github};
+  FleetResearchService closed{disabled, source, "nestor-main", auth};
+  const json request{{"schema", "hi/agamemnon/research-import/v1"},
+                     {"intakeId", "research-01"},
+                     {"requestDigest", std::string(64, 'a')}};
+  EXPECT_EQ(closed.import_request(request).status, 503);
+  auto replacement = legacy;
+  replacement.id = "generic-replacement";
+  replacement.delivery = json::object();
+  EXPECT_THROW(disabled.create_hmas_task(replacement), std::runtime_error);
+  EXPECT_FALSE(disabled.get_hmas_task(legacy.id));
+  EXPECT_EQ(github->create_attempts, 1);
+  github->finish_original_create();
+  Store reconciled{github, research_import_state()};
+  FleetResearchService resumed{reconciled, source, "nestor-main", auth};
+  const auto replay = resumed.import_request(request);
+  EXPECT_EQ(replay.status, 200);
+  EXPECT_EQ(replay.body.at("taskId"), legacy.id);
+  EXPECT_EQ(hmas_task_to_json(reconciled.get_hmas_task(legacy.id).value()),
+            hmas_task_to_json(legacy));
+  EXPECT_EQ(github->created_issues.size(), 1u);
+  EXPECT_EQ(github->create_attempts, 1);
+  EXPECT_TRUE(github->fences.empty());
+}
+
+namespace {
+// Pause an actual GitHub boundary. No Store internals or collection-lock seam is used.
+class ImportBoundaryRendezvous {
+ public:
+  ImportBoundaryRendezvous()
+      : entered_(entered_promise_.get_future()), released_(release_promise_.get_future().share()) {}
+
+  void pause() {
+    std::call_once(entered_once_, [&] { entered_promise_.set_value(); });
+    if (released_.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+      throw std::runtime_error("Controlled import boundary was not released");
+  }
+  bool reached() { return entered_.wait_for(std::chrono::seconds(5)) == std::future_status::ready; }
+  void release() {
+    std::call_once(release_once_, [&] { release_promise_.set_value(); });
+  }
+
+ private:
+  std::promise<void> entered_promise_;
+  std::promise<void> release_promise_;
+  std::future<void> entered_;
+  std::shared_future<void> released_;
+  std::once_flag entered_once_;
+  std::once_flag release_once_;
+};
+
+void await_import_test_worker(std::future<void>& worker) {
+  if (worker.valid() && worker.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+    ADD_FAILURE() << "Import test worker did not stop after boundary release";
+    // A deadlock must fail the bounded test process, not hang a future destructor.
+    std::abort();
+  }
+}
+
+bool completes_while_import_boundary_is_held(ImportBoundaryRendezvous& boundary,
+                                             std::function<void()> holder,
+                                             std::function<void()> operation) {
+  std::future<void> holding;
+  std::future<void> progressing;
+  struct Cleanup {
+    std::function<void()> run;
+    ~Cleanup() { run(); }
+  } cleanup{[&] {
+    boundary.release();
+    await_import_test_worker(holding);
+    await_import_test_worker(progressing);
+  }};
+  holding = std::async(std::launch::async, std::move(holder));
+  if (!boundary.reached()) throw std::runtime_error("GitHub boundary rendezvous failed");
+  progressing = std::async(std::launch::async, std::move(operation));
+  const bool completed = progressing.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  boundary.release();
+  await_import_test_worker(holding);
+  await_import_test_worker(progressing);
+  holding.get();
+  progressing.get();
+  return completed;
+}
+
+class PausedImportGitHub : public RetainedResearchGitHub {
+ public:
+  std::function<void()> before_import_scan;
+  std::function<void()> before_legacy_create;
+  std::string legacy_label;
+
+  std::vector<json> import_list_issues(ImportContext& context) override {
+    context.checkpoint();
+    if (before_import_scan) before_import_scan();
+    return RetainedResearchGitHub::import_list_issues(context);
+  }
+  std::string create_issue(std::string_view title, std::string_view body,
+                           std::string_view label) override {
+    // Pause before the fixture's mutex, so the fixture cannot fake Store contention.
+    if (label == legacy_label && before_legacy_create) before_legacy_create();
+    return RetainedResearchGitHub::create_issue(title, body, label);
+  }
+};
+
+class ImportIsolationScenario : public ::testing::Test {
+ protected:
+  std::shared_ptr<PausedImportGitHub> github = std::make_shared<PausedImportGitHub>();
+  std::shared_ptr<IssueImportConfiguration> config = research_import_state();
+  std::shared_ptr<ControlledNestor> source = std::make_shared<ControlledNestor>();
+  Store store{github, config};
+  AuthMiddleware auth{"research-import-test-key"};
+  FleetResearchService research{store, source, "nestor-main", auth};
+  FleetIssueService direct{store, config, auth};
+  json direct_request;
+
+  void SetUp() override {
+    const auto inspection = direct.inspect("research", 42, std::nullopt);
+    ASSERT_EQ(inspection.status, 200) << inspection.body;
+    direct_request = {{"schema", "hi/agamemnon/issue-import/v1"},
+                      {"repositoryKey", "research"},
+                      {"issueNumber", 42},
+                      {"repositoryId", inspection.body.at("repositoryId")},
+                      {"issueId", inspection.body.at("issueId")},
+                      {"plan", inspection.body.at("plan")}};
+    // Warm only unrelated collections. Their later reads make no concurrent mock calls.
+    EXPECT_EQ(unrelated_counts(), empty_counts());
+  }
+
+  json empty_counts() {
+    return {{"agent", 0}, {"team", 0}, {"task", 0}, {"fault", 0}, {"brief", 0}};
+  }
+  json unrelated_counts() {
+    return {{"agent", store.list_agents().at("agents").size()},
+            {"team", store.list_teams().at("teams").size()},
+            {"task", store.list_all_tasks().at("tasks").size()},
+            {"fault", store.list_faults().at("faults").size()},
+            {"brief", store.list_task_briefs().size()}};
+  }
+  std::pair<int, json> run_import(bool direct_entry) {
+    if (direct_entry) {
+      const auto response = direct.import_request(direct_request);
+      return {response.status, response.body};
+    }
+    const auto response = research.import_request({{"schema", "hi/agamemnon/research-import/v1"},
+                                                   {"intakeId", "research-01"},
+                                                   {"requestDigest", std::string(64, 'a')}});
+    return {response.status, response.body};
+  }
+  void verify_import(bool direct_entry, const std::pair<int, json>& response,
+                     std::size_t expected_records) {
+    ASSERT_EQ(response.first, 201) << response.second;
+    const auto id = response.second.at("taskId").get<std::string>();
+    const auto task = store.get_hmas_task(id);
+    ASSERT_TRUE(task);
+    EXPECT_EQ(task->state, TaskState::Pending);
+    EXPECT_EQ(task->layer, HmasLayer::L3_TaskAgent);
+    EXPECT_EQ(task->repo, "homeric/research");
+    EXPECT_EQ(task->issue, 42);
+    EXPECT_TRUE(task->fleet_claim.is_null());
+    EXPECT_TRUE(task->assigned_lead_id.empty());
+    if (direct_entry) {
+      EXPECT_EQ(task->delivery.at("issueIntake").at("plan"), direct_request.at("plan"));
+      EXPECT_FALSE(task->delivery.contains("researchIntake"));
+    } else {
+      EXPECT_EQ(task->delivery.at("researchIntake"), research_provenance());
+      EXPECT_FALSE(task->delivery.contains("issueIntake"));
+    }
+    ASSERT_EQ(github->created_issues.size(), expected_records);
+    ASSERT_EQ(github->fences.size(), 1u);
+    const auto& fence = github->fences.begin()->second.document;
+    EXPECT_EQ(fence.at("phase"), "linked");
+    EXPECT_EQ(fence.at("taskId"), id);
+    EXPECT_EQ(fence.at("kind"), direct_entry ? "issueIntake" : "researchIntake");
+    const auto backing = fence.at("backingIssue").get<std::string>();
+    ASSERT_TRUE(github->created_issues.contains(backing));
+    EXPECT_EQ(github->created_issues.at(backing).at("label"), "agamemnon-hmas-task");
+    std::size_t owners = 0;
+    for (const auto& [number, record] : github->created_issues)
+      if (record.at("label") == "agamemnon-hmas-task") ++owners;
+    EXPECT_EQ(owners, 1u);
+  }
+  void create_unrelated(const std::string& kind) {
+    if (kind == "agent") {
+      (void)store.create_agent({{"name", "unrelated-agent"}});
+    } else if (kind == "team") {
+      (void)store.create_team({{"name", "unrelated-team"}});
+    } else if (kind == "task") {
+      (void)store.create_task("unrelated-team", {{"subject", "Unrelated task"}});
+    } else if (kind == "fault") {
+      (void)store.create_fault("unrelated-fault");
+    } else if (kind == "brief") {
+      TaskBrief brief{};
+      brief.id = "unrelated-brief";
+      brief.title = "Unrelated brief";
+      store.create_task_brief(brief);
+    } else {
+      throw std::invalid_argument("Unknown test collection");
+    }
+  }
+};
+
+class FleetImportHeld : public ImportIsolationScenario,
+                        public ::testing::WithParamInterface<bool> {};
+
+TEST_P(FleetImportHeld, UnrelatedCollectionsProceedDuringImportScan) {
+  ImportBoundaryRendezvous boundary;
+  github->before_import_scan = [&] { boundary.pause(); };
+  std::pair<int, json> imported;
+  json counts;
+  const bool progressed = completes_while_import_boundary_is_held(
+      boundary, [&] { imported = run_import(GetParam()); }, [&] { counts = unrelated_counts(); });
+  github->before_import_scan = nullptr;
+  EXPECT_TRUE(progressed) << "Unrelated collections waited for the held HMAS import";
+  EXPECT_EQ(counts, empty_counts());
+  verify_import(GetParam(), imported, 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(IntakeKind, FleetImportHeld, ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool>& info) {
+                           return info.param ? "Direct" : "Research";
+                         });
+
+class FleetImportLegacyHeld : public ImportIsolationScenario,
+                              public ::testing::WithParamInterface<std::tuple<bool, const char*>> {
+};
+
+TEST_P(FleetImportLegacyHeld, ImportFinishesWhileLegacyCreationIsHeld) {
+  const auto [direct_entry, kind] = GetParam();
+  ImportBoundaryRendezvous boundary;
+  github->legacy_label = std::string("agamemnon-") + kind;
+  github->before_legacy_create = [&] { boundary.pause(); };
+  std::pair<int, json> imported;
+  const bool progressed = completes_while_import_boundary_is_held(
+      boundary, [&] { create_unrelated(kind); }, [&] { imported = run_import(direct_entry); });
+  github->before_legacy_create = nullptr;
+  EXPECT_TRUE(progressed) << "Import waited for unrelated " << kind << " persistence";
+  auto expected = empty_counts();
+  expected[kind] = 1;
+  EXPECT_EQ(unrelated_counts(), expected);
+  verify_import(direct_entry, imported, 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(IntakeAndCollection, FleetImportLegacyHeld,
+                         ::testing::Combine(::testing::Bool(),
+                                            ::testing::Values("agent", "team", "task", "fault",
+                                                              "brief")),
+                         [](const ::testing::TestParamInfo<std::tuple<bool, const char*>>& info) {
+                           return std::string(std::get<0>(info.param) ? "Direct" : "Research") +
+                                  std::get<1>(info.param);
+                         });
 }  // namespace
 
 class FleetResearchImportRoutes : public ::testing::Test {
  protected:
   std::shared_ptr<RetainedResearchGitHub> github = std::make_shared<RetainedResearchGitHub>();
   FakeNatsPublisher publisher;
-  Store store{github};
+  Store store{github, research_import_state()};
   AuthMiddleware auth{"research-import-test-key"};
   RateLimiter limiter{10000, 10000};
   MetricsRegistry metrics;
@@ -273,7 +1009,7 @@ TEST_F(FleetResearchConfigured, ReplayAcrossFreshStorePreservesCurrentStateAndCh
   task.delivery["otherCheckpoint"] = {{"sequence", 3}};
   ASSERT_TRUE(store.update_hmas_task(task));
   EXPECT_EQ(post(valid_request())->status, 200);
-  Store restarted(github);
+  Store restarted(github, research_import_state());
   FleetResearchService service(restarted, source, "nestor-main", auth);
   const auto result = service.import_request(json::parse(valid_request()));
   EXPECT_EQ(result.status, 200);
@@ -314,7 +1050,7 @@ TEST_F(FleetResearchConfigured, LostOrInvalidAcknowledgmentReconcilesBeforeAnoth
                              RetainedResearchGitHub::CreateOutcome::InvalidAck}) {
     auto external = std::make_shared<RetainedResearchGitHub>();
     external->outcome = outcome;
-    Store first(external);
+    Store first(external, research_import_state());
     FleetResearchService initial(first, source, "nestor-main", auth);
     const auto request = json::parse(valid_request());
     const auto failed = initial.import_request(request);
@@ -325,7 +1061,7 @@ TEST_F(FleetResearchConfigured, LostOrInvalidAcknowledgmentReconcilesBeforeAnoth
     EXPECT_EQ(initial.import_request(request).status, 503);
     EXPECT_EQ(external->created_issues.size(), 1u);
     external->unavailable = false;
-    Store restarted(external);
+    Store restarted(external, research_import_state());
     FleetResearchService after_restart(restarted, source, "nestor-main", auth);
     EXPECT_EQ(after_restart.import_request(request).status, 200);
     EXPECT_EQ(external->created_issues.size(), 1u);
@@ -333,7 +1069,7 @@ TEST_F(FleetResearchConfigured, LostOrInvalidAcknowledgmentReconcilesBeforeAnoth
   }
 }
 
-TEST_F(FleetResearchConfigured, RejectedWriteAndIncompleteEnumerationCannotReportSuccess) {
+TEST_F(FleetResearchConfigured, UnconfirmedWriteAndIncompleteEnumerationCannotRegrantCreation) {
   github->outcome = RetainedResearchGitHub::CreateOutcome::Rejected;
   EXPECT_EQ(post(valid_request())->status, 503);
   expect_no_effects();
@@ -341,8 +1077,9 @@ TEST_F(FleetResearchConfigured, RejectedWriteAndIncompleteEnumerationCannotRepor
   EXPECT_EQ(post(valid_request())->status, 503);
   expect_no_effects();
   github->unavailable = false;
-  EXPECT_EQ(post(valid_request())->status, 201);
-  EXPECT_EQ(github->created_issues.size(), 1u);
+  // The caller sees only a possible-create exception, not proof of rejection.
+  EXPECT_EQ(post(valid_request())->status, 503);
+  EXPECT_TRUE(github->created_issues.empty());
 }
 
 TEST_F(FleetResearchConfigured, RetainedAmbiguousClosedOrChangedRecordsBlockImport) {
@@ -361,7 +1098,7 @@ TEST_F(FleetResearchConfigured, RetainedAmbiguousClosedOrChangedRecordsBlockImpo
   for (const auto& history : histories) {
     auto external = std::make_shared<RetainedResearchGitHub>();
     external->retained = history;
-    Store fresh(external);
+    Store fresh(external, research_import_state());
     FleetResearchService importer(fresh, source, "nestor-main", auth);
     EXPECT_EQ(importer.import_request(json::parse(valid_request())).status, 409);
     EXPECT_TRUE(external->created_issues.empty());
@@ -398,7 +1135,7 @@ TEST_F(FleetResearchConfigured, RetainedRawIdentityCannotNormalizeIntoAValidLeaf
                     entity.dump() + "\n```\n";
     external->retained = {issue};
     const auto before = external->retained;
-    Store fresh(external);
+    Store fresh(external, research_import_state());
     FleetResearchService importer(fresh, source, "nestor-main", auth);
     EXPECT_EQ(importer.import_request(json::parse(valid_request())).status, expected_status);
     EXPECT_EQ(external->retained, before);
@@ -481,7 +1218,7 @@ TEST(ResearchIntakeProvenance, LegacyWritesCannotReplaceImportedIdentity) {
     SCOPED_TRACE(index);
     auto external = std::make_shared<RetainedResearchGitHub>();
     external->retained = {backing_issue(imported_task())};
-    Store store(external);
+    Store store(external, research_import_state());
     auto altered = imported_task();
     changes[index](altered);
     EXPECT_THROW(store.update_hmas_task(altered), std::exception);
@@ -494,7 +1231,7 @@ TEST(ResearchIntakeProvenance, LegacyWritesCannotReplaceImportedIdentity) {
 TEST(ResearchIntakeProvenance, DeliveryReplacementAndLegacyCreationCannotBypassOwnership) {
   auto external = std::make_shared<RetainedResearchGitHub>();
   external->retained = {backing_issue(imported_task())};
-  Store store(external);
+  Store store(external, research_import_state());
   const auto task = imported_task();
   EXPECT_THROW(store.update_hmas_delivery(task.id, task.delivery, json::object()), std::exception);
   auto allowed = task.delivery;
@@ -507,7 +1244,7 @@ TEST(ResearchIntakeProvenance, DeliveryReplacementAndLegacyCreationCannotBypassO
   const auto current = store.get_hmas_task(task.id).value();
   EXPECT_THROW(store.append_hmas_children(current, {child}), std::exception);
   auto other_external = std::make_shared<RetainedResearchGitHub>();
-  Store other(other_external);
+  Store other(other_external, research_import_state());
   EXPECT_THROW(other.create_hmas_task(task), std::exception);
   EXPECT_TRUE(other_external->created_issues.empty());
 }
@@ -520,7 +1257,7 @@ TEST(ResearchIntakeProvenance, GenericUpdatesPreserveNumericTypesInImmutableProv
       auto external = std::make_shared<RetainedResearchGitHub>();
       external->retained = {backing_issue(imported_task())};
       const auto original = external->retained;
-      Store store(external);
+      Store store(external, research_import_state());
       auto task = imported_task();
       const auto original_delivery = task.delivery;
       task.delivery[json::json_pointer(pointer)] = value;
@@ -538,7 +1275,7 @@ TEST(ResearchIntakeProvenance, GenericUpdatesPreserveNumericTypesInImmutableProv
   }
   auto external = std::make_shared<RetainedResearchGitHub>();
   external->retained = {backing_issue(imported_task())};
-  Store store(external);
+  Store store(external, research_import_state());
   auto task = imported_task();
   task.delivery["checkpoint"] = {{"attempt", 1}};
   EXPECT_TRUE(store.update_hmas_task(task));
@@ -549,7 +1286,7 @@ TEST(ResearchIntakeProvenance, GenericUpdatesPreserveNumericTypesInImmutableProv
 TEST(ResearchIntakeConfiguration, ConstructorRequiresPersistenceAuthAndStableNamespace) {
   auto external = std::make_shared<RetainedResearchGitHub>();
   auto source = std::make_shared<ControlledNestor>();
-  Store durable(external);
+  Store durable(external, research_import_state());
   Store memory;
   AuthMiddleware authenticated("test-key");
   AuthMiddleware permissive("");
@@ -636,7 +1373,7 @@ TEST(ResearchIntakeTransport, RealLookupUsesOnlyConfiguredGetAndIgnoresAmbientPr
   ScopedResearchProxy environment(proxy.origin());
   auto source = std::make_shared<CurlNestorIntakeSource>(nestor.config());
   auto github = std::make_shared<RetainedResearchGitHub>();
-  Store store(github);
+  Store store(github, research_import_state());
   AuthMiddleware auth("operator-key");
   FleetResearchService importer(store, source, "nestor-main", auth);
   const auto response = importer.import_request(import_request());
@@ -658,7 +1395,7 @@ TEST(ResearchIntakeTransport, RedirectDoesNotForwardTheConfiguredCredential) {
   });
   auto source = std::make_shared<CurlNestorIntakeSource>(origin.config());
   auto github = std::make_shared<RetainedResearchGitHub>();
-  Store store(github);
+  Store store(github, research_import_state());
   AuthMiddleware auth("operator-key");
   FleetResearchService importer(store, source, "nestor-main", auth);
   EXPECT_EQ(importer.import_request(import_request()).status, 503);
@@ -689,7 +1426,7 @@ TEST(ResearchIntakeTransport, MalformedOversizeTruncatedAndSlowRepliesStayUnavai
     });
     auto source = std::make_shared<CurlNestorIntakeSource>(origin.config());
     auto github = std::make_shared<RetainedResearchGitHub>();
-    Store store(github);
+    Store store(github, research_import_state());
     AuthMiddleware auth("operator-key");
     FleetResearchService importer(store, source, "nestor-main", auth);
     const auto started = std::chrono::steady_clock::now();
@@ -749,7 +1486,7 @@ TEST(ResearchIntakeConfiguration, OnlyCompleteBoundedOperatorConfigurationEnable
 
 TEST(ResearchIntakeConfiguration, EnabledRouteRejectsPermissiveMiddleware) {
   auto github = std::make_shared<RetainedResearchGitHub>();
-  Store store(github);
+  Store store(github, research_import_state());
   FakeNatsPublisher publisher;
   Orchestrator orchestrator(store, publisher);
   MetricsRegistry metrics;
@@ -814,7 +1551,7 @@ TEST_F(FleetResearchConfigured, ExistingFleetControlsKeepTheImportedTaskAndProve
   ASSERT_TRUE(store.observe_hmas_fleet_start(task.id, task.fleet_claim));
   const json decision{{"outcome", "completed"}, {"decisionId", "resolved"}};
   ASSERT_TRUE(store.resolve_hmas_fleet_task(task.id, task.fleet_claim, decision));
-  Store restarted(github);
+  Store restarted(github, research_import_state());
   FleetResearchService importer(restarted, source, "nestor-main", auth);
   const auto replay = importer.import_request(import_request());
   EXPECT_EQ(replay.status, 200);
