@@ -52,11 +52,15 @@ fleet-test:
   ctest --test-dir build/fleet --output-on-failure
 
 fleet-client-test python='python3':
-  PYTHONPATH="clients/python/src${PYTHONPATH:+:$PYTHONPATH}" {{python}} -m unittest discover -s clients/python/tests -p test_fleet_client.py -v
+  PYTHONPATH="clients/python/src${PYTHONPATH:+:$PYTHONPATH}" {{python}} -m unittest discover -s clients/python/tests -p 'test_fleet*.py' -v
 
 # Exports only actual FleetService-produced envelopes from the bounded contract test.
 fleet-export output:
   FLEET_CONTRACT_OUTPUT='{{output}}' build/fleet/fleet_contract_tests --gtest_filter=FleetRoutes.ExportLifecycleEnvelopes
+
+# Export actual subordinate-build admission, durable grant and cancellation responses.
+fleet-build-export output:
+  FLEET_BUILD_CONTRACT_OUTPUT='{{output}}' build/fleet/fleet_contract_tests --gtest_filter=FleetBuildExportRoutes.ExportBuildContract
 
 # Check independently captured bridge facts against the actual native controller.
 fleet-import input:
@@ -87,11 +91,11 @@ fleet-format-check clang_format='clang-format':
   {{clang_format}} --dry-run --Werror include/agamemnon/fleet.hpp src/fleet.cpp test/src/test_fleet.cpp include/agamemnon/projects.hpp src/projects.cpp test/src/test_projects.cpp test/fleet/import_bridge_facts.cpp
 
 fleet-client-lint python='python3':
-  {{python}} -m ruff check clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py
-  {{python}} -m ruff format --check clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py
+  {{python}} -m ruff check clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py clients/python/tests/test_fleet_build_transport.py
+  {{python}} -m ruff format --check clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py clients/python/tests/test_fleet_build_transport.py
 
 fleet-client-format python='python3':
-  {{python}} -m ruff format clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py
+  {{python}} -m ruff format clients/python/src/agamemnon_client/client.py clients/python/tests/test_fleet_client.py clients/python/tests/test_fleet_build_transport.py
 
 coverage: deps-coverage
   uv run -- cmake --preset coverage && uv run -- cmake --build --preset coverage && ./scripts/coverage.sh

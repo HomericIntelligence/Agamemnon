@@ -131,6 +131,165 @@ records or change the namespace to retry a conflict. This component does not
 implement Nestor interviews, Telemachy workflow promotion, research-worker
 isolation, or live model acceptance; those remain separate component gates.
 
+## Subordinate build jobs
+
+A subordinate build references an active parent session or execution and its
+canonical HMAS claim. It owns a separate tool allocation and immutable snapshot
+workspace. It never acquires or releases the parent issue-writer claim and never
+creates a provider worker or another agent slot. Existing generic build-job
+records retain their old API behavior; the versioned `build` discriminator
+selects the subordinate protocol.
+
+An operator must register the exact parent workspace/repository, snapshot policy,
+fixed recipe and independently qualified allocation before admission. The first
+recipe is `hephaestus-test-unit-v1`, with exactly `just test-unit` and empty
+parameters. Its policy binds recipe/lock digests, Linux aarch64 platform,
+immutable image/toolchain digests, CPU/memory/disk/wall/output/artifact bounds and
+zero GPUs. Separate tool capacity must include the supervisor reserve; provider
+worker capacity is never reused. A registered policy describes qualified
+capacity; loading the policy does not allocate resources or qualify a runtime.
+
+`AGAMEMNON_FLEET_BUILD_CONFIG` selects a private operator file with the closed
+`hi/fleet/build-configuration/v1` wrapper: `schema`, `catalog`, and `authorities`.
+With the variable absent, new admission is disabled. A configured file requires
+GitHub-backed persistence and API authentication, is limited to 1 MiB, and must
+be an owned regular file with mode 0400 or 0600. Do not place this file in source
+control. The catalog has `schema: hi/fleet/build-catalog/v1`, `workspaces`,
+`recipes`, and `allocations`. Authorities use
+`schema: hi/fleet/build-authorities/v1` and a closed `authorities` array; each
+entry binds its ID and private key to a tool worker, allocation and generation.
+Keys are never copied into public policy, GitHub records or Keystone commands.
+
+Policy, parameter and grant digests use SHA-256 over compact, sorted-key UTF-8
+JSON with no trailing newline. The owning Hephaestus snapshot contract separately
+defines its canonical manifest with one trailing newline. The controller checks
+the six snapshot commitment fields; it does not read or verify snapshot bytes.
+
+1. Produce and independently verify an immutable source snapshot through the
+   owning Hephaestus snapshot service. Export includes eligible dirty and
+   untracked source under a registered policy; a clean commit alone is not a
+   substitute. Preserve the snapshot reference, manifest digest, base commit,
+   member count, total file bytes and policy digest.
+2. Send `POST /v1/fleet/build-jobs/submit` with
+   `schema: hi/fleet/build-submit/v1`, `workspaceId`, `recipeId`,
+   `parameters: {}`, `idempotencyKey`, `parent`, and `snapshot`.
+   The closed parent binding contains `targetKind`, `targetId`, `sessionId`,
+   `executionId`, and integer `generation`. The closed snapshot commitment
+   contains `reference`, `manifestDigest`, `baseCommit`, positive integer
+   `members`, positive integer `bytes`, and `policyDigest`. References are opaque
+   IDs; admission never opens them as a path or URL.
+3. Read the returned `{record, command}` and retain the deterministic build ID.
+   Admission first acknowledges the durable GitHub write, then publishes the
+   fixed command through Keystone. A response lost after the write is uncertain;
+   replay the identical submission. Exact replay reads the retained job without
+   another reservation, policy selection, command or publication. Changed
+   requests or colliding command IDs return 409.
+4. If initial command publication is uncertain, use the separate `/deliver`
+   operation with the exact admitted command ID, generation and attempt.
+   Delivery checks the current parent and retained initial command. Status and
+   submission replay do not themselves authorize delivery or process start.
+5. The trusted tool supervisor verifies the actual snapshot and recipe bytes,
+   then sends `/claim-run` with its exact claim and additional
+   `X-Fleet-Build-Key`. The durable run grant is the controller authorization
+   point. Parent stop and grant are serialized by the single controller: stop
+   first prevents a new grant; a grant persisted first remains valid for that
+   recorded generation. This is not an atomic remote spawn transaction. A lost
+   grant response requires replay of the same claim, including after parent
+   stop, rather than another claim or process attempt.
+6. Cancel through `POST /v1/fleet/build-jobs/{id}/cancel` with
+   `schema: hi/fleet/build-cancel/v1`, `commandId`, `idempotencyKey`,
+   `generation`, and `attempt`. This journals a child stop before publication;
+   its acknowledgment is not cleanup proof. Exact replay does not write another
+   control transition; it may redeliver the same pending stop command.
+7. The trusted supervisor sends an exact `/facts` terminal record with the
+   additional supervisor key, binding the worker/allocation/generation, attempt,
+   command, policy/parameters/snapshot digests, runtime identities, outcome and
+   owned cleanup. Cancellation must fence a never-started command before
+   confirming empty. Only a matching terminal fact with confirmed cleanup
+   releases child capacity. The parent claim remains unchanged. Generic ACK,
+   activity and manual-resolution routes cannot complete a typed subordinate
+   build.
+
+Only one attempt is supported in this first protocol. Generation replacement or
+retry is not an implicit new attempt. A later parent generation cannot adopt an
+earlier result. Startup hydration validates the retained typed command, policy,
+grant, cancellation and compact history before replay, and marks parent
+observations unknown. Corrupted typed records, including an unknown outer
+resource kind, return 503 without dispatch or persistence writes.
+Reconciliation must restore current parent observations
+before a new grant or redelivery. With the admission catalog removed, retained
+jobs can still be read, cancelled and reconciled using the same separately
+configured recovery authority. A missing recovery key preserves uncertainty and
+reservation; it does not authorize a substitute fact.
+
+### Private log pages and receipt references
+
+`GET /v1/fleet/build-jobs/{id}/logs?stream=stdout&after=0&limit=65536` reads from
+the configured local artifact backend. `stream` is `stdout` or `stderr`,
+`after` is an integer from 0 through 2^63-1, and `limit` is from 1 through 65536.
+Repeated or unknown query fields are rejected. The requester cannot select a
+backend URL, credential or filesystem path.
+
+`AGAMEMNON_FLEET_BUILD_ARTIFACTS` selects a separate private operator file. It
+uses the same 1 MiB, ownership, mode and no-link checks as the admission file,
+and requires durable persistence and API authentication. Its closed document
+contains `schema: hi/fleet/build-artifacts/v1`, `origin`, and the dedicated `key`.
+An absent variable or an empty object disables log reads. Invalid configuration
+stops startup before external services; loading the file makes no connection.
+
+The first backend profile accepts only canonical literal
+`http://127.0.0.1:<port>` or `http://[::1]:<port>` origins with explicit ports
+1 through 65535. DNS names, other addresses, HTTPS, URL credentials, paths,
+queries and fragments are rejected before connecting. Redirects and inherited
+proxies are disabled. The local read uses its dedicated backend key, a 500 ms
+connection limit, a 1 s total limit and a 400,000-byte encoded response ceiling.
+Remote artifact backends are not enabled by this profile and require a separate
+qualified interface.
+
+The returned `hi/fleet/build-logs/v1` object binds `buildId`, `attempt`,
+`snapshotDigest`, `stream`, `after`, `next`, `data`, `chunkDigest`, `complete`,
+`truncated`, and `manifest`. Data is a UTF-8 string; offsets and page limits count
+its actual UTF-8 bytes. The digest hashes those bytes. A complete page requires
+an immutable `{reference,digest}` manifest. The controller rechecks any retained
+terminal log manifest after the bounded backend read. Malformed, duplicate,
+oversized or mismatched responses fail without a GitHub write. An ahead cursor
+returns 409; absent or unavailable backend returns 503.
+
+Log bytes, cursor indices and chunks remain in the private artifact service.
+The durable build stores only bounded terminal receipt/log/artifact references
+and digests. It never becomes a log index. The admission intent is limited to
+30,000 serialized bytes before its first transition. Nonterminal persistence
+reserves space below 45,000 bytes,
+and final cancellation/cleanup remains below the existing 60,000-byte body cap.
+Oversized optional evidence is rejected before writes. Missing evidence remains
+`incomplete`; present references remain `unverified`. `collectionVerified` stays
+false because a digest string is not independent verification of artifact bytes.
+The separate collector must verify complete bytes and fresh source identity;
+stale source cannot be reported as the current checkout's result.
+
+The Python client exposes `fleet_build_submit`, `fleet_build_status`,
+`fleet_build_deliver`, `fleet_build_claim_run`, `fleet_build_cancel`,
+`fleet_build_fact`, and `fleet_build_logs`. These seven methods apply the finite
+`AgamemnonConfig.timeout` to the whole request, including streamed response reads,
+and cap identity-encoded response bodies at 512 KiB. They reject other content
+encodings and redirects, perform no automatic retry, and close the response on
+completion, failure or cancellation. Normal API authentication and the separate
+supervisor header use the same client.
+
+Service bridges must construct `AgamemnonClient(config, trust_env=False)` so that
+proxy and other HTTPX environment settings cannot select their transport. The
+keyword-only option defaults to `True` for existing client callers. The client
+uses its configured HTTP host and port; it does not establish remote TLS or
+qualify an operational transport. Required Fleet MCP operations use the same
+controller service through their owning Hephaestus adapter. The controller
+contains no second scheduler or local process executor.
+
+`just fleet-build-export <private-output>` executes the registered export test
+and writes actual controller-produced start/grant/cancel/terminal wire data.
+`FLEET_BUILD_SNAPSHOT_INPUT` may select the separate bounded snapshot commitment
+fixture. This export uses synthetic external boundaries and does not execute a
+recipe, qualify an allocation or establish complete offload acceptance.
+
 ## Worker and attachment contracts
 
 Task-backed starts use
