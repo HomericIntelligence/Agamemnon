@@ -17,6 +17,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <functional>
+#include <future>
 #include <iomanip>
 #include <map>
 #include <memory>
@@ -652,6 +653,232 @@ TEST(FleetResearchDurableAttempt, DisabledRolloutDoesNotReplaceAPreUpgradeCreate
   EXPECT_EQ(github->create_attempts, 1);
   EXPECT_TRUE(github->fences.empty());
 }
+
+namespace {
+// Pause an actual GitHub boundary. No Store internals or collection-lock seam is used.
+class ImportBoundaryRendezvous {
+ public:
+  ImportBoundaryRendezvous()
+      : entered_(entered_promise_.get_future()), released_(release_promise_.get_future().share()) {}
+
+  void pause() {
+    std::call_once(entered_once_, [&] { entered_promise_.set_value(); });
+    if (released_.wait_for(std::chrono::seconds(30)) != std::future_status::ready)
+      throw std::runtime_error("Controlled import boundary was not released");
+  }
+  bool reached() { return entered_.wait_for(std::chrono::seconds(5)) == std::future_status::ready; }
+  void release() {
+    std::call_once(release_once_, [&] { release_promise_.set_value(); });
+  }
+
+ private:
+  std::promise<void> entered_promise_;
+  std::promise<void> release_promise_;
+  std::future<void> entered_;
+  std::shared_future<void> released_;
+  std::once_flag entered_once_;
+  std::once_flag release_once_;
+};
+
+void await_import_test_worker(std::future<void>& worker) {
+  if (worker.valid() && worker.wait_for(std::chrono::seconds(10)) != std::future_status::ready) {
+    ADD_FAILURE() << "Import test worker did not stop after boundary release";
+    // A deadlock must fail the bounded test process, not hang a future destructor.
+    std::abort();
+  }
+}
+
+bool completes_while_import_boundary_is_held(ImportBoundaryRendezvous& boundary,
+                                             std::function<void()> holder,
+                                             std::function<void()> operation) {
+  std::future<void> holding;
+  std::future<void> progressing;
+  struct Cleanup {
+    std::function<void()> run;
+    ~Cleanup() { run(); }
+  } cleanup{[&] {
+    boundary.release();
+    await_import_test_worker(holding);
+    await_import_test_worker(progressing);
+  }};
+  holding = std::async(std::launch::async, std::move(holder));
+  if (!boundary.reached()) throw std::runtime_error("GitHub boundary rendezvous failed");
+  progressing = std::async(std::launch::async, std::move(operation));
+  const bool completed = progressing.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  boundary.release();
+  await_import_test_worker(holding);
+  await_import_test_worker(progressing);
+  holding.get();
+  progressing.get();
+  return completed;
+}
+
+class PausedImportGitHub : public RetainedResearchGitHub {
+ public:
+  std::function<void()> before_import_scan;
+  std::function<void()> before_legacy_create;
+  std::string legacy_label;
+
+  std::vector<json> import_list_issues(ImportContext& context) override {
+    context.checkpoint();
+    if (before_import_scan) before_import_scan();
+    return RetainedResearchGitHub::import_list_issues(context);
+  }
+  std::string create_issue(std::string_view title, std::string_view body,
+                           std::string_view label) override {
+    // Pause before the fixture's mutex, so the fixture cannot fake Store contention.
+    if (label == legacy_label && before_legacy_create) before_legacy_create();
+    return RetainedResearchGitHub::create_issue(title, body, label);
+  }
+};
+
+class ImportIsolationScenario : public ::testing::Test {
+ protected:
+  std::shared_ptr<PausedImportGitHub> github = std::make_shared<PausedImportGitHub>();
+  std::shared_ptr<IssueImportConfiguration> config = research_import_state();
+  std::shared_ptr<ControlledNestor> source = std::make_shared<ControlledNestor>();
+  Store store{github, config};
+  AuthMiddleware auth{"research-import-test-key"};
+  FleetResearchService research{store, source, "nestor-main", auth};
+  FleetIssueService direct{store, config, auth};
+  json direct_request;
+
+  void SetUp() override {
+    const auto inspection = direct.inspect("research", 42, std::nullopt);
+    ASSERT_EQ(inspection.status, 200) << inspection.body;
+    direct_request = {{"schema", "hi/agamemnon/issue-import/v1"},
+                      {"repositoryKey", "research"},
+                      {"issueNumber", 42},
+                      {"repositoryId", inspection.body.at("repositoryId")},
+                      {"issueId", inspection.body.at("issueId")},
+                      {"plan", inspection.body.at("plan")}};
+    // Warm only unrelated collections. Their later reads make no concurrent mock calls.
+    EXPECT_EQ(unrelated_counts(), empty_counts());
+  }
+
+  json empty_counts() {
+    return {{"agent", 0}, {"team", 0}, {"task", 0}, {"fault", 0}, {"brief", 0}};
+  }
+  json unrelated_counts() {
+    return {{"agent", store.list_agents().at("agents").size()},
+            {"team", store.list_teams().at("teams").size()},
+            {"task", store.list_all_tasks().at("tasks").size()},
+            {"fault", store.list_faults().at("faults").size()},
+            {"brief", store.list_task_briefs().size()}};
+  }
+  std::pair<int, json> run_import(bool direct_entry) {
+    if (direct_entry) {
+      const auto response = direct.import_request(direct_request);
+      return {response.status, response.body};
+    }
+    const auto response = research.import_request({{"schema", "hi/agamemnon/research-import/v1"},
+                                                   {"intakeId", "research-01"},
+                                                   {"requestDigest", std::string(64, 'a')}});
+    return {response.status, response.body};
+  }
+  void verify_import(bool direct_entry, const std::pair<int, json>& response,
+                     std::size_t expected_records) {
+    ASSERT_EQ(response.first, 201) << response.second;
+    const auto id = response.second.at("taskId").get<std::string>();
+    const auto task = store.get_hmas_task(id);
+    ASSERT_TRUE(task);
+    EXPECT_EQ(task->state, TaskState::Pending);
+    EXPECT_EQ(task->layer, HmasLayer::L3_TaskAgent);
+    EXPECT_EQ(task->repo, "homeric/research");
+    EXPECT_EQ(task->issue, 42);
+    EXPECT_TRUE(task->fleet_claim.is_null());
+    EXPECT_TRUE(task->assigned_lead_id.empty());
+    if (direct_entry) {
+      EXPECT_EQ(task->delivery.at("issueIntake").at("plan"), direct_request.at("plan"));
+      EXPECT_FALSE(task->delivery.contains("researchIntake"));
+    } else {
+      EXPECT_EQ(task->delivery.at("researchIntake"), research_provenance());
+      EXPECT_FALSE(task->delivery.contains("issueIntake"));
+    }
+    ASSERT_EQ(github->created_issues.size(), expected_records);
+    ASSERT_EQ(github->fences.size(), 1u);
+    const auto& fence = github->fences.begin()->second.document;
+    EXPECT_EQ(fence.at("phase"), "linked");
+    EXPECT_EQ(fence.at("taskId"), id);
+    EXPECT_EQ(fence.at("kind"), direct_entry ? "issueIntake" : "researchIntake");
+    const auto backing = fence.at("backingIssue").get<std::string>();
+    ASSERT_TRUE(github->created_issues.contains(backing));
+    EXPECT_EQ(github->created_issues.at(backing).at("label"), "agamemnon-hmas-task");
+    std::size_t owners = 0;
+    for (const auto& [number, record] : github->created_issues)
+      if (record.at("label") == "agamemnon-hmas-task") ++owners;
+    EXPECT_EQ(owners, 1u);
+  }
+  void create_unrelated(const std::string& kind) {
+    if (kind == "agent") {
+      (void)store.create_agent({{"name", "unrelated-agent"}});
+    } else if (kind == "team") {
+      (void)store.create_team({{"name", "unrelated-team"}});
+    } else if (kind == "task") {
+      (void)store.create_task("unrelated-team", {{"subject", "Unrelated task"}});
+    } else if (kind == "fault") {
+      (void)store.create_fault("unrelated-fault");
+    } else if (kind == "brief") {
+      TaskBrief brief{};
+      brief.id = "unrelated-brief";
+      brief.title = "Unrelated brief";
+      store.create_task_brief(brief);
+    } else {
+      throw std::invalid_argument("Unknown test collection");
+    }
+  }
+};
+
+class FleetImportHeld : public ImportIsolationScenario,
+                        public ::testing::WithParamInterface<bool> {};
+
+TEST_P(FleetImportHeld, UnrelatedCollectionsProceedDuringImportScan) {
+  ImportBoundaryRendezvous boundary;
+  github->before_import_scan = [&] { boundary.pause(); };
+  std::pair<int, json> imported;
+  json counts;
+  const bool progressed = completes_while_import_boundary_is_held(
+      boundary, [&] { imported = run_import(GetParam()); }, [&] { counts = unrelated_counts(); });
+  github->before_import_scan = nullptr;
+  EXPECT_TRUE(progressed) << "Unrelated collections waited for the held HMAS import";
+  EXPECT_EQ(counts, empty_counts());
+  verify_import(GetParam(), imported, 1);
+}
+
+INSTANTIATE_TEST_SUITE_P(IntakeKind, FleetImportHeld, ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool>& info) {
+                           return info.param ? "Direct" : "Research";
+                         });
+
+class FleetImportLegacyHeld : public ImportIsolationScenario,
+                              public ::testing::WithParamInterface<std::tuple<bool, const char*>> {
+};
+
+TEST_P(FleetImportLegacyHeld, ImportFinishesWhileLegacyCreationIsHeld) {
+  const auto [direct_entry, kind] = GetParam();
+  ImportBoundaryRendezvous boundary;
+  github->legacy_label = std::string("agamemnon-") + kind;
+  github->before_legacy_create = [&] { boundary.pause(); };
+  std::pair<int, json> imported;
+  const bool progressed = completes_while_import_boundary_is_held(
+      boundary, [&] { create_unrelated(kind); }, [&] { imported = run_import(direct_entry); });
+  github->before_legacy_create = nullptr;
+  EXPECT_TRUE(progressed) << "Import waited for unrelated " << kind << " persistence";
+  auto expected = empty_counts();
+  expected[kind] = 1;
+  EXPECT_EQ(unrelated_counts(), expected);
+  verify_import(direct_entry, imported, 2);
+}
+
+INSTANTIATE_TEST_SUITE_P(IntakeAndCollection, FleetImportLegacyHeld,
+                         ::testing::Combine(::testing::Bool(),
+                                            ::testing::Values("agent", "team", "task", "fault",
+                                                              "brief")),
+                         [](const ::testing::TestParamInfo<std::tuple<bool, const char*>>& info) {
+                           return std::string(std::get<0>(info.param) ? "Direct" : "Research") +
+                                  std::get<1>(info.param);
+                         });
+}  // namespace
 
 class FleetResearchImportRoutes : public ::testing::Test {
  protected:

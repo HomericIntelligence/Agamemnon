@@ -58,6 +58,9 @@ lint = [
     # `lint` solve-group; uv shares the project's requires-python, hence the
     # explicit markers.)
     "pip-audit>=2.8; python_version >= '3.10'",
+    # Pinned to the first release carrying the PYSEC-2026-3721 fix (the GitHub
+    # advisory database lists 26.2 as the fixed version). pip 26.1.2 is flagged
+    # by security/dependency-scan and blocks all open PRs — see #495.
     "pip>=26.2; python_version >= '3.10'",
     # Transitive dep of pip-audit (via cachecontrol). Pinned to the first
     # patched release for GHSA-6v7p-g79w-8964 (use-after-free DoS, CVSS 7.5);

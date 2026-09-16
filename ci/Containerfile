@@ -84,6 +84,13 @@ COPY pyproject.toml uv.lock ./
 # pre-commit — ADR-018). The root project is tooling-only (package = false).
 RUN uv sync --locked
 
+# Prepare the same client audit group selected by run_ci_local.sh. The sibling
+# manifest is required to validate its editable source in the client lock. Keep
+# the root toolchain installed in the shared environment used by that command.
+COPY clients/python/pyproject.toml clients/python/uv.lock ./clients/python/
+COPY agamemnon/pyproject.toml ./agamemnon/
+RUN uv sync --project clients/python --locked --only-group lint --inexact
+
 # The native architecture selector preserves all pinned versions and verifies
 # each release checksum before extraction. A failed install aborts the loop.
 # CTest uses nats-server only for private loopback JetStream test instances.

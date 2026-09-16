@@ -321,7 +321,7 @@ components:
           minLength: 1
           maxLength: 128
           description: Must equal workspace.repository; UTF-8 encoding is limited to 128 bytes.
-        argv: {type: array, const: [just, test-unit]}
+        argv: {type: array, items: {type: string}, const: [just, test-unit]}
         parameters: {$ref: '#/components/schemas/BuildParameters'}
         recipeDigest: {$ref: '#/components/schemas/BuildDigest'}
         lockDigest: {$ref: '#/components/schemas/BuildDigest'}
