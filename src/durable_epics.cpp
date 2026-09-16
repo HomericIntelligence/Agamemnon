@@ -61,32 +61,41 @@ void Orchestrator::reconcile_parent_wakeups() {
                    {"canonical_state", "Completed"}};
       publish_checkpoint(
           child, "parentWake",
-          mesh_dispatch_subject("pipeline", mesh_role_name(parent->layer), parent->id), wake);
+          mesh_dispatch_subject("pipeline", mesh_role_name(parent->layer), parent->id), wake,
+          parent);
     }
   }
 }
 
 void Orchestrator::publish_checkpoint(HmasTask task, const std::string& key,
-                                      const std::string& subject, const json& envelope) {
+                                      const std::string& subject, const json& envelope,
+                                      const std::optional<HmasTask>& parent) {
   const json intent = {{"subject", subject}, {"envelope", envelope}};
   auto delivery = task.delivery;
   if (delivery.contains(key)) {
     if (delivery[key].at("intent") != intent)
       throw std::invalid_argument("Conflicting durable publication");
     if (delivery[key].at("phase") == "published") return;
-    const auto elapsed = now_ms() - delivery[key].at("attemptedAt").get<std::int64_t>();
-    // Broker deduplication is finite. Beyond the conservative one-minute retry
-    // window, preserve uncertain intent for operator reconciliation.
-    if (elapsed < 0 || elapsed >= 60000)
-      throw std::invalid_argument("publication_uncertain_requires_reconciliation");
   } else {
     delivery[key] = {{"intent", intent}, {"phase", "pending"}, {"attemptedAt", now_ms()}};
     if (!store_.update_hmas_delivery(task.id, task.delivery, delivery))
       throw std::runtime_error("Durable publication changed concurrently");
     task.delivery = delivery;
   }
-  if (!nats_.publish_durable(subject, envelope.dump(), envelope.at("msg_id").get<std::string>()))
-    throw std::runtime_error("JetStream did not acknowledge publication");
+  const auto publish = [&] {
+    const auto elapsed = now_ms() - delivery[key].at("attemptedAt").get<std::int64_t>();
+    // Check after any persistence or lock wait. Broker deduplication is finite;
+    // an older uncertain intent needs reconciliation instead of another send.
+    if (elapsed < 0 || elapsed >= 60000)
+      throw std::invalid_argument("publication_uncertain_requires_reconciliation");
+    if (!nats_.publish_durable(subject, envelope.dump(), envelope.at("msg_id").get<std::string>()))
+      throw std::runtime_error("JetStream did not acknowledge publication");
+  };
+  if (parent) {
+    if (!store_.publish_hmas_parent_wakeup(task, *parent, publish)) return;
+  } else {
+    publish();
+  }
   delivery[key]["phase"] = "published";
   if (!store_.update_hmas_delivery(task.id, task.delivery, delivery))
     throw std::runtime_error("Durable publication changed concurrently");

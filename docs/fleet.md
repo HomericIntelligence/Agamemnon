@@ -345,8 +345,10 @@ generation before it can update activity.
 
 HMAS records carry additive `fleet_claim` metadata with schema
 `hi/fleet/claim/v1`, target kind/ID, worker, logical agent, workspace and generation.
-The Store lock serializes Fleet claims with legacy mutations. The canonical
-claim is acknowledged by GitHub before the Fleet command intent is written.
+The Store's HMAS collection lock serializes Fleet claims, dependency checks,
+legacy mutations, and retryable hydration. Unrelated agent, team, task, fault,
+and brief collections use separate locks. The canonical claim is acknowledged
+by GitHub before the Fleet command intent is written.
 Legacy assignment, state changes, completion and recreation cannot overwrite a
 Fleet claim. A matching worker observation moves the task to InProgress.
 
@@ -360,6 +362,11 @@ The two backing issues do not form a transaction. An uncertain write retains
 ownership and invalidates the affected cache. Hydration includes closed records
 and fails on malformed or incomplete HMAS/Fleet state. Retrying the same claim
 can finish an interrupted admission without authorizing a second owner.
+
+HMAS task creation and snapshot reads recheck hydration after acquiring the
+collection lock. A request queued behind an uncertain write cannot create another
+backing issue or return the old cached task state. It fails closed; a fresh request
+must hydrate the durable records before it can proceed.
 
 Manual resolution is disabled unless `AGAMEMNON_FLEET_RESOLUTION_KEY` is set.
 `POST /v1/fleet/{kind}/{id}/resolve` requires the normal API credential and a

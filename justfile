@@ -142,6 +142,10 @@ ci-build:
 ci-tools-test python='python3':
     PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_tools.py -v
 
+# Actual pinned uv with private local wheels; no network, container or scanner.
+ci-audit-test python='python3' uv='uv':
+    PYTHONDONTWRITEBYTECODE=1 UV_AUDIT_TEST_BINARY='{{uv}}' {{python}} -m unittest discover -s test/ci -p test_ci_audit.py -v
+
 # Check report ignore boundaries with private Git repositories; no scanners run.
 ci-reports-test python='python3':
     PYTHONDONTWRITEBYTECODE=1 {{python}} -m unittest discover -s test/ci -p test_ci_reports.py -v
