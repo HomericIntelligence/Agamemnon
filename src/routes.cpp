@@ -240,15 +240,17 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // Health endpoints are exempt from rate limiting but still require auth.
   server.set_pre_routing_handler([rl, ap](const httplib::Request& req, httplib::Response& res) {
     // (#165) GitHub webhook does HMAC auth in its own handler. Skip API-key
-    // middleware entirely so a missing AGAMEMNON_API_KEY header does not 401 it.
-    if (req.path == "/v1/github/webhook") {
-      return httplib::Server::HandlerResponse::Unhandled;
-    }
-    // Authenticate first.
-    if (!ap->validate(req)) {
-      res.status = 401;
-      res.set_content(R"({"error":"unauthorized"})", "application/json");
-      return httplib::Server::HandlerResponse::Handled;
+    // middleware only so a missing AGAMEMNON_API_KEY header does not 401 it;
+    // it still passes through the rate limiter below (#359: all /v1/* routes
+    // are rate limited).
+    const bool skip_api_key_auth = (req.path == "/v1/github/webhook");
+    if (!skip_api_key_auth) {
+      // Authenticate first.
+      if (!ap->validate(req)) {
+        res.status = 401;
+        res.set_content(R"({"error":"unauthorized"})", "application/json");
+        return httplib::Server::HandlerResponse::Handled;
+      }
     }
     // Health and version endpoints are exempt from rate limiting
     // (operational liveness/readiness/version probes by orchestrators).

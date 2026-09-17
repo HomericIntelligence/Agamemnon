@@ -106,8 +106,8 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/Agamemnon_server
 | `AGAMEMNON_LOG_LEVEL` | `INFO` | Orchestration daemon logging verbosity |
 | `AGAMEMNON_POLL_INTERVAL` | `1.0` | Orchestration daemon routing-loop poll interval (seconds) |
 | `AGAMEMNON_SHUTDOWN_TIMEOUT` | `30.0` | Orchestration daemon graceful-shutdown wait (seconds) |
-| `RATE_LIMIT_RPS` | `60` | Per-client steady-state request rate limit (requests/sec) |
-| `RATE_LIMIT_BURST` | `120` | Per-client burst capacity for the token bucket |
+| `AGAMEMNON_RATE_LIMIT_RPS` | `100` | Per-client-IP steady-state request rate limit (requests/sec). Legacy alias `RATE_LIMIT_RPS` is deprecated. |
+| `AGAMEMNON_RATE_LIMIT_BURST` | `2 × RPS` | Per-client-IP burst capacity for the token bucket. Legacy alias `RATE_LIMIT_BURST` is deprecated. |
 | `SERVER_THREAD_COUNT` | `8` | HTTP worker thread pool size |
 | `SERVER_READ_TIMEOUT_SEC` | `10` | Per-request socket read timeout (seconds) |
 | `SERVER_WRITE_TIMEOUT_SEC` | `10` | Per-request socket write timeout (seconds) |
@@ -121,6 +121,13 @@ NATS_URL=nats://localhost:4222 PORT=8080 ./build/debug/Agamemnon_server
 > the server-side daemon is a silent no-op. See
 > [docs/migration-from-keystone.md](docs/migration-from-keystone.md) for the
 > full rename table and remediation steps.
+>
+> The legacy rate-limit names `RATE_LIMIT_RPS` and `RATE_LIMIT_BURST` are also
+> deprecated in favour of `AGAMEMNON_RATE_LIMIT_RPS` and
+> `AGAMEMNON_RATE_LIMIT_BURST`; they still work but emit a deprecation warning.
+> All `/v1/*` routes (including the GitHub webhook) are rate limited per source
+> IP; `/health`, `/v1/health`, and `/v1/version` are exempt by design so that
+> orchestrator liveness/readiness/version probes cannot flap to 429.
 
 ## API Endpoints
 

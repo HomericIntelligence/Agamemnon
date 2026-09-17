@@ -11,6 +11,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_version.cpp
   src/test_store.cpp
   src/test_parse_port.cpp
+  src/test_env_parse.cpp
   src/test_store_edge_cases.cpp
   src/test_store_concurrent.cpp
   src/test_store_concurrent_per_collection.cpp   # #184

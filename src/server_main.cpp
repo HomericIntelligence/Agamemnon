@@ -1,4 +1,5 @@
 #include "agamemnon/auth.hpp"
+#include "agamemnon/env_parse.hpp"
 #include "agamemnon/metrics.hpp"
 #include "agamemnon/nats_client.hpp"
 #include "agamemnon/orchestrator.hpp"
@@ -144,11 +145,23 @@ int main() {
     std::cerr << "[agamemnon] WARNING: running without NATS — events will be skipped\n";
   }
 
-  // ── Rate limiter ──────────────────────────────────────────────────────────
-  const char* rps_env = std::getenv("RATE_LIMIT_RPS");
-  const char* burst_env = std::getenv("RATE_LIMIT_BURST");
-  double rate_limit_rps = rps_env ? std::stod(rps_env) : 60.0;
-  double rate_limit_burst = burst_env ? std::stod(burst_env) : 120.0;
+  // ── Rate limiter (#359) ───────────────────────────────────────────────────
+  // AGAMEMNON_-prefixed names; legacy RATE_LIMIT_* honoured with a warning.
+  auto read_rate_env = [](const char* name, const char* legacy, double fallback) {
+    if (auto v = agamemnon::parse_env_double(std::getenv(name))) return *v;
+    if (auto v = agamemnon::parse_env_double(std::getenv(legacy))) {
+      std::cerr << "[agamemnon] WARNING: " << legacy << " is deprecated; use " << name << "\n";
+      return *v;
+    }
+    if (std::getenv(name) != nullptr || std::getenv(legacy) != nullptr) {
+      std::cerr << "[agamemnon] WARNING: invalid " << name << " value; using default " << fallback
+                << "\n";
+    }
+    return fallback;
+  };
+  const double rate_limit_rps = read_rate_env("AGAMEMNON_RATE_LIMIT_RPS", "RATE_LIMIT_RPS", 100.0);
+  const double rate_limit_burst =
+      read_rate_env("AGAMEMNON_RATE_LIMIT_BURST", "RATE_LIMIT_BURST", 2.0 * rate_limit_rps);
   agamemnon::RateLimiter rate_limiter(rate_limit_rps, rate_limit_burst);
   std::cout << "[agamemnon] rate limiting: " << rate_limit_rps << " req/s, burst "
             << rate_limit_burst << "\n";

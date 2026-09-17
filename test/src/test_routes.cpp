@@ -629,4 +629,26 @@ TEST_F(RateLimitedRouteTest, RateLimitExceededReturns429WithRetryAfterHeader) {
   }
 }
 
+TEST_F(RateLimitedRouteTest, WebhookIsRateLimitedAfterBurst) {
+  // #359: /v1/github/webhook skips API-key auth (HMAC in handler, #165) but
+  // must still consume rate-limit tokens. Exhaust the 2-token bucket first.
+  ASSERT_TRUE(Get("/v1/teams"));
+  ASSERT_TRUE(Get("/v1/teams"));
+  auto res = Post("/v1/github/webhook", json::object());
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 429);
+}
+
+TEST_F(RateLimitedRouteTest, HealthAndVersionExemptFromRateLimit) {
+  // Exhaust the shared per-IP bucket, then confirm probe endpoints still pass.
+  ASSERT_TRUE(Get("/v1/teams"));
+  ASSERT_TRUE(Get("/v1/teams"));
+  auto health = Get("/v1/health");
+  ASSERT_TRUE(health);
+  EXPECT_EQ(health->status, 200);
+  auto version = Get("/v1/version");
+  ASSERT_TRUE(version);
+  EXPECT_EQ(version->status, 200);
+}
+
 }  // namespace agamemnon::test
