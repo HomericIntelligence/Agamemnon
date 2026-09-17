@@ -4,6 +4,7 @@
 #include "agamemnon/circuit_breaker.hpp"
 #include "agamemnon/dead_letter_queue.hpp"
 #include "agamemnon/fleet.hpp"
+#include "agamemnon/fleet_issue.hpp"
 #include "agamemnon/fleet_research.hpp"
 #include "agamemnon/github_webhook.hpp"
 #include "agamemnon/hmas_types.hpp"
@@ -220,8 +221,9 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
                      Orchestrator& orchestrator, std::shared_ptr<FleetService> fleet,
-                     std::shared_ptr<FleetResearchService> research) {
-  if (research) {
+                     std::shared_ptr<FleetResearchService> research,
+                     std::shared_ptr<FleetIssueService> issue) {
+  if (research || issue) {
     httplib::Request unauthenticated;
     unauthenticated.path = "/v1/fleet/research-intakes";
     if (auth.validate(unauthenticated))
@@ -283,6 +285,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   if (!fleet) fleet = std::make_shared<FleetService>(store, nats, &orchestrator);
   register_fleet_routes(server, std::move(fleet));
   register_fleet_research_routes(server, std::move(research));
+  register_fleet_issue_routes(server, std::move(issue));
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {

@@ -321,7 +321,7 @@ components:
           minLength: 1
           maxLength: 128
           description: Must equal workspace.repository; UTF-8 encoding is limited to 128 bytes.
-        argv: {type: array, const: [just, test-unit]}
+        argv: {type: array, items: {type: string}, const: [just, test-unit]}
         parameters: {$ref: '#/components/schemas/BuildParameters'}
         recipeDigest: {$ref: '#/components/schemas/BuildDigest'}
         lockDigest: {$ref: '#/components/schemas/BuildDigest'}
@@ -728,11 +728,244 @@ components:
       properties:
         error: {type: string, const: rate limit exceeded}
         retry_after_seconds: {type: integer, minimum: 1}
+    IssueImportError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >-
+        canonical is present only on a 409 with a fully verified unique retained
+        task. Inspection, registry and unavailable responses supply no reference.
+      properties:
+        canonical: {$ref: '#/components/schemas/ImportConflictReference'}
+        error:
+          type: string
+          enum:
+            - invalid_issue_selection
+            - invalid_issue_import
+            - issue_import_unavailable
+            - issue_not_found
+            - issue_lookup_unavailable
+            - issue_reference_changed
+            - issue_import_conflict
+            - issue_persistence_uncertain
+            - work_issue_already_imported
+    ImportConflictReference:
+      type: object
+      additionalProperties: false
+      required: [schema, taskId, repositoryId, issueId, issue, backingState]
+      description: >-
+        Reconciliation metadata after complete supported history validation finds
+        one retained task for the resolved work issue. It does not grant execution
+        or establish import provenance, a successful receipt or live ownership.
+        Ambiguous, malformed or incomplete history and an attempt record without
+        a verified task supply no reference.
+      properties:
+        schema: {type: string, const: hi/agamemnon/import-conflict-reference/v1}
+        taskId:
+          type: string
+          minLength: 1
+          maxLength: 524288
+          description: >-
+            Exact retained task ID, including legacy IDs without an import prefix.
+            The loose bound follows the supported 512-KiB complete backing-record
+            limit, not a new generic task-ID constraint. Preserve this identity.
+        repositoryId: {$ref: '#/components/schemas/IssueNativeId'}
+        issueId: {$ref: '#/components/schemas/IssueNativeId'}
+        issue: {$ref: '#/components/schemas/IssueReference'}
+        backingState:
+          type: string
+          enum: [open, closed]
+          description: >-
+            HMAS backing issue state, independent of task execution and work issue
+            state. A closed record requires reconciliation, not replacement or reuse.
+    IssueRepositoryKey:
+      type: string
+      pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
+      description: Operator registry selector; never a repository URL or native task identity.
+    IssueNativeId:
+      type: string
+      minLength: 1
+      maxLength: 128
+      description: >-
+        Opaque GitHub node ID, limited to 128 UTF-8 bytes. The byte limit applies
+        in addition to the character bound; no caller-defined ID syntax is inferred.
+    IssueRepository:
+      type: object
+      additionalProperties: false
+      required: [key, repository, repositoryId]
+      properties:
+        key: {$ref: '#/components/schemas/IssueRepositoryKey'}
+        repository:
+          type: string
+          maxLength: 255
+          pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+          description: >-
+            Operator-registered owner/name, at most 255 ASCII bytes. Consecutive
+            dots, a leading ./ and a trailing /. are rejected. Lookup must confirm
+            this exact canonical name and repositoryId; aliases are not adopted.
+        repositoryId: {$ref: '#/components/schemas/IssueNativeId'}
+    IssueRepositories:
+      type: object
+      additionalProperties: false
+      required: [schema, repositories]
+      description: >-
+        Public configuration projection only. Keys, native repository IDs and
+        case-folded repository names are each unique. This is not a fresh GitHub
+        lookup or approval of any issue or plan.
+      properties:
+        schema: {type: string, const: hi/agamemnon/issue-repositories/v1}
+        repositories:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items: {$ref: '#/components/schemas/IssueRepository'}
+    IssueReference:
+      type: object
+      additionalProperties: false
+      required: [repository, number, url]
+      properties:
+        repository:
+          type: string
+          maxLength: 255
+          pattern: '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
+          description: >-
+            Exact registered canonical owner/name; consecutive dots, a leading ./
+            and a trailing /. are rejected.
+        number:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Strict JSON integer; fractional or floating-point representations are rejected.
+        url:
+          type: string
+          format: uri
+          description: Exact https://github.com/{repository}/issues/{number} URL.
+    IssuePlanSnapshot:
+      description: >-
+        SHA-256 of the exact nonempty selected UTF-8 content, limited to 131072
+        bytes. No whitespace normalization or trailing newline is added. A comment
+        must belong to the selected issue. The content itself is not returned or
+        persisted in task provenance. Digests never appear in URLs or query strings.
+        This is a selected snapshot, not proof of approval or edit history.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, digest]
+          properties:
+            kind: {type: string, const: issue_body}
+            digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+        - type: object
+          additionalProperties: false
+          required: [kind, nodeId, digest]
+          properties:
+            kind: {type: string, const: issue_comment}
+            nodeId: {$ref: '#/components/schemas/IssueNativeId'}
+            digest: {type: string, pattern: '^[a-f0-9]{64}$'}
+    IssueObservedAt:
+      type: string
+      format: date-time
+      pattern: '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$'
+      description: Controller observation time in UTC seconds; not caller authority or a replay key.
+    IssueInspection:
+      type: object
+      additionalProperties: false
+      required: [schema, repositoryKey, repositoryId, issueId, issue, title, state, plan, observedAt]
+      properties:
+        schema: {type: string, const: hi/agamemnon/issue-inspection/v1}
+        repositoryKey: {$ref: '#/components/schemas/IssueRepositoryKey'}
+        repositoryId: {$ref: '#/components/schemas/IssueNativeId'}
+        issueId: {$ref: '#/components/schemas/IssueNativeId'}
+        issue: {$ref: '#/components/schemas/IssueReference'}
+        title:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          description: Nonempty issue title, additionally limited to 1024 UTF-8 bytes.
+        state: {type: string, enum: [open, closed]}
+        plan: {$ref: '#/components/schemas/IssuePlanSnapshot'}
+        observedAt: {$ref: '#/components/schemas/IssueObservedAt'}
+    IssueImport:
+      type: object
+      additionalProperties: false
+      required: [schema, repositoryKey, issueNumber, repositoryId, issueId, plan]
+      description: >-
+        Exact expected reference from inspection or an equivalent canonical lookup;
+        inspection is not a prerequisite. The raw UTF-8 JSON request is at most
+        4096 bytes. Duplicate keys, invalid UTF-8 and extra fields are rejected.
+        There is no caller timestamp, repository URL, credential, routing or approval
+        field. Replays submit the same reference and revalidate its current source.
+      properties:
+        schema: {type: string, const: hi/agamemnon/issue-import/v1}
+        repositoryKey: {$ref: '#/components/schemas/IssueRepositoryKey'}
+        issueNumber:
+          type: integer
+          minimum: 1
+          maximum: 2147483647
+          description: Strict JSON integer; floating-point representations are rejected.
+        repositoryId: {$ref: '#/components/schemas/IssueNativeId'}
+        issueId: {$ref: '#/components/schemas/IssueNativeId'}
+        plan: {$ref: '#/components/schemas/IssuePlanSnapshot'}
+    IssueRouting:
+      type: object
+      additionalProperties: false
+      required: [domain, hmasRole, stage]
+      description: Immutable configured execution intent; grants no dispatch or worker admission.
+      properties:
+        domain: {type: string, const: pipeline}
+        hmasRole: {type: string, const: task-agent}
+        stage: {type: string, const: implementation}
+    IssueProvenance:
+      type: object
+      additionalProperties: false
+      required: [schema, forge, repositoryId, issueId, issue, plan, routing, observedAt]
+      description: >-
+        Immutable delivery.issueIntake metadata. Native identity, canonical issue,
+        selected plan and routing are preserved across generic updates and replay;
+        observedAt retains its original value. Neither title nor issue/plan content
+        is stored here. This is distinct from delivery.researchIntake.
+      properties:
+        schema: {type: string, const: hi/agamemnon/issue-intake/v1}
+        forge: {type: string, const: github}
+        repositoryId: {$ref: '#/components/schemas/IssueNativeId'}
+        issueId: {$ref: '#/components/schemas/IssueNativeId'}
+        issue: {$ref: '#/components/schemas/IssueReference'}
+        plan: {$ref: '#/components/schemas/IssuePlanSnapshot'}
+        routing: {$ref: '#/components/schemas/IssueRouting'}
+        observedAt: {$ref: '#/components/schemas/IssueObservedAt'}
+    IssueImportReceipt:
+      type: object
+      additionalProperties: false
+      required: [schema, taskId, state, provenance, issue, routing]
+      description: >-
+        The existing canonical task and its preserved direct-intake provenance.
+        issue and routing equal their corresponding provenance fields. There is
+        no claim or activity projection in this receipt; use the existing task API.
+      properties:
+        schema: {type: string, const: hi/agamemnon/issue-import-receipt/v1}
+        taskId:
+          type: string
+          pattern: '^issue-[a-f0-9]{64}$'
+          description: >-
+            issue- followed by SHA-256 of compact UTF-8 JSON with lexical keys
+            forge, issueId, repositoryId, schema; values are github, the native
+            IDs, and hi/agamemnon/issue-task-key/v1. No trailing LF is added.
+            Repository selector, plan digest and observation time are not key inputs.
+        state:
+          type: string
+          enum: [Pending, Decomposing, Delegated, InProgress, Escalated, Completed, Failed]
+          description: Pending for a new leaf; replay retains its current canonical state.
+        provenance: {$ref: '#/components/schemas/IssueProvenance'}
+        issue: {$ref: '#/components/schemas/IssueReference'}
+        routing: {$ref: '#/components/schemas/IssueRouting'}
     ResearchImportError:
       type: object
       additionalProperties: false
       required: [error]
+      description: >-
+        canonical is present only on a 409 with a fully verified unique retained
+        task. Unavailable responses supply no reference.
       properties:
+        canonical: {$ref: '#/components/schemas/ImportConflictReference'}
         error:
           type: string
           enum:
@@ -745,11 +978,16 @@ components:
             - nestor_intake_changed
             - research_import_conflict
             - research_persistence_uncertain
+            - work_issue_already_imported
     ResearchImport:
       type: object
       additionalProperties: false
       required: [schema, intakeId, requestDigest]
-      description: Immutable Nestor reference only; the serialized UTF-8 body is limited to 4096 bytes.
+      description: >-
+        Immutable Nestor reference only; the serialized UTF-8 body is limited to
+        4096 bytes. New admission requires the confirmed work issue to match the
+        shared operator registry and uses the same durable attempt fence as direct
+        import. The Nestor provenance schema and research task identity are unchanged.
       properties:
         schema: {type: string, enum: [hi/agamemnon/research-import/v1]}
         intakeId: {type: string, pattern: '^[a-z0-9][a-z0-9_-]{7,63}$'}

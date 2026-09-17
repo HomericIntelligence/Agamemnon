@@ -20,7 +20,7 @@ info:
     (100.x.x.x) or localhost.
 
     **NATS side-effects:** Some mutating endpoints publish events to NATS subjects;
-    research intake import persists metadata without dispatch. See the
+    research and planned-issue intake imports persist metadata without dispatch. See the
     `x-nats-events` extension field on each operation and `docs/api/nats-events.md` for the
     full reference.
 
@@ -361,15 +361,215 @@ paths:
           content:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/BuildError'}
+  /v1/fleet/issue-intakes/repositories:
+    get:
+      tags: [fleet]
+      operationId: fleetIssueIntakeRepositories
+      summary: List the configured planned-issue repository selections
+      description: >-
+        Authenticated finite public projection of the operator registry. Does not
+        contact GitHub, approve a plan or validate current repository identity.
+        No query parameters are accepted. Requires the shared issue-intake
+        configuration and durable import-state branch; configuration paths and
+        credentials are never returned.
+      x-nats-events: []
+      responses:
+        '200':
+          description: Configured repository keys and canonical names/native IDs
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueRepositories'}
+        '400':
+          description: Query parameters are not accepted
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: Issue import is disabled; issue_import_unavailable
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+  /v1/fleet/issue-intakes/{repositoryKey}/{issueNumber}:
+    get:
+      tags: [fleet]
+      operationId: fleetInspectIssueIntake
+      summary: Inspect a registered work issue and exact selected plan snapshot
+      description: >-
+        Uses a fixed GitHub read under one 30-second operation deadline. Returns
+        canonical identity, title, open/closed state and an exact content digest,
+        without persisting anything or returning issue/plan text. The selected
+        plan is the issue body unless planCommentId identifies a comment on that
+        same issue. Only that optional query parameter is accepted, exactly once;
+        digests, timestamps, URLs and alternate origins are not query inputs.
+        Inspection is optional and does not prove plan approval or stage eligibility.
+        A subsequent explicit import repeats identity and snapshot validation.
+      x-nats-events: []
+      parameters:
+        - name: repositoryKey
+          in: path
+          required: true
+          description: Exact key from the operator registry
+          schema: {$ref: './fleet.yaml#/components/schemas/IssueRepositoryKey'}
+        - name: issueNumber
+          in: path
+          required: true
+          description: Canonical positive decimal integer, with no sign or leading zero
+          schema: {type: integer, minimum: 1, maximum: 2147483647}
+        - name: planCommentId
+          in: query
+          required: false
+          description: Explicit opaque node ID of a comment belonging to the selected issue
+          schema: {$ref: './fleet.yaml#/components/schemas/IssueNativeId'}
+      responses:
+        '200':
+          description: Canonical inspection; the work issue may be open or closed
+          headers:
+            X-API-Version:
+              description: Current Agamemnon API version
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueInspection'}
+        '400':
+          description: Malformed or unknown selection, or an unsupported/duplicate query parameter
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '404':
+          description: Registered repository lookup reports no such work issue; issue_not_found
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: >-
+            Disabled service, bounded lookup failure, invalid canonical repository
+            identity, invalid comment parent, or empty/oversized selected content
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+  /v1/fleet/issue-intakes:
+    post:
+      tags: [fleet]
+      operationId: fleetImportIssueIntake
+      summary: Import one selected planned GitHub issue as a durable Pending implementation leaf
+      description: >-
+        Requires authenticated durable persistence and the operator-owned
+        AGAMEMNON_ISSUE_INTAKE_CONFIG registry plus AGAMEMNON_IMPORT_STATE_BRANCH
+        in the existing backing repository. No query parameters are accepted.
+        The closed body is limited to 4096 raw UTF-8 bytes; duplicate JSON keys,
+        invalid UTF-8 and unknown fields are rejected. An expected repositoryId
+        that differs from the selected registry entry is rejected before I/O.
+        Fixed GitHub lookup revalidates the native issue identity and exact selected
+        plan digest. One 30-second deadline covers lookup, Store lock acquisition,
+        complete backing enumeration, conditional fence writes and the possible
+        single backing-issue create. Timeout or a lost write response may leave an
+        uncertain persisted result; caller disconnect does not cancel persistence.
+
+        Direct and research imports share a canonical work-issue creation fence.
+        Only this invocation's confirmed prepared write can advance to a confirmed
+        creating grant and one create. Any retained prepared/creating record permits
+        observation/reconciliation only; an empty scan, elapsed time or restart
+        does not reset it. A uniquely matching durable task can be replayed with
+        unchanged state, ownership and provenance. A task of the other intake kind
+        returns work_issue_already_imported, never a receipt of the requested kind.
+
+        A new leaf is standalone L3, Pending and unassigned, with no claim, children
+        or dependencies. Import does not call Nestor, approve plan content, create
+        another work issue, dispatch work, start a session or publish NATS messages.
+        Existing Fleet admission and start/input/respond remain separate. Generic
+        task reads retain the existing HMAS shape; the receipt is not an activity view.
+        See docs/fleet.md for configuration, rollout and recovery requirements.
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/IssueImport'}
+      responses:
+        '201':
+          description: One new durable Pending L3 implementation leaf; no dispatch occurred
+          headers:
+            X-API-Version:
+              description: Current Agamemnon API version
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportReceipt'}
+        '200':
+          description: Exact replay with current canonical task state and original provenance/observedAt
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportReceipt'}
+        '400':
+          description: >-
+            Invalid closed request/query, unknown registry selection, or expected
+            repositoryId inconsistent with the selected operator entry before I/O
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '404':
+          description: Registered repository lookup reports no such work issue; issue_not_found
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '409':
+          description: >-
+            Changed expected issue identity or selected snapshot; closed work issue
+            before first creation; conflicting, ambiguous, closed or malformed
+            backing identity. Another retained owner returns
+            work_issue_already_imported without a direct-intake receipt. A unique
+            fully validated retained task may supply optional canonical
+            reconciliation metadata with its exact task ID and open/closed
+            backingState. A closed exact replay remains issue_import_conflict.
+            Ambiguous or malformed history supplies no reference. No conflict
+            authorizes work or replacement.
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '413':
+          description: Raw request exceeds 4096 bytes; invalid_issue_import
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: >-
+            Disabled/missing authority, bounded GitHub failure, incomplete scan,
+            busy lock, or uncertain persistence/fence requiring reconciliation.
+            This response does not establish that no write occurred.
+            Incomplete enumeration or uncertain identity supplies no canonical reference.
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
   /v1/fleet/research-intakes:
     post:
       tags: [fleet]
       operationId: fleetImportResearchIntake
       summary: Import one confirmed Nestor intake as a durable Pending L3 leaf
       description: >-
-        Requires a configured Nestor authority and GitHub persistence. Reads only
-        the supported Nestor v1 generation-1 metadata record and verifies its digest
-        and confirmed issue receipt. Exact replay returns the current task state.
+        Requires a configured Nestor authority, authenticated GitHub persistence,
+        and the shared operator repository registry/import-state branch. Reads the
+        supported Nestor v1 generation-1 metadata record within the existing
+        5-second lookup deadline and verifies its digest and confirmed issue receipt.
+        The subsequent GitHub reconciliation, Store lock and conditional attempt
+        fence share a separate 30-second deadline. New admission resolves the
+        Nestor-confirmed work issue against the registered canonical repository.
+        Exact replay preserves the existing research task ID, provenance and state.
+        Only this invocation's confirmed prepared fence write can grant one create;
+        retained prepared/creating records allow observation/reconciliation only.
+        Timeout, disconnect, restart or an empty scan never resets that permission.
+        Direct and research imports cannot each own the same work issue.
         Does not create a canonical research issue, TaskBrief, Fleet session or NATS
         publication. Existing worker admission and Fleet start/input/respond remain
         separate. Duplicate JSON keys, extra fields and invalid UTF-8 are rejected.
@@ -407,14 +607,25 @@ paths:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
         '409':
-          description: Unconfirmed or changed intake, or ambiguous/closed/malformed backing identity
+          description: >-
+            Unconfirmed or changed intake, or conflicting, ambiguous, closed or
+            malformed backing identity. Another retained owner returns
+            work_issue_already_imported without a research receipt. A unique
+            fully validated retained task may supply optional canonical
+            reconciliation metadata with its exact task ID and open/closed
+            backingState. A closed exact replay remains research_import_conflict.
+            Ambiguous or malformed history supplies no reference. No conflict
+            authorizes work or replacement.
           content:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
         '429':
           description: Existing API rate limit exceeded
         '503':
-          description: Import disabled, authority unavailable/invalid, or persistence uncertain
+          description: >-
+            Import disabled, authority unavailable/invalid, bounded reconciliation
+            or lock unavailable, or persistence uncertain. Does not prove no write occurred.
+            Incomplete enumeration or uncertain identity supplies no canonical reference.
           content:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
@@ -2123,11 +2334,14 @@ components:
         delivery:
           type: object
           description: >-
-            Orchestrator-owned durable checkpoints and immutable research intake
-            provenance; neither is a task-state authority. Generic updates retain
-            researchIntake exactly, including numeric types.
+            Orchestrator-owned durable checkpoints and immutable intake provenance;
+            neither is a task-state authority. Generic updates retain researchIntake
+            or issueIntake exactly, including numeric types. New work acquisition
+            also respects retained ownership and unresolved shared creation attempts,
+            even when import routes or configuration are disabled.
           properties:
             researchIntake: {$ref: './fleet.yaml#/components/schemas/ResearchProvenance'}
+            issueIntake: {$ref: './fleet.yaml#/components/schemas/IssueProvenance'}
           additionalProperties: true
         blocked_by:
           type: array
