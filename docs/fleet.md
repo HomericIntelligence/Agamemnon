@@ -149,6 +149,14 @@ zero GPUs. Separate tool capacity must include the supervisor reserve; provider
 worker capacity is never reused. A registered policy describes qualified
 capacity; loading the policy does not allocate resources or qualify a runtime.
 
+Provider and tool capacity conflict when their worker IDs match or a provider's
+explicit `allocationId` matches the tool allocation ID. Different workers,
+hosts or generations do not make the same allocation separate capacity.
+Registration, new provider start/resume, pending start/resume republication,
+build admission, initial build redelivery and new run grants check the current
+worker inventory. Legacy provider records may omit `allocationId` or use null;
+the worker-ID check still applies.
+
 `AGAMEMNON_FLEET_BUILD_CONFIG` selects a private operator file with the closed
 `hi/fleet/build-configuration/v1` wrapper: `schema`, `catalog`, and `authorities`.
 With the variable absent, new admission is disabled. A configured file requires
@@ -221,6 +229,13 @@ before a new grant or redelivery. With the admission catalog removed, retained
 jobs can still be read, cancelled and reconciled using the same separately
 configured recovery authority. A missing recovery key preserves uncertainty and
 reservation; it does not authorize a substitute fact.
+
+An overlapping allocation discovered after restart blocks fresh authorization
+and delivery while leaving inspection, exact historical replay, cancellation
+and confirmed cleanup available. A retained run grant remains replayable with
+the same claim. Tool capacity remains unavailable to provider registration and
+activation until the allocation leaves the catalog and every retained build on
+that capacity has confirmed release; catalog removal alone is insufficient.
 
 ### Private log pages and receipt references
 
