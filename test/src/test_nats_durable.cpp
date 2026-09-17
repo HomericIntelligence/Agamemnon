@@ -1,3 +1,4 @@
+#include "agamemnon/fleet_issue.hpp"
 #include "agamemnon/github_client.hpp"
 #include "agamemnon/nats_client.hpp"
 #include "agamemnon/orchestrator.hpp"
@@ -242,6 +243,33 @@ TEST_F(PrivateJetStream, PerSubjectLimitNeverEvictsPriorDurableWork) {
 class AuthorityFixture : public MockGitHubClient {
  public:
   bool reject_first_create = true;
+  json import_work_issue(const std::string& owner, const std::string& name, int number,
+                         ImportContext& context) override {
+    context.checkpoint();
+    EXPECT_EQ(owner + "/" + name, "homeric/composite");
+    EXPECT_EQ(number, 42);
+    return {{"repository",
+             {{"id", "R_composite_fixture"},
+              {"nameWithOwner", "homeric/composite"},
+              {"issue",
+               {{"__typename", "Issue"},
+                {"id", "I_composite_fixture"},
+                {"number", 42},
+                {"url", "https://github.com/homeric/composite/issues/42"},
+                {"state", "OPEN"},
+                {"title", "Controlled composite epic"},
+                {"body", "Explicit unreserved work namespace"}}}}}};
+  }
+  std::vector<json> import_list_issues(ImportContext& context) override {
+    context.checkpoint();
+    return list_issues_including_closed("agamemnon-hmas-task");
+  }
+  std::optional<ImportFence> import_read_fence(const std::string& branch, const std::string&,
+                                               ImportContext& context) override {
+    context.checkpoint();
+    EXPECT_EQ(branch, "import-state");
+    return std::nullopt;
+  }
   std::string create_issue(std::string_view title, std::string_view body,
                            std::string_view label) override {
     if (reject_first_create) {
@@ -271,10 +299,15 @@ TEST_F(PrivateJetStream, RealBrokerEpicReplayAndCanonicalParentWakeWithFixtureAu
       {"children", {43}}};
   ASSERT_TRUE(publisher.publish_durable(subject, envelope.dump(), "composite-1"));
   auto gh = std::make_shared<AuthorityFixture>();
+  auto configuration = std::make_shared<IssueImportConfiguration>();
+  configuration->state_branch = "import-state";
+  configuration->repositories = json::array({{{"key", "composite"},
+                                              {"repository", "homeric/composite"},
+                                              {"repositoryId", "R_composite_fixture"}}});
   std::string brief_id;
   std::atomic<int> calls{0};
   {
-    Store store(gh);
+    Store store(gh, configuration);
     NatsClient transport(url);
     Orchestrator orch(store, transport);
     ASSERT_TRUE(transport.connect());
@@ -298,7 +331,7 @@ TEST_F(PrivateJetStream, RealBrokerEpicReplayAndCanonicalParentWakeWithFixtureAu
   }
   ASSERT_FALSE(brief_id.empty());
   EXPECT_EQ(gh->created_issues.size(), 2u);
-  Store restarted(gh);
+  Store restarted(gh, configuration);
   Orchestrator orch(restarted, publisher);
   auto parent = restarted.list_hmas_tasks_by_brief(brief_id).at(0);
   envelope["msg_id"] = "composite-2";
@@ -325,7 +358,7 @@ TEST_F(PrivateJetStream, RealBrokerEpicReplayAndCanonicalParentWakeWithFixtureAu
   EXPECT_EQ(wake["operation"], "child_completed");
   EXPECT_EQ(wake["completed_child_id"], child.id);
   EXPECT_EQ(restarted.get_hmas_task(parent.id)->state, TaskState::Decomposing);
-  Store final_store(gh);
+  Store final_store(gh, configuration);
   Orchestrator final_orch(final_store, publisher);
   EXPECT_NO_THROW(final_orch.reconcile_parent_wakeups());
 }
