@@ -1,5 +1,6 @@
 #include "agamemnon/auth.hpp"
 #include "agamemnon/fleet.hpp"
+#include "agamemnon/fleet_research.hpp"
 #include "agamemnon/metrics.hpp"
 #include "agamemnon/nats_client.hpp"
 #include "agamemnon/orchestrator.hpp"
@@ -19,6 +20,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -61,6 +63,21 @@ int main() {
   }
   agamemnon::AuthMiddleware auth(api_key_env);
 
+  const char* gh_token = std::getenv("GITHUB_TOKEN");
+  auto optional_env = [](const char* name) -> std::optional<std::string> {
+    const auto* value = std::getenv(name);
+    return value ? std::optional<std::string>(value) : std::nullopt;
+  };
+  std::optional<agamemnon::NestorResearchConfig> research_config;
+  try {
+    research_config = agamemnon::research_import_configuration(
+        optional_env("AGAMEMNON_NESTOR_URL"), optional_env("AGAMEMNON_NESTOR_API_KEY"),
+        optional_env("AGAMEMNON_NESTOR_NAMESPACE"), gh_token && *gh_token);
+  } catch (const std::exception&) {
+    std::cerr << "[agamemnon] FATAL: invalid Nestor research import configuration\n";
+    return 1;
+  }
+
   // ── Rate limiter ──────────────────────────────────────────────────────────
   const char* rps_env = std::getenv("RATE_LIMIT_RPS");
   const char* burst_env = std::getenv("RATE_LIMIT_BURST");
@@ -100,7 +117,6 @@ int main() {
   // ── GitHub-backed store ──────────────────────────────────────────────────
   std::shared_ptr<agamemnon::IGitHubClient> gh_client;
 
-  const char* gh_token = std::getenv("GITHUB_TOKEN");
   const char* gh_repo_env = std::getenv("GITHUB_REPO");
   std::string gh_repo = gh_repo_env ? gh_repo_env : "HomericIntelligence/Agamemnon";
 
@@ -114,6 +130,17 @@ int main() {
 
   agamemnon::Store store(gh_client);
   store.set_metrics(&metrics);
+  std::shared_ptr<agamemnon::FleetResearchService> research;
+  if (research_config) {
+    try {
+      auto source = std::make_shared<agamemnon::CurlNestorIntakeSource>(*research_config);
+      research = std::make_shared<agamemnon::FleetResearchService>(
+          store, source, research_config->authority_namespace, auth);
+    } catch (const std::exception&) {
+      std::cerr << "[agamemnon] FATAL: research import initialization failed\n";
+      return 1;
+    }
+  }
 
   // ── GitHub reconciliation (#165) ─────────────────────────────────────────
   // Heap-allocated so the signal trampoline's g_reconciler pointer never
@@ -270,8 +297,8 @@ int main() {
   server->set_write_timeout(write_timeout);
   server->set_payload_max_length(static_cast<size_t>(request_limit_mb) * 1024UL * 1024UL);
 
-  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator,
-                             fleet);
+  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator, fleet,
+                             research);
 
   // ── Signal handling ───────────────────────────────────────────────────────
   // Heap-allocated so the signal trampoline's g_shutdown_flag pointer never
