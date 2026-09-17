@@ -283,26 +283,46 @@ TEST(FleetResearchDurableAttempt, BothEntryOrdersPreserveOneCanonicalOwnerAndRet
     const json research_request{{"schema", "hi/agamemnon/research-import/v1"},
                                 {"intakeId", "research-01"},
                                 {"requestDigest", std::string(64, 'a')}};
-    if (direct_first)
-      ASSERT_EQ(direct.import_request(direct_request).status, 201);
-    else
-      ASSERT_EQ(research.import_request(research_request).status, 201);
+    json receipt;
+    if (direct_first) {
+      const auto imported = direct.import_request(direct_request);
+      ASSERT_EQ(imported.status, 201);
+      receipt = imported.body;
+    } else {
+      const auto imported = research.import_request(research_request);
+      ASSERT_EQ(imported.status, 201);
+      receipt = imported.body;
+    }
+    const auto owner = store.get_hmas_task(receipt.at("taskId").get<std::string>());
+    ASSERT_TRUE(owner);
+    const json canonical{{"schema", "hi/agamemnon/import-conflict-reference/v1"},
+                         {"taskId", owner->id},
+                         {"repositoryId", inspection.body.at("repositoryId")},
+                         {"issueId", inspection.body.at("issueId")},
+                         {"issue", inspection.body.at("issue")},
+                         {"backingState", "open"}};
     const auto before = github->created_issues;
     const auto reservations = github->fences.size();
+    const auto fence_version = github->fence_version;
+    const auto writes = github->calls.size();
     Store restarted{github, config};
     if (direct_first) {
       FleetResearchService other{restarted, source, "nestor-main", auth};
       const auto rejected = other.import_request(research_request);
       EXPECT_EQ(rejected.status, 409);
       EXPECT_EQ(rejected.body.value("error", ""), "work_issue_already_imported");
+      EXPECT_EQ(rejected.body.value("canonical", json()), canonical);
     } else {
       FleetIssueService other{restarted, config, auth};
       const auto rejected = other.import_request(direct_request);
       EXPECT_EQ(rejected.status, 409);
       EXPECT_EQ(rejected.body.value("error", ""), "work_issue_already_imported");
+      EXPECT_EQ(rejected.body.value("canonical", json()), canonical);
     }
     EXPECT_EQ(github->created_issues, before);
     EXPECT_EQ(github->fences.size(), reservations);
+    EXPECT_EQ(github->fence_version, fence_version);
+    EXPECT_EQ(github->calls.size(), writes);
     EXPECT_EQ(github->created_issues.size(), 1u);
   }
 }
@@ -828,6 +848,269 @@ class ImportIsolationScenario : public ::testing::Test {
     }
   }
 };
+
+// Reuse the real Store/services and controlled external backing from the import
+// fixture. Canonical references are reconciliation metadata, never import receipts.
+class FleetImportConflictHistory : public ImportIsolationScenario,
+                                   public ::testing::WithParamInterface<bool> {
+ protected:
+  HmasTask legacy_owner(const std::string& id = "legacy-original-owner") {
+    auto task = imported_task();
+    task.id = id;
+    task.state = TaskState::InProgress;
+    task.delivery = {{"legacyCheckpoint", {{"sequence", 7}}}};
+    return task;
+  }
+  json reference(const std::string& id, const std::string& state) {
+    return {{"schema", "hi/agamemnon/import-conflict-reference/v1"},
+            {"taskId", id},
+            {"repositoryId", direct_request.at("repositoryId")},
+            {"issueId", direct_request.at("issueId")},
+            {"issue", canonical_intake().at("issue")},
+            {"backingState", state}};
+  }
+  std::string conflict_error(bool direct_entry) {
+    return direct_entry ? "issue_import_conflict" : "research_import_conflict";
+  }
+  std::string uncertain_error(bool direct_entry) {
+    return direct_entry ? "issue_persistence_uncertain" : "research_persistence_uncertain";
+  }
+  json persistent_state() {
+    json fences = json::object();
+    for (const auto& [key, fence] : github->fences)
+      fences[key] = {{"sha", fence.sha}, {"document", fence.document}};
+    return {{"retained", github->retained},
+            {"created", github->created_issues},
+            {"updated", github->updated_bodies},
+            {"closed", github->closed_issues},
+            {"fences", fences},
+            {"fenceVersion", github->fence_version},
+            {"calls", github->calls.size()}};
+  }
+  void expect_result(bool direct_entry, int status, const std::string& error,
+                     const json& canonical = nullptr) {
+    const auto before = persistent_state();
+    const auto response = run_import(direct_entry);
+    EXPECT_EQ(response.first, status) << response.second;
+    json expected{{"error", error}};
+    if (!canonical.is_null()) expected["canonical"] = canonical;
+    // Exact shape also excludes fabricated provenance, success receipts or owners.
+    EXPECT_EQ(response.second, expected);
+    EXPECT_EQ(persistent_state(), before);
+  }
+};
+
+TEST_P(FleetImportConflictHistory, UniqueLegacyOpenAndClosedReferencesPreserveOriginalIdentity) {
+  const auto owner = legacy_owner();
+  auto unrelated = legacy_owner("unrelated-closed-owner");
+  unrelated.issue = 43;
+  unrelated.state = TaskState::Completed;
+  auto unrelated_record = backing_issue(unrelated, 8);
+  unrelated_record["state"] = "closed";
+  for (const auto& state : {"open", "closed"}) {
+    SCOPED_TRACE(state);
+    auto record = backing_issue(owner);
+    record["state"] = state;
+    github->retained = {unrelated_record, record};
+    expect_result(GetParam(), 409, "work_issue_already_imported", reference(owner.id, state));
+  }
+}
+
+TEST_P(FleetImportConflictHistory, UniqueClosedOtherIntakeIsReferencedWithoutReplacement) {
+  const auto initial = run_import(!GetParam());
+  ASSERT_EQ(initial.first, 201) << initial.second;
+  const auto id = initial.second.at("taskId").get<std::string>();
+  ASSERT_EQ(github->created_issues.size(), 1u);
+  github->created_issues.begin()->second["state"] = "closed";
+  expect_result(GetParam(), 409, "work_issue_already_imported", reference(id, "closed"));
+}
+
+TEST_P(FleetImportConflictHistory, ClosedExactReplayKeepsItsConflictCategoryAndReference) {
+  const auto initial = run_import(GetParam());
+  ASSERT_EQ(initial.first, 201) << initial.second;
+  const auto id = initial.second.at("taskId").get<std::string>();
+  ASSERT_EQ(github->created_issues.size(), 1u);
+  github->created_issues.begin()->second["state"] = "closed";
+  expect_result(GetParam(), 409, conflict_error(GetParam()), reference(id, "closed"));
+}
+
+TEST_P(FleetImportConflictHistory, AmbiguousOwnersAndDuplicateIdentitiesNeverSelectFirstRecord) {
+  const auto first = legacy_owner();
+  for (const auto& kind : {"same-work", "duplicate-task", "duplicate-backing"}) {
+    SCOPED_TRACE(kind);
+    auto second = legacy_owner("second-owner");
+    if (std::string(kind) == "duplicate-task") second.id = first.id;
+    auto first_record = backing_issue(first, 7);
+    auto second_record = backing_issue(second, std::string(kind) == "duplicate-backing" ? 7 : 8);
+    second_record["state"] = "closed";
+    for (const bool reversed : {false, true}) {
+      SCOPED_TRACE(reversed);
+      github->retained = reversed ? std::vector<json>{second_record, first_record}
+                                  : std::vector<json>{first_record, second_record};
+      expect_result(GetParam(), 409,
+                    std::string(kind) == "same-work" ? "work_issue_already_imported"
+                                                     : conflict_error(GetParam()));
+    }
+  }
+}
+
+TEST_P(FleetImportConflictHistory, MalformedHistoryBeforeOrAfterCandidateWithholdsReference) {
+  const auto candidate = backing_issue(legacy_owner(), 7);
+  auto other = legacy_owner("malformed-unrelated-owner");
+  other.issue = 43;
+  const auto valid_other = backing_issue(other, 8);
+  for (const bool duplicate_member : {false, true}) {
+    SCOPED_TRACE(duplicate_member);
+    auto malformed = valid_other;
+    if (duplicate_member) {
+      auto body = malformed.at("body").get<std::string>();
+      const auto offset = body.find("\"issue\":43");
+      ASSERT_NE(offset, std::string::npos);
+      body.replace(offset, std::string("\"issue\":43").size(), "\"issue\":43,\"issue\":0");
+      malformed["body"] = body;
+    } else {
+      malformed["body"] = "unparseable retained record";
+    }
+    for (const bool reversed : {false, true}) {
+      SCOPED_TRACE(reversed);
+      github->retained = reversed ? std::vector<json>{malformed, candidate}
+                                  : std::vector<json>{candidate, malformed};
+      expect_result(GetParam(), 409, conflict_error(GetParam()));
+    }
+  }
+}
+
+TEST_P(FleetImportConflictHistory, MissingRawWorkIdentityWithholdsReference) {
+  const auto owner = legacy_owner();
+  for (const auto& field : {"id", "repo", "issue"}) {
+    SCOPED_TRACE(field);
+    auto raw = hmas_task_to_json(owner);
+    raw.erase(field);
+    auto record = backing_issue(owner);
+    record["body"] =
+        "## AgamemnonEntity: hmas-tasks/" + owner.id + "\n\n```json\n" + raw.dump() + "\n```\n";
+    github->retained = {record};
+    expect_result(GetParam(), 409, conflict_error(GetParam()));
+  }
+}
+
+TEST_P(FleetImportConflictHistory, UnfinishedEnumerationWithholdsKnownCandidate) {
+  github->retained = {backing_issue(legacy_owner())};
+  // A retained candidate does not prove complete enumeration. Use the existing
+  // external reader's throwing seam, never a successful shorter/empty vector.
+  github->unavailable = true;
+  expect_result(GetParam(), 503, uncertain_error(GetParam()));
+  github->unavailable = false;
+}
+
+TEST_P(FleetImportConflictHistory, FenceWithoutVisibleTaskNeverSuppliesCanonicalReference) {
+  github->outcome = RetainedResearchGitHub::CreateOutcome::Rejected;
+  const auto failed = run_import(GetParam());
+  ASSERT_EQ(failed.first, 503) << failed.second;
+  ASSERT_TRUE(github->created_issues.empty());
+  ASSERT_EQ(github->fences.size(), 1u);
+  const auto original = github->fences.begin()->second;
+  for (const auto& phase : {"prepared", "creating", "linked"}) {
+    SCOPED_TRACE(phase);
+    // Retain actual controller-produced identity/provenance; seed only the
+    // historical phase and optional backlink in this controlled external fixture.
+    auto historical = original;
+    historical.document["phase"] = phase;
+    historical.document["backingIssue"] =
+        std::string(phase) == "linked" ? json("77") : json(nullptr);
+    github->fences.begin()->second = historical;
+    expect_result(GetParam(), 503, uncertain_error(GetParam()));
+    expect_result(!GetParam(), 409, "work_issue_already_imported");
+  }
+}
+
+TEST_P(FleetImportConflictHistory, LegacyRawClassificationCannotDefaultIntoVerifiedOwner) {
+  const auto owner = legacy_owner();
+  for (const auto& field : {"layer", "state"}) {
+    for (const auto& mutation : {"missing", "unknown", "wrong-type"}) {
+      SCOPED_TRACE(field);
+      SCOPED_TRACE(mutation);
+      auto raw = hmas_task_to_json(owner);
+      if (std::string(mutation) == "missing") {
+        raw.erase(field);
+      } else {
+        raw[field] = std::string(mutation) == "unknown" ? json("Unknown") : json(false);
+      }
+      auto record = backing_issue(owner);
+      record["body"] = "## AgamemnonEntity: hmas-tasks/" + owner.id + "\n\n" + "```json\n" +
+                       raw.dump() + "\n```\n";
+      github->retained = {record};
+      expect_result(GetParam(), 409, conflict_error(GetParam()));
+    }
+  }
+}
+
+TEST_P(FleetImportConflictHistory, LegacyPresentStructuralTypesCannotBeDiscarded) {
+  const auto owner = legacy_owner();
+  const std::vector<std::pair<std::string, json>> mutations{
+      {"brief_id", false},
+      {"parent_task_id", json::object()},
+      {"module", nullptr},
+      {"child_task_ids", ""},
+      {"child_task_ids", json::array({false})},
+      {"blocked_by", json::object()},
+      {"blocked_by", json::array({42})}};
+  for (const auto& [field, value] : mutations) {
+    SCOPED_TRACE(field + "=" + value.dump());
+    auto raw = hmas_task_to_json(owner);
+    raw[field] = value;
+    auto record = backing_issue(owner);
+    record["body"] = "## AgamemnonEntity: hmas-tasks/" + owner.id + "\n\n" + "```json\n" +
+                     raw.dump() + "\n```\n";
+    github->retained = {record};
+    expect_result(GetParam(), 409, conflict_error(GetParam()));
+  }
+}
+
+TEST_P(FleetImportConflictHistory, LegacyNonLeafOwnerRetainsValidStructure) {
+  auto owner = legacy_owner();
+  owner.layer = HmasLayer::L2_ModuleLead;
+  owner.state = TaskState::Delegated;
+  owner.brief_id = "legacy-brief";
+  owner.parent_task_id = "legacy-component";
+  owner.module = "legacy-module";
+  owner.child_task_ids = {"legacy-child"};
+  owner.blocked_by = {"legacy-prerequisite"};
+  github->retained = {backing_issue(owner)};
+  expect_result(GetParam(), 409, "work_issue_already_imported", reference(owner.id, "open"));
+}
+
+TEST_P(FleetImportConflictHistory, RetainedDirectNativeIdsMustMatchResolvedWork) {
+  const auto initial = run_import(true);
+  ASSERT_EQ(initial.first, 201) << initial.second;
+  const auto original = store.get_hmas_task(initial.second.at("taskId").get<std::string>());
+  ASSERT_TRUE(original);
+  ASSERT_EQ(github->created_issues.size(), 1u);
+  const auto backing_number = github->created_issues.begin()->first;
+  const auto original_record = github->created_issues.begin()->second;
+  for (const auto& field : {"repositoryId", "issueId"}) {
+    SCOPED_TRACE(field);
+    auto owner = *original;
+    auto& provenance = owner.delivery.at("issueIntake");
+    provenance[field] = std::string(field) == "repositoryId" ? "R_changed" : "I_changed";
+    CanonicalWorkIssue retained_identity;
+    retained_identity.repository_id = provenance.at("repositoryId").get<std::string>();
+    retained_identity.issue_id = provenance.at("issueId").get<std::string>();
+    owner.id = "issue-" + import_work_key(retained_identity);
+    // The record is internally consistent; only its resolved native identity is wrong.
+    ASSERT_NO_THROW(
+        validate_issue_intake_provenance(provenance, owner.id, owner.repo, owner.issue));
+    auto record = original_record;
+    record["body"] = backing_issue(owner).at("body");
+    github->created_issues.at(backing_number) = record;
+    expect_result(GetParam(), 409, conflict_error(GetParam()));
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(IntakeKind, FleetImportConflictHistory, ::testing::Bool(),
+                         [](const ::testing::TestParamInfo<bool>& info) {
+                           return info.param ? "Direct" : "Research";
+                         });
 
 class FleetImportHeld : public ImportIsolationScenario,
                         public ::testing::WithParamInterface<bool> {};

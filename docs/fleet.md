@@ -113,6 +113,8 @@ and task briefs use separate collection locks and can proceed during import. One
 record is replayed. Closed, duplicate, malformed or changed identities require
 reconciliation. A direct-import task for the same canonical work issue returns
 409 `work_issue_already_imported`; it is never converted into research provenance.
+The [shared recovery contract](#shared-import-configuration-and-recovery) defines
+the optional canonical task reference on a verified conflict.
 The shared conditional attempt record described below prevents a retry from
 creating a replacement while an earlier create remains uncertain.
 
@@ -189,6 +191,8 @@ not revive completed work. An unchanged existing task can replay after the work
 issue closes, but a first import requires an open work issue and open backing
 record. A research owner returns 409 `work_issue_already_imported`, not a direct
 receipt with rewritten provenance.
+The [shared recovery contract](#shared-import-configuration-and-recovery) defines
+the optional canonical task reference on a verified conflict.
 
 Invalid selection, an unknown registry key, or a supplied repository ID that
 disagrees with that registry entry returns 400 before GitHub I/O. A missing work
@@ -259,6 +263,18 @@ when import routes are disabled. Nonconflicting memory-mode operations and
 existing same-identity reads/state-only updates retain their existing behavior.
 Valid preexisting research/direct tasks replay without rewriting provenance or
 requiring a new attempt record.
+
+After a complete supported history scan validates one retained task for the
+resolved work issue, a 409 conflict can include an optional `canonical`
+reference. Its `hi/agamemnon/import-conflict-reference/v1` schema carries the
+exact task ID, native repository and issue IDs, canonical work-issue reference,
+and the HMAS backing issue's `backingState` (`open` or `closed`). Legacy task IDs
+remain unchanged. The reference supplies reconciliation metadata and grants no
+execution permission. It does not assert a successful import, imported provenance,
+current task state or live worker claim. A closed record remains a conflict.
+Ambiguous, malformed or incomplete history and an attempt record without a
+verified task supply no reference. Conflict handling does not write a replacement
+task, create a new attempt or dispatch work.
 
 HMAS hydration and ownership scans reject duplicate JSON member names, including
 escaped spellings and nested members, before any fence or task write. Malformed

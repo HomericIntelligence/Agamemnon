@@ -11,6 +11,7 @@
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -25,6 +26,16 @@ using json = nlohmann::json;
 class MetricsRegistry;
 struct IssueImportConfiguration;
 struct CanonicalWorkIssue;
+
+/// Import reconciliation conflict; a reference is present only after a complete
+/// history scan verifies one retained task. It grants no execution authority.
+class ImportConflict : public std::invalid_argument {
+ public:
+  explicit ImportConflict(const std::string& reason, json reference = nullptr)
+      : std::invalid_argument(reason), canonical(std::move(reference)) {}
+
+  const json canonical;
+};
 
 /// Generate a UUID-like string using <random>.
 std::string generate_uuid();

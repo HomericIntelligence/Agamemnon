@@ -732,7 +732,11 @@ components:
       type: object
       additionalProperties: false
       required: [error]
+      description: >-
+        canonical is present only on a 409 with a fully verified unique retained
+        task. Inspection, registry and unavailable responses supply no reference.
       properties:
+        canonical: {$ref: '#/components/schemas/ImportConflictReference'}
         error:
           type: string
           enum:
@@ -745,6 +749,35 @@ components:
             - issue_import_conflict
             - issue_persistence_uncertain
             - work_issue_already_imported
+    ImportConflictReference:
+      type: object
+      additionalProperties: false
+      required: [schema, taskId, repositoryId, issueId, issue, backingState]
+      description: >-
+        Reconciliation metadata after complete supported history validation finds
+        one retained task for the resolved work issue. It does not grant execution
+        or establish import provenance, a successful receipt or live ownership.
+        Ambiguous, malformed or incomplete history and an attempt record without
+        a verified task supply no reference.
+      properties:
+        schema: {type: string, const: hi/agamemnon/import-conflict-reference/v1}
+        taskId:
+          type: string
+          minLength: 1
+          maxLength: 524288
+          description: >-
+            Exact retained task ID, including legacy IDs without an import prefix.
+            The loose bound follows the supported 512-KiB complete backing-record
+            limit, not a new generic task-ID constraint. Preserve this identity.
+        repositoryId: {$ref: '#/components/schemas/IssueNativeId'}
+        issueId: {$ref: '#/components/schemas/IssueNativeId'}
+        issue: {$ref: '#/components/schemas/IssueReference'}
+        backingState:
+          type: string
+          enum: [open, closed]
+          description: >-
+            HMAS backing issue state, independent of task execution and work issue
+            state. A closed record requires reconciliation, not replacement or reuse.
     IssueRepositoryKey:
       type: string
       pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
@@ -928,7 +961,11 @@ components:
       type: object
       additionalProperties: false
       required: [error]
+      description: >-
+        canonical is present only on a 409 with a fully verified unique retained
+        task. Unavailable responses supply no reference.
       properties:
+        canonical: {$ref: '#/components/schemas/ImportConflictReference'}
         error:
           type: string
           enum:

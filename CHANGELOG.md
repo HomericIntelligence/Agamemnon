@@ -35,6 +35,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(fleet)`: return a verified canonical task reference on unique import
+  conflicts after complete history validation, preserving legacy identities and
+  withholding references for ambiguous, malformed or incomplete history (Refs #510).
+
 - `fix(fleet)`: share bounded GitHub reconciliation and conditional creation
   attempts across research/direct imports, preserve uncertain attempts across
   restart, and reject generic mutations that bypass retained work ownership

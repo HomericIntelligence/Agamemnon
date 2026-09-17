@@ -995,22 +995,39 @@ std::pair<HmasTask, bool> Store::import_task_(const HmasTask& proposed,
   std::unordered_map<std::string, std::string> numbers;
   std::unordered_map<std::string, std::vector<std::string>> briefs;
   std::unordered_map<std::string, std::string> issue_owners;
+  std::size_t matching_owners = 0;
+  json canonical_owner = nullptr;
+  bool replay_matches = false;
   for (const auto& issue : issues) {
     context.checkpoint();
     try {
       const auto entity = parse_issue_entity_(issue, true);
       if (!entity.is_object() || !entity.contains("id") || !issue.is_object() ||
           !issue.value("number", json()).is_number_integer() || issue["number"] <= 0 ||
-          issue["number"] > std::numeric_limits<int>::max())
+          issue["number"] > std::numeric_limits<int>::max() ||
+          (issue.value("state", json()) != "open" && issue.value("state", json()) != "closed"))
         throw std::invalid_argument("Malformed HMAS backing record");
       const auto number = std::to_string(issue["number"].get<int>());
       validate_import_entity(entity);
       if (!backing_number(number) || issue["number"] != std::stoi(number))
         throw std::invalid_argument("Invalid HMAS backing number");
-      if (!entity.value("repo", json()).is_string() ||
+      if (!entity.value("id", json()).is_string() || !entity.value("layer", json()).is_string() ||
+          !entity.value("state", json()).is_string() || !entity.value("repo", json()).is_string() ||
           !entity.value("issue", json()).is_number_integer() || entity["issue"] < 0 ||
           entity["issue"] > std::numeric_limits<int>::max())
         throw std::invalid_argument("Malformed raw work identity");
+      // Legacy records may retain non-leaf structure, but the reader must not
+      // default missing classification or discard malformed identity fields.
+      for (const auto* field : {"brief_id", "parent_task_id", "module"})
+        if (entity.contains(field) && !entity[field].is_string())
+          throw std::invalid_argument("Malformed retained task structure");
+      for (const auto* field : {"child_task_ids", "blocked_by"}) {
+        if (!entity.contains(field)) continue;
+        const auto& values = entity[field];
+        if (!values.is_array() || !std::all_of(values.begin(), values.end(),
+                                               [](const auto& value) { return value.is_string(); }))
+          throw std::invalid_argument("Malformed retained task structure");
+      }
       if (entity.value("id", json()) == proposed.id) {
         const auto canonical = hmas_task_to_json(proposed);
         // Compare schema-typed identity before the legacy reader can default
@@ -1028,28 +1045,50 @@ std::pair<HmasTask, bool> Store::import_task_(const HmasTask& proposed,
       if (!task.brief_id.empty()) briefs[task.brief_id].push_back(task.id);
       bool same_work = task.issue == work.number &&
                        lower_work_name(task.repo) == lower_work_name(work.repository);
+      CanonicalWorkIssue other{};
+      const auto* resolved = &work;
       if (task.issue > 0 && !same_work) {
-        const auto other =
-            resolve_work_issue(*import_configuration_, *gh_, task.repo, task.issue, context);
+        other = resolve_work_issue(*import_configuration_, *gh_, task.repo, task.issue, context);
+        resolved = &other;
         same_work = other.repository_id == work.repository_id && other.issue_id == work.issue_id;
       }
-      if (same_work && task.id != proposed.id)
-        throw std::invalid_argument("work_issue_already_imported");
+      if (std::string(import_kind(task)) == "issueIntake") {
+        const auto& provenance = task.delivery["issueIntake"];
+        if (provenance["repositoryId"] != resolved->repository_id ||
+            provenance["issueId"] != resolved->issue_id)
+          throw std::invalid_argument("Retained native work identity changed");
+      }
+      if (same_work) {
+        ++matching_owners;
+        canonical_owner = {
+            {"schema", "hi/agamemnon/import-conflict-reference/v1"},
+            {"taskId", task.id},
+            {"repositoryId", work.repository_id},
+            {"issueId", work.issue_id},
+            {"issue",
+             {{"repository", work.repository}, {"number", work.number}, {"url", work.url}}},
+            {"backingState", issue["state"]}};
+      }
       if (task.id == proposed.id) {
         for (const auto* field : {"state", "delivery"})
           if (!entity.contains(field))
             throw std::invalid_argument("Incomplete research backing record");
-        if (issue.value("state", json()) != "open" || !same_work ||
-            !same_import_identity(task, proposed, true))
-          throw std::invalid_argument("Import backing record requires reconciliation");
+        replay_matches =
+            issue["state"] == "open" && same_work && same_import_identity(task, proposed, true);
       }
-    } catch (const std::invalid_argument& error) {
-      if (std::string(error.what()) == "work_issue_already_imported") throw;
+    } catch (const std::invalid_argument&) {
       throw std::invalid_argument("Import backing record requires reconciliation");
     } catch (const std::exception&) {
       throw std::runtime_error("Import backing identity unavailable");
     }
   }
+  // A first match cannot conceal a later malformed record or competing owner.
+  // Only the complete validated scan may supply reconciliation metadata.
+  if (matching_owners > 1) throw ImportConflict("work_issue_already_imported");
+  if (matching_owners == 1 && canonical_owner["taskId"] != proposed.id)
+    throw ImportConflict("work_issue_already_imported", canonical_owner);
+  if (tasks.contains(proposed.id) && !replay_matches)
+    throw ImportConflict("Import backing record requires reconciliation", canonical_owner);
   bool created = false;
   if (!tasks.contains(proposed.id)) {
     if (!work.open) throw std::invalid_argument("Work issue is closed");

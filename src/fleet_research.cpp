@@ -352,6 +352,12 @@ ResearchImportResponse FleetResearchService::import_request(const json& request)
          {"provenance", provenance},
          {"issue", provenance["issue"]},
          {"routing", {{"domain", "research"}, {"hmasRole", "task-agent"}, {"stage", "research"}}}}};
+  } catch (const ImportConflict& error) {
+    json body{{"error", std::string(error.what()) == "work_issue_already_imported"
+                            ? "work_issue_already_imported"
+                            : "research_import_conflict"}};
+    if (!error.canonical.is_null()) body["canonical"] = error.canonical;
+    return {409, std::move(body)};
   } catch (const std::invalid_argument& error) {
     return {409,
             {{"error", std::string(error.what()) == "work_issue_already_imported"

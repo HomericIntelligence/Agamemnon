@@ -310,6 +310,12 @@ IssueImportResponse FleetIssueService::import_request(const json& request) {
              {"routing", provenance["routing"]}}};
   } catch (const std::out_of_range&) {
     return {404, {{"error", "issue_not_found"}}};
+  } catch (const ImportConflict& error) {
+    json body{{"error", std::string(error.what()) == "work_issue_already_imported"
+                            ? "work_issue_already_imported"
+                            : "issue_import_conflict"}};
+    if (!error.canonical.is_null()) body["canonical"] = error.canonical;
+    return {409, std::move(body)};
   } catch (const std::invalid_argument& error) {
     return {409,
             {{"error", std::string(error.what()) == "work_issue_already_imported"
