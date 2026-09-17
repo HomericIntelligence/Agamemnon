@@ -213,29 +213,31 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 // avoid dangling-reference UB when the lambda outlives register_routes' stack.
 // All are owned by main() and outlive the server.
 
-// cppcheck-suppress unusedFunction
-// register_routes is the public entry point invoked from server_main.cpp.
-void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
-                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
-                     Orchestrator& orchestrator) {
-  Store* sp = &store;
-  NatsPublisher* np = &nats;
-  // Production NatsClient overrides dead_letter_queue()/circuit_breaker() to
-  // return non-null pointers; FakeNatsPublisher in tests returns nullptr.
-  // Guarded accesses below skip these features when not available.
-  CircuitBreaker* breaker = np->circuit_breaker();
-  DeadLetterQueue* dlq = np->dead_letter_queue();
-  RateLimiter* rl = &rate_limiter;
-  AuthMiddleware* ap = &auth;
-  MetricsRegistry* mp = &metrics;
-  Orchestrator* op = &orchestrator;
+// Route registration is split into per-resource helpers so that each stays well
+// below the clang-tidy readability-function-cognitive-complexity threshold (#199).
+// Each helper receives only the raw pointers its lambdas capture; all pointees are
+// owned by main() and outlive the server.
+static void register_metrics_route(httplib::Server& server, MetricsRegistry* mp);
+static void register_middleware(httplib::Server& server, RateLimiter* rl, AuthMiddleware* ap);
+static void register_health_routes(httplib::Server& server, CircuitBreaker* breaker,
+                                   DeadLetterQueue* dlq);
+static void register_agent_query_routes(httplib::Server& server, Store* sp);
+static void register_agent_mutation_routes(httplib::Server& server, Store* sp, NatsPublisher* np);
+static void register_team_routes(httplib::Server& server, Store* sp, NatsPublisher* np);
+static void register_task_routes(httplib::Server& server, Store* sp, NatsPublisher* np);
+static void register_chaos_routes(httplib::Server& server, Store* sp, NatsPublisher* np);
+static void register_hmas_routes(httplib::Server& server, Store* sp, Orchestrator* op);
+static void register_github_webhook_route(httplib::Server& server, Store* sp, MetricsRegistry* mp);
 
-  // ── Prometheus metrics endpoint ────────────────────────────────────────
+static void register_metrics_route(httplib::Server& server, MetricsRegistry* mp) {
   server.Get("/metrics", [mp](const httplib::Request&, httplib::Response& res) {
     res.status = 200;
     res.set_content(mp->serialize(), "text/plain; version=0.0.4; charset=utf-8");
   });
+}
 
+// Enforce per-IP rate limit and API key auth on every request.
+static void register_middleware(httplib::Server& server, RateLimiter* rl, AuthMiddleware* ap) {
   // Enforce per-IP rate limit and API key auth on every request.
   // Health endpoints are exempt from rate limiting but still require auth.
   server.set_pre_routing_handler([rl, ap](const httplib::Request& req, httplib::Response& res) {
@@ -267,12 +269,10 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     }
     return httplib::Server::HandlerResponse::Unhandled;
   });
+}
 
-  // ── Global transport-layer body size limit (1 MB) ───────────────────────
-  static constexpr std::size_t kMaxBodyBytes = 1U << 20U;
-  server.set_payload_max_length(kMaxBodyBytes);
-
-  // ── Health / version ────────────────────────────────────────────────────
+static void register_health_routes(httplib::Server& server, CircuitBreaker* breaker,
+                                   DeadLetterQueue* dlq) {
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
     reply_json(res, 200, {{"status", "ok"}, {"service", "Agamemnon"}});
   });
@@ -315,16 +315,39 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   server.Get("/v1/version", [](const httplib::Request&, httplib::Response& res) {
     reply_json(res, 200, {{"version", std::string(kVersion)}, {"name", std::string(kProjectName)}});
   });
+}
 
-  // ── Agents ──────────────────────────────────────────────────────────────
-
+static void register_agent_query_routes(httplib::Server& server, Store* sp) {
   // GET /v1/agents
   server.Get("/v1/agents", [sp](const httplib::Request& req, httplib::Response& res) {
     auto p = parse_pagination(req, res);
     if (!p) return;
     reply_json(res, 200, sp->list_agents(p->limit, p->offset));
   });
+  // GET /v1/agents/by-name/:name — registered BEFORE the generic :id route
+  server.Get(R"(/v1/agents/by-name/([^/]+))",
+             [sp](const httplib::Request& req, httplib::Response& res) {
+               std::string name = req.matches[1];
+               json agent = sp->get_agent_by_name(name);
+               if (agent.is_null()) {
+                 reply_not_found(res, "agent");
+                 return;
+               }
+               reply_json(res, 200, {{"agent", agent}});
+             });
+  // GET /v1/agents/:id
+  server.Get(R"(/v1/agents/([^/]+))", [sp](const httplib::Request& req, httplib::Response& res) {
+    std::string id = req.matches[1];
+    json agent = sp->get_agent(id);
+    if (agent.is_null()) {
+      reply_not_found(res, "agent");
+      return;
+    }
+    reply_json(res, 200, {{"agent", agent}});
+  });
+}
 
+static void register_agent_mutation_routes(httplib::Server& server, Store* sp, NatsPublisher* np) {
   // POST /v1/agents
   //
   // NOTE: `/v1/agents/docker` was removed (issue #144) — it was a deduplicated alias of this
@@ -366,7 +389,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                     {{"agent_id", agent_id}, {"name", name}, {"type", agent_type}, {"host", host}});
     reply_json(res, 201, result);
   });
-
   // POST /v1/agents/:id/start  — registered BEFORE the generic :id route
   server.Post(R"(/v1/agents/([^/]+)/start)",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
@@ -381,7 +403,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                 np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
                 reply_json(res, 200, result);
               });
-
   // POST /v1/agents/:id/stop
   server.Post(R"(/v1/agents/([^/]+)/stop)",
               [sp, np](const httplib::Request& req, httplib::Response& res) {
@@ -396,30 +417,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                 np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
                 reply_json(res, 200, result);
               });
-
-  // GET /v1/agents/by-name/:name — registered BEFORE the generic :id route
-  server.Get(R"(/v1/agents/by-name/([^/]+))",
-             [sp](const httplib::Request& req, httplib::Response& res) {
-               std::string name = req.matches[1];
-               json agent = sp->get_agent_by_name(name);
-               if (agent.is_null()) {
-                 reply_not_found(res, "agent");
-                 return;
-               }
-               reply_json(res, 200, {{"agent", agent}});
-             });
-
-  // GET /v1/agents/:id
-  server.Get(R"(/v1/agents/([^/]+))", [sp](const httplib::Request& req, httplib::Response& res) {
-    std::string id = req.matches[1];
-    json agent = sp->get_agent(id);
-    if (agent.is_null()) {
-      reply_not_found(res, "agent");
-      return;
-    }
-    reply_json(res, 200, {{"agent", agent}});
-  });
-
   // PATCH /v1/agents/:id
   server.Patch(
       R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
@@ -468,7 +465,6 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
         np->publish("hi.agents." + host + "." + name + ".updated", result.dump());
         reply_json(res, 200, {{"agent", result}});
       });
-
   // DELETE /v1/agents/:id
   server.Delete(
       R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
@@ -483,9 +479,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
         np->publish("hi.agents." + host + "." + name + ".deleted", json{{"id", id}}.dump());
         reply_json(res, 200, {{"deleted", id}});
       });
+}
 
-  // ── Teams ────────────────────────────────────────────────────────────────
-
+static void register_team_routes(httplib::Server& server, Store* sp, NatsPublisher* np) {
   // GET /v1/teams
   server.Get("/v1/teams", [sp](const httplib::Request& req, httplib::Response& res) {
     auto p = parse_pagination(req, res);
@@ -561,9 +557,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                   np->publish("hi.agents.team.deleted", json{{"id", id}}.dump());
                   reply_json(res, 200, {{"deleted", id}});
                 });
+}
 
-  // ── Tasks ────────────────────────────────────────────────────────────────
-
+static void register_task_routes(httplib::Server& server, Store* sp, NatsPublisher* np) {
   // GET /v1/tasks  (all tasks across all teams)
   server.Get("/v1/tasks", [sp](const httplib::Request& req, httplib::Response& res) {
     auto p = parse_pagination(req, res);
@@ -701,9 +697,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // PATCH /v1/teams/:team_id/tasks/:task_id — same semantics as PUT, share the handler.
   server.Patch(R"(/v1/teams/([^/]+)/tasks/([^/]+))", update_task_handler);
+}
 
-  // ── Chaos ────────────────────────────────────────────────────────────────
-
+static void register_chaos_routes(httplib::Server& server, Store* sp, NatsPublisher* np) {
   // GET /v1/chaos
   server.Get("/v1/chaos", [sp](const httplib::Request& req, httplib::Response& res) {
     auto p = parse_pagination(req, res);
@@ -732,9 +728,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                   np->publish("hi.agents.chaos.removed", json{{"id", id}}.dump());
                   reply_json(res, 200, {{"deleted", id}});
                 });
+}
 
-  // ── HMAS Orchestration ────────────────────────────────────────────────────
-
+static void register_hmas_routes(httplib::Server& server, Store* sp, Orchestrator* op) {
   // POST /v1/briefs — submit a TaskBrief for HMAS orchestration
   server.Post("/v1/briefs", [op](const httplib::Request& req, httplib::Response& res) {
     json body;
@@ -841,7 +837,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                            {"layer", hmas_layer_to_string(task->layer)},
                            {"task", task_json}});
              });
+}
 
+static void register_github_webhook_route(httplib::Server& server, Store* sp, MetricsRegistry* mp) {
   // POST /v1/github/webhook — bidirectional sync from GitHub Issues (#165)
   // Load secret at startup; fail if missing (webhook disabled).
   const char* secret_env = std::getenv("GITHUB_WEBHOOK_SECRET");
@@ -880,6 +878,40 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                                           normalized->issue_shape, normalized->updated_at);
     reply_json(res, 200, {{"applied", changed}, {"action", normalized->action}});
   });
+}
+
+// cppcheck-suppress unusedFunction
+// register_routes is the public entry point invoked from server_main.cpp.
+void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
+                     RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
+                     Orchestrator& orchestrator) {
+  Store* sp = &store;
+  NatsPublisher* np = &nats;
+  // Production NatsClient overrides dead_letter_queue()/circuit_breaker() to
+  // return non-null pointers; FakeNatsPublisher in tests returns nullptr.
+  // Guarded accesses below skip these features when not available.
+  CircuitBreaker* breaker = np->circuit_breaker();
+  DeadLetterQueue* dlq = np->dead_letter_queue();
+  RateLimiter* rl = &rate_limiter;
+  AuthMiddleware* ap = &auth;
+  MetricsRegistry* mp = &metrics;
+  Orchestrator* op = &orchestrator;
+
+  register_metrics_route(server, mp);
+  register_middleware(server, rl, ap);
+
+  // Global transport-layer body size limit (1 MB).
+  static constexpr std::size_t kMaxBodyBytes = 1U << 20U;
+  server.set_payload_max_length(kMaxBodyBytes);
+
+  register_health_routes(server, breaker, dlq);
+  register_agent_query_routes(server, sp);
+  register_agent_mutation_routes(server, sp, np);
+  register_team_routes(server, sp, np);
+  register_task_routes(server, sp, np);
+  register_chaos_routes(server, sp, np);
+  register_hmas_routes(server, sp, op);
+  register_github_webhook_route(server, sp, mp);
 
   std::cout << "[agamemnon] routes registered\n";
 }
