@@ -86,9 +86,7 @@ async def test_context_manager() -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_health_ok(client: AgamemnonClient) -> None:
-    respx.get(f"{BASE_URL}/v1/health").mock(
-        return_value=httpx.Response(200, json={"status": "ok"})
-    )
+    respx.get(f"{BASE_URL}/v1/health").mock(return_value=httpx.Response(200, json={"status": "ok"}))
     h = await client.health()
     assert h is not None
     assert h.status == "ok"
@@ -185,9 +183,7 @@ async def test_request_api_error_falls_back_to_text_on_non_json(client: Agamemno
 @pytest.mark.asyncio
 @respx.mock
 async def test_list_agents(client: AgamemnonClient) -> None:
-    respx.get(f"{BASE_URL}/v1/agents").mock(
-        return_value=httpx.Response(200, json=[AGENT_PAYLOAD])
-    )
+    respx.get(f"{BASE_URL}/v1/agents").mock(return_value=httpx.Response(200, json=[AGENT_PAYLOAD]))
     agents = await client.list_agents()
     assert len(agents) == 1
     assert agents[0].id == "agent-1"
@@ -201,6 +197,197 @@ async def test_list_agents_wrapped(client: AgamemnonClient) -> None:
     )
     agents = await client.list_agents()
     assert len(agents) == 1
+
+
+# ── Pagination ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_agents_paginates_all_pages(client: AgamemnonClient) -> None:
+    page1 = [dict(AGENT_PAYLOAD, id=f"agent-{i}") for i in range(1000)]
+    page2 = [dict(AGENT_PAYLOAD, id=f"agent-{1000 + i}") for i in range(500)]
+    route = respx.get(f"{BASE_URL}/v1/agents").mock(
+        side_effect=[
+            httpx.Response(200, json={"agents": page1, "total": 1500, "limit": 1000, "offset": 0}),
+            httpx.Response(
+                200,
+                json={"agents": page2, "total": 1500, "limit": 1000, "offset": 1000},
+            ),
+        ]
+    )
+    agents = await client.list_agents()
+    assert len(agents) == 1500
+    assert route.call_count == 2
+    assert route.calls[1].request.url.params["offset"] == "1000"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_agents_single_page_no_extra_requests(
+    client: AgamemnonClient,
+) -> None:
+    route = respx.get(f"{BASE_URL}/v1/agents").mock(
+        return_value=httpx.Response(
+            200, json={"agents": [AGENT_PAYLOAD], "total": 1, "limit": 1000, "offset": 0}
+        )
+    )
+    agents = await client.list_agents()
+    assert len(agents) == 1
+    assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_agents_empty_page_terminates(client: AgamemnonClient) -> None:
+    # total overcounts (items deleted between pages): loop must stop, not hang.
+    route = respx.get(f"{BASE_URL}/v1/agents").mock(
+        side_effect=[
+            httpx.Response(
+                200, json={"agents": [AGENT_PAYLOAD], "total": 5, "limit": 1000, "offset": 0}
+            ),
+            httpx.Response(200, json={"agents": [], "total": 5, "limit": 1000, "offset": 1}),
+        ]
+    )
+    agents = await client.list_agents()
+    assert len(agents) == 1
+    assert route.call_count == 2
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_teams_paginates(client: AgamemnonClient) -> None:
+    route = respx.get(f"{BASE_URL}/v1/teams").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "teams": [
+                        TEAM_PAYLOAD,
+                        {**TEAM_PAYLOAD, "id": "team-2"},
+                    ],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 0,
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "teams": [{**TEAM_PAYLOAD, "id": "team-3"}],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 2,
+                },
+            ),
+        ]
+    )
+    teams = await client.list_teams()
+    assert len(teams) == 3
+    assert route.call_count == 2
+    assert route.calls[1].request.url.params["offset"] == "2"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_tasks_paginates(client: AgamemnonClient) -> None:
+    route = respx.get(f"{BASE_URL}/v1/tasks").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "tasks": [
+                        TASK_PAYLOAD,
+                        {**TASK_PAYLOAD, "id": "task-2"},
+                    ],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 0,
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "tasks": [{**TASK_PAYLOAD, "id": "task-3"}],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 2,
+                },
+            ),
+        ]
+    )
+    tasks = await client.list_tasks()
+    assert len(tasks) == 3
+    assert route.call_count == 2
+    assert route.calls[1].request.url.params["offset"] == "2"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_team_tasks_paginates(client: AgamemnonClient) -> None:
+    route = respx.get(f"{BASE_URL}/v1/teams/team-1/tasks").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "tasks": [
+                        TASK_PAYLOAD,
+                        {**TASK_PAYLOAD, "id": "task-2"},
+                    ],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 0,
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "tasks": [{**TASK_PAYLOAD, "id": "task-3"}],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 2,
+                },
+            ),
+        ]
+    )
+    tasks = await client.list_team_tasks("team-1")
+    assert len(tasks) == 3
+    assert route.call_count == 2
+    assert route.calls[1].request.url.params["offset"] == "2"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_list_chaos_paginates(client: AgamemnonClient) -> None:
+    route = respx.get(f"{BASE_URL}/v1/chaos").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "faults": [
+                        FAULT_PAYLOAD,
+                        {**FAULT_PAYLOAD, "id": "fault-2"},
+                    ],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 0,
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "faults": [{**FAULT_PAYLOAD, "id": "fault-3"}],
+                    "total": 3,
+                    "limit": 2,
+                    "offset": 2,
+                },
+            ),
+        ]
+    )
+    faults = await client.list_chaos()
+    assert len(faults) == 3
+    assert route.call_count == 2
+    assert route.calls[1].request.url.params["offset"] == "2"
 
 
 @pytest.mark.asyncio
@@ -294,9 +481,7 @@ async def test_delete_agent(client: AgamemnonClient) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_list_teams(client: AgamemnonClient) -> None:
-    respx.get(f"{BASE_URL}/v1/teams").mock(
-        return_value=httpx.Response(200, json=[TEAM_PAYLOAD])
-    )
+    respx.get(f"{BASE_URL}/v1/teams").mock(return_value=httpx.Response(200, json=[TEAM_PAYLOAD]))
     teams = await client.list_teams()
     assert len(teams) == 1
     assert teams[0].id == "team-1"
@@ -349,9 +534,7 @@ async def test_delete_team(client: AgamemnonClient) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_list_tasks(client: AgamemnonClient) -> None:
-    respx.get(f"{BASE_URL}/v1/tasks").mock(
-        return_value=httpx.Response(200, json=[TASK_PAYLOAD])
-    )
+    respx.get(f"{BASE_URL}/v1/tasks").mock(return_value=httpx.Response(200, json=[TASK_PAYLOAD]))
     tasks = await client.list_tasks()
     assert len(tasks) == 1
     assert tasks[0].id == "task-1"
@@ -420,9 +603,7 @@ async def test_update_task_patch(client: AgamemnonClient) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_list_chaos(client: AgamemnonClient) -> None:
-    respx.get(f"{BASE_URL}/v1/chaos").mock(
-        return_value=httpx.Response(200, json=[FAULT_PAYLOAD])
-    )
+    respx.get(f"{BASE_URL}/v1/chaos").mock(return_value=httpx.Response(200, json=[FAULT_PAYLOAD]))
     faults = await client.list_chaos()
     assert len(faults) == 1
     assert faults[0].id == "fault-1"
@@ -495,9 +676,7 @@ async def test_request_sends_bearer_when_api_key_configured() -> None:
     config = AgamemnonConfig(host="localhost", port=8080, api_key="s3cret-key")
     authed = AgamemnonClient(config)
     route = respx.get(f"{BASE_URL}/v1/version").mock(
-        return_value=httpx.Response(
-            200, json={"version": "0.1.0", "name": "Agamemnon"}
-        )
+        return_value=httpx.Response(200, json={"version": "0.1.0", "name": "Agamemnon"})
     )
     try:
         await authed.version()
@@ -516,9 +695,7 @@ async def test_request_omits_authorization_when_api_key_unset() -> None:
     config = AgamemnonConfig(host="localhost", port=8080, api_key=None)
     unauthed = AgamemnonClient(config)
     route = respx.get(f"{BASE_URL}/v1/version").mock(
-        return_value=httpx.Response(
-            200, json={"version": "0.1.0", "name": "Agamemnon"}
-        )
+        return_value=httpx.Response(200, json={"version": "0.1.0", "name": "Agamemnon"})
     )
     try:
         await unauthed.version()

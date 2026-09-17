@@ -30,6 +30,9 @@ from agamemnon_client.models import (
     VersionResponse,
 )
 
+# Server-side hard cap on the ``limit`` query param (kMaxLimit in src/routes.cpp).
+_PAGE_LIMIT = 1000
+
 
 class AgamemnonClient:
     """Async HTTP client for Agamemnon's REST API.
@@ -90,9 +93,7 @@ class AgamemnonClient:
                 f"Cannot connect to Agamemnon at {self._base_url}: {exc}"
             ) from exc
         except httpx.TimeoutException as exc:
-            raise AgamemnonConnectionError(
-                f"Request to Agamemnon timed out: {exc}"
-            ) from exc
+            raise AgamemnonConnectionError(f"Request to Agamemnon timed out: {exc}") from exc
 
         if response.is_error:
             try:
@@ -105,6 +106,29 @@ class AgamemnonClient:
             return None
 
         return response.json()
+
+    async def _list_paginated(self, path: str, key: str) -> list[Any]:
+        """Fetch every item from a paginated list endpoint.
+
+        Follows the ``limit``/``offset`` envelope (``{key: [...], "total": N,
+        "limit": L, "offset": O}``) introduced by the pagination change,
+        requesting pages of ``_PAGE_LIMIT`` until all ``total`` items are
+        collected. A bare JSON list (pre-pagination server) is returned as-is.
+        """
+        first = await self._request("GET", path, params={"limit": _PAGE_LIMIT, "offset": 0})
+        if isinstance(first, list):
+            return first
+        items: list[Any] = list(first.get(key, []))
+        total = int(first.get("total", len(items)))
+        while len(items) < total:
+            page = await self._request(
+                "GET", path, params={"limit": _PAGE_LIMIT, "offset": len(items)}
+            )
+            batch = page if isinstance(page, list) else page.get(key, [])
+            if not batch:
+                break
+            items.extend(batch)
+        return items
 
     # ── Health / Version ──────────────────────────────────────────────────────
 
@@ -127,16 +151,13 @@ class AgamemnonClient:
     # ── Agents ────────────────────────────────────────────────────────────────
 
     async def list_agents(self) -> list[Agent]:
-        """List all agents."""
-        data = await self._request("GET", "/v1/agents")
-        agents = data if isinstance(data, list) else data.get("agents", [])
+        """List all agents, following pagination until every page is fetched."""
+        agents = await self._list_paginated("/v1/agents", "agents")
         return [Agent.model_validate(a) for a in agents]
 
     async def create_agent(self, agent: AgentCreate) -> Agent:
         """Create a new agent. Returns the created agent."""
-        data = await self._request(
-            "POST", "/v1/agents", json=agent.model_dump(exclude_none=True)
-        )
+        data = await self._request("POST", "/v1/agents", json=agent.model_dump(exclude_none=True))
         return Agent.model_validate(data.get("agent", data))
 
     async def create_docker_agent(self, agent: AgentDockerCreate) -> Agent:
@@ -183,16 +204,13 @@ class AgamemnonClient:
     # ── Teams ─────────────────────────────────────────────────────────────────
 
     async def list_teams(self) -> list[Team]:
-        """List all teams."""
-        data = await self._request("GET", "/v1/teams")
-        teams = data if isinstance(data, list) else data.get("teams", [])
+        """List all teams, following pagination until every page is fetched."""
+        teams = await self._list_paginated("/v1/teams", "teams")
         return [Team.model_validate(t) for t in teams]
 
     async def create_team(self, team: TeamCreate) -> Team:
         """Create a new team. Returns the created team."""
-        data = await self._request(
-            "POST", "/v1/teams", json=team.model_dump(exclude_none=True)
-        )
+        data = await self._request("POST", "/v1/teams", json=team.model_dump(exclude_none=True))
         return Team.model_validate(data.get("team", data))
 
     async def get_team(self, team_id: str) -> Team:
@@ -202,9 +220,7 @@ class AgamemnonClient:
 
     async def update_team(self, team_id: str, update: TeamUpdate) -> Team:
         """Fully replace a team (PUT)."""
-        data = await self._request(
-            "PUT", f"/v1/teams/{team_id}", json=update.model_dump()
-        )
+        data = await self._request("PUT", f"/v1/teams/{team_id}", json=update.model_dump())
         return Team.model_validate(data.get("team", data))
 
     async def delete_team(self, team_id: str) -> str:
@@ -215,15 +231,13 @@ class AgamemnonClient:
     # ── Tasks ─────────────────────────────────────────────────────────────────
 
     async def list_tasks(self) -> list[Task]:
-        """List all tasks across all teams."""
-        data = await self._request("GET", "/v1/tasks")
-        tasks = data if isinstance(data, list) else data.get("tasks", [])
+        """List all tasks across all teams, following pagination until every page is fetched."""
+        tasks = await self._list_paginated("/v1/tasks", "tasks")
         return [Task.model_validate(t) for t in tasks]
 
     async def list_team_tasks(self, team_id: str) -> list[Task]:
-        """List all tasks for a specific team."""
-        data = await self._request("GET", f"/v1/teams/{team_id}/tasks")
-        tasks = data if isinstance(data, list) else data.get("tasks", [])
+        """List all tasks for a specific team, following pagination until every page is fetched."""
+        tasks = await self._list_paginated(f"/v1/teams/{team_id}/tasks", "tasks")
         return [Task.model_validate(t) for t in tasks]
 
     async def create_task(self, team_id: str, task: TaskCreate) -> Task:
@@ -263,9 +277,8 @@ class AgamemnonClient:
     # ── Chaos ─────────────────────────────────────────────────────────────────
 
     async def list_chaos(self) -> list[ChaosEntry]:
-        """List all active chaos faults."""
-        data = await self._request("GET", "/v1/chaos")
-        faults = data if isinstance(data, list) else data.get("faults", [])
+        """List all active chaos faults, following pagination until every page is fetched."""
+        faults = await self._list_paginated("/v1/chaos", "faults")
         return [ChaosEntry.model_validate(f) for f in faults]
 
     async def inject_chaos(
