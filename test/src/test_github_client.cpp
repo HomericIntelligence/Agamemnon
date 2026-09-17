@@ -488,11 +488,11 @@ TEST_F(GitHubImportTransport, RefusesRedirectRetryAndGraphqlPartialErrors) {
 }
 
 TEST_F(GitHubImportTransport, SharesDeadlineAcrossRequestsAndCapsBodyWhileStreaming) {
-  std::atomic<int> mode{0};
-  server.Post("/graphql", [&](const auto&, auto& res) {
+  const auto mode = std::make_shared<std::atomic<int>>(0);
+  server.Post("/graphql", [this, mode](const auto&, auto& res) {
     ++calls;
-    if (mode == 0) std::this_thread::sleep_for(100ms);
-    res.set_content(mode == 1 ? std::string(8 * 1024 * 1024 + 1, 'x') : R"({"data":{}})",
+    if (mode->load() == 0) std::this_thread::sleep_for(100ms);
+    res.set_content(mode->load() == 1 ? std::string(8 * 1024 * 1024 + 1, 'x') : R"({"data":{}})",
                     "application/json");
   });
   start();
@@ -500,10 +500,10 @@ TEST_F(GitHubImportTransport, SharesDeadlineAcrossRequestsAndCapsBodyWhileStream
   EXPECT_NO_THROW(client->import_plan_comment("IC_1", deadline));
   EXPECT_THROW(client->import_plan_comment("IC_1", deadline), std::runtime_error);
   EXPECT_EQ(calls, 2);
-  mode = 1;
+  mode->store(1);
   ImportContext body;
   EXPECT_THROW(client->import_plan_comment("IC_1", body), std::runtime_error);
-  mode = 2;
+  mode->store(2);
   ImportContext aggregate;
   aggregate.consume_body(144u * 1024 * 1024 - 1);
   EXPECT_THROW(client->import_plan_comment("IC_1", aggregate), std::runtime_error);
