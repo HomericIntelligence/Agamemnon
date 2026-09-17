@@ -432,6 +432,9 @@ jobs:
   security-secrets-scan:
     name: security/secrets-scan
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -489,6 +492,13 @@ jobs:
           name: gitleaks-report
           path: gitleaks.sarif
           retention-days: 90
+
+      - name: Upload Gitleaks SARIF to code-scanning
+        if: always() && hashFiles('gitleaks.sarif') != ''
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
 
   # ── 6. build ───────────────────────────────────────────────────────────────
   build:
