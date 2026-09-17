@@ -76,6 +76,8 @@ class FleetService {
   std::map<std::string, Entry> entries_;
   void load_();
   Entry& find_(const std::string& kind, const std::string& id);
+  void check_provider_isolation_(const json& worker) const;
+  void check_tool_isolation_(const json& allocation) const;
   void persist_(Entry& entry, json document, const std::string& event);
   json build_parent_(const json& requested_parent, const json& workspace);
   json cancel_build_(Entry& entry, const json& request);

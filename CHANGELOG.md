@@ -40,6 +40,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   restart, and reject generic mutations that bypass retained work ownership
   (Refs #510).
 
+- `fix(fleet)`: reject shared provider/tool allocation identities at registration,
+  admission and fresh execution authorization, including after restart, while
+  preserving historical replay and confirmed cleanup (Refs #508).
+
 - `fix(ci)`: run all eight private JetStream durability regressions through the
   standard CTest integration gate and provision its pinned broker in the CI image
   (Refs #504).

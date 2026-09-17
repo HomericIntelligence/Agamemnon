@@ -44,6 +44,13 @@ json canonical_claim(const json& record) {
           {"workspace", record.at("workspace")}};
 }
 
+bool shares_build_capacity(const json& worker, const json& allocation) {
+  const auto allocation_id = worker.find("allocationId");
+  return worker.at("id") == allocation.at("workerId") ||
+         (allocation_id != worker.end() && allocation_id->is_string() &&
+          *allocation_id == allocation.at("id"));
+}
+
 json request_body(const httplib::Request& request) {
   if (request.body.size() > 16384) throw FleetError(413, "Fleet request exceeds 16 KiB");
   auto body = json::parse(request.body, nullptr, false);
@@ -166,6 +173,25 @@ FleetService::Entry& FleetService::find_(const std::string& kind, const std::str
   return found->second;
 }
 
+void FleetService::check_provider_isolation_(const json& worker) const {
+  for (const auto& allocation : build_catalog_.value("allocations", json::array()))
+    if (shares_build_capacity(worker, allocation))
+      throw FleetError(409, "registered tool identity cannot become an issue worker");
+  for (const auto& [key, entry] : entries_) {
+    const auto& other = entry.document.at("record");
+    if (fleet_build::typed(other) && other.at("build").at("reservation") != "released" &&
+        shares_build_capacity(worker, other.at("build").at("allocation")))
+      throw FleetError(409, "active tool identity cannot become an issue worker");
+  }
+}
+
+void FleetService::check_tool_isolation_(const json& allocation) const {
+  for (const auto& [key, entry] : entries_)
+    if (entry.document.at("kind") == "workers" &&
+        shares_build_capacity(entry.document.at("record"), allocation))
+      throw FleetError(409, "tool allocation cannot use a provider worker");
+}
+
 void FleetService::persist_(Entry& entry, json document, const std::string& event) {
   auto& record = document["record"];
   record["updatedAt"] = now_iso8601();
@@ -237,15 +263,7 @@ json FleetService::create(const std::string& kind, const json& body) {
       throw FleetError(400, "capacity must be between 1 and 108");
   }
   if (kind == "workers") {
-    for (const auto& allocation : build_catalog_.value("allocations", json::array()))
-      if (allocation.at("workerId") == id)
-        throw FleetError(409, "registered tool identity cannot become an issue worker");
-    for (const auto& [key, entry] : entries_) {
-      const auto& other = entry.document.at("record");
-      if (fleet_build::typed(other) && other.at("build").at("reservation") != "released" &&
-          other.at("build").at("allocation").at("workerId") == id)
-        throw FleetError(409, "active tool identity cannot become an issue worker");
-    }
+    check_provider_isolation_(record);
     auto& pool = find_("pools", string_field(body, "poolId")).document["record"];
     auto capacity = body["capacity"].get<int>();
     for (const auto& [key, entry] : entries_) {
@@ -334,8 +352,7 @@ json FleetService::submit_build(const json& request) {
   json policy;
   for (const auto& candidate : policies) {
     const auto& allocation = candidate.at("allocation");
-    if (entries_.contains("workers/" + allocation.at("workerId").get<std::string>()))
-      throw FleetError(409, "tool allocation cannot use a provider worker");
+    check_tool_isolation_(allocation);
     bool occupied = false;
     for (const auto& [key, entry] : entries_) {
       const auto& peer = entry.document.at("record");
@@ -417,6 +434,7 @@ json FleetService::deliver_build(const std::string& id, const json& request) {
   if (build_parent_(build.at("request").at("parent"), build.at("policy").at("workspace")) !=
       record.at("parent"))
     throw FleetError(409, "build parent no longer matches the admitted claim");
+  check_tool_isolation_(build.at("allocation"));
   if (!publisher_.publish("hi.fleet.control." + command.at("workerId").get<std::string>(),
                           command.dump()))
     throw FleetError(503, "build delivery remains uncertain");
@@ -459,6 +477,7 @@ json FleetService::claim_build_run(const std::string& id, const json& claim,
   if (build_parent_(build.at("request").at("parent"), build.at("policy").at("workspace")) !=
       record.at("parent"))
     throw FleetError(409, "build parent claim has changed");
+  check_tool_isolation_(build.at("allocation"));
   const json grant = {{"schema", "hi/fleet/build-grant/v1"},
                       {"claim", claim},
                       {"grantId", fleet_build::digest({{"buildId", id}, {"claim", claim}})},
@@ -651,8 +670,12 @@ json FleetService::command(const std::string& kind, const std::string& id,
     const auto& prior = previous["command"];
     if (prior["idempotencyKey"] == key || prior["commandId"] == command_id) {
       if (prior != envelope) throw FleetError(409, "command identity reused with different intent");
-      if (previous["status"] == "pending" && !publisher_.publish(subject, envelope.dump()))
-        throw FleetError(503, "command persisted; delivery uncertain; retry the same command");
+      if (previous["status"] == "pending") {
+        if (operation == "start" || operation == "resume")
+          check_provider_isolation_(find_("workers", worker_id).document.at("record"));
+        if (!publisher_.publish(subject, envelope.dump()))
+          throw FleetError(503, "command persisted; delivery uncertain; retry the same command");
+      }
       return {{"command", envelope}, {"status", previous["status"]}};
     }
   }
@@ -683,6 +706,7 @@ json FleetService::command(const std::string& kind, const std::string& id,
         (operation == "resume" && status != "interrupted"))
       throw FleetError(409, "target is not eligible for this operation");
     auto& worker = find_("workers", worker_id).document["record"];
+    check_provider_isolation_(worker);
     if (worker["status"] == "draining") throw FleetError(409, "worker is draining");
     int occupied = 0;
     for (const auto& [entry_key, other] : entries_) {

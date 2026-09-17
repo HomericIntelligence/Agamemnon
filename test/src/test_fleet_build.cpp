@@ -667,6 +667,371 @@ TEST_F(FleetConfiguredBuildRoutes, CleanupLostStopAndTerminalResponsesKeepTheirE
   EXPECT_EQ(github->created_issues, terminal_before);
 }
 
+// Synthetic historical records below model allocations accepted by an older
+// controller. No real provider, broker, allocation, or GitHub service is used.
+class FleetBuildAllocationRoutes : public FleetConfiguredBuildRoutes {
+ protected:
+  json admitted;
+  std::string build_path;
+  struct Snapshot {
+    decltype(BuildBacking{}.created_issues) backing;
+    std::size_t publications;
+    std::size_t durable_writes;
+    json parent_task;
+    json child;
+  };
+
+  void SetUp() override {
+    FleetConfiguredBuildRoutes::SetUp();
+    ASSERT_FALSE(HasFatalFailure());
+    active_parent();
+    ASSERT_FALSE(HasFatalFailure());
+    ASSERT_EQ(post("pools", {{"id", "provider-pool"}, {"capacity", 8}})->status, 201);
+  }
+  json provider(const std::string& id = "provider-worker",
+                const json& allocation = "provider-allocation") {
+    return {{"id", id},
+            {"poolId", "provider-pool"},
+            {"capacity", 1},
+            {"host", "separate-provider-host"},
+            {"allocationId", allocation}};
+  }
+  void add_provider(const json& allocation = "provider-allocation") {
+    const auto response = post("workers", provider("provider-worker", allocation));
+    ASSERT_TRUE(response);
+    ASSERT_EQ(response->status, 201) << response->body;
+  }
+  json record(const std::string& path) {
+    const auto response = client->Get("/v1/fleet/" + path);
+    EXPECT_TRUE(response);
+    if (!response) return json::object();
+    EXPECT_EQ(response->status, 200) << response->body;
+    return json::parse(response->body);
+  }
+  void admit() {
+    const auto response = post("build-jobs/submit", submission());
+    ASSERT_TRUE(response);
+    ASSERT_EQ(response->status, 202) << response->body;
+    admitted = json::parse(response->body);
+    build_path = "build-jobs/" + admitted.at("record").at("id").get<std::string>();
+  }
+  std::size_t writes() const {
+    std::size_t count = 0;
+    for (const auto& call : github->calls)
+      if (call.method == "create_issue" || call.method == "update_issue_body") ++count;
+    return count;
+  }
+  Snapshot checkpoint() {
+    return {github->created_issues, publisher.calls.size(), writes(),
+            hmas_task_to_json(*store.get_hmas_task("real-parent-task")),
+            admitted.is_null() ? json() : record(build_path)};
+  }
+  void unchanged(const Snapshot& before) {
+    EXPECT_EQ(github->created_issues, before.backing);
+    EXPECT_EQ(publisher.calls.size(), before.publications);
+    EXPECT_EQ(writes(), before.durable_writes);
+    EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), before.parent_task);
+    if (!before.child.is_null()) EXPECT_EQ(record(build_path), before.child);
+  }
+  void refresh_parent() {
+    const auto response =
+        post("events",
+             {{"schema", "hi/fleet/v1"},
+              {"eventId", "parent-refreshed"},
+              {"workerId", "laptop-worker"},
+              {"targetKind", "sessions"},
+              {"targetId", "parent-session"},
+              {"generation", 1},
+              {"sourceSequence", 2},
+              {"kind", "activity"},
+              {"event", {{"activity", "model_working"}, {"observedAt", "2026-09-16T00:00:00Z"}}}});
+    ASSERT_TRUE(response);
+    ASSERT_EQ(response->status, 200) << response->body;
+    const auto parent = record("sessions/parent-session");
+    ASSERT_EQ(parent.at("observationState"), "observed");
+    ASSERT_EQ(parent.at("status"), "running");
+    ASSERT_EQ(parent.at("claimStatus"), "claimed");
+  }
+  void restart_with_historical_overlap(bool admission = true) {
+    TearDown();
+    bool found_worker = false;
+    for (auto& [number, issue] : github->created_issues) {
+      if (issue.at("label") != "agamemnon-fleet") continue;
+      const auto body = issue.at("body").get<std::string>();
+      const auto begin = body.find("```json\n");
+      const auto end = body.find("\n```", begin + 8);
+      auto document = json::parse(body.substr(begin + 8, end - begin - 8));
+      auto& retained = document.at("record");
+      const bool worker =
+          document.at("kind") == "workers" && retained.at("id") == "provider-worker";
+      if (!worker && retained.value("workerId", "") != "provider-worker") continue;
+      found_worker = found_worker || worker;
+      retained["allocationId"] = "tool-allocation-1";
+      for (auto& event : document.at("events"))
+        if (event.contains("record")) event["record"]["allocationId"] = "tool-allocation-1";
+      issue["body"] = "## AgamemnonEntity: fleet\n\n```json\n" + document.dump() + "\n```\n";
+    }
+    ASSERT_TRUE(found_worker);
+    start_service(admission ? build_catalog() : json::object(), build_authorities());
+    ASSERT_FALSE(HasFatalFailure());
+    ASSERT_EQ(record("workers/provider-worker").at("allocationId"), "tool-allocation-1");
+  }
+  json control(const std::string& operation) {
+    const auto id = "provider-" + operation;
+    return {
+        {"commandId", id}, {"idempotencyKey", id}, {"generation", 1}, {"payload", json::object()}};
+  }
+};
+
+TEST_F(FleetBuildAllocationRoutes, CatalogRejectsSharedAllocationBeforeAnyBuildExists) {
+  const auto before = checkpoint();
+  const auto denied = post("workers", provider("conflicting-provider", "tool-allocation-1"));
+  ASSERT_TRUE(denied);
+  EXPECT_EQ(denied->status, 409) << denied->body;
+  unchanged(before);
+  EXPECT_EQ(record("build-jobs").at("total"), 0);
+  // Explicit separate capacity and optional legacy allocation metadata remain usable.
+  for (const auto& [id, allocation] : std::array<std::pair<const char*, json>, 2>{
+           {{"separate", "other-allocation"}, {"legacy", nullptr}}})
+    EXPECT_EQ(post("workers", provider(id, allocation))->status, 201);
+  auto legacy = provider("unspecified");
+  legacy.erase("allocationId");
+  EXPECT_EQ(post("workers", legacy)->status, 201);
+}
+
+TEST_F(FleetBuildAllocationRoutes, ProviderFirstRejectsBuildWithoutChangingParentOrPublishing) {
+  restart_service(false);
+  ASSERT_FALSE(HasFatalFailure());
+  add_provider("tool-allocation-1");
+  ASSERT_FALSE(HasFatalFailure());
+  restart_service();
+  ASSERT_FALSE(HasFatalFailure());
+  refresh_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto before = checkpoint();
+  const auto response = post("build-jobs/submit", submission());
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 409) << response->body;
+  unchanged(before);
+  EXPECT_EQ(record("build-jobs").at("total"), 0);
+}
+
+TEST_F(FleetBuildAllocationRoutes, RetainedReservationBlocksRegistrationUntilConfirmedRelease) {
+  admit();
+  ASSERT_FALSE(HasFatalFailure());
+  restart_service(false);
+  ASSERT_FALSE(HasFatalFailure());
+  refresh_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  for (const auto& phase : {"admitted", "authorized", "cancelling"}) {
+    SCOPED_TRACE(phase);
+    if (std::string(phase) == "authorized")
+      ASSERT_EQ(supervisor_post(build_path + "/claim-run", run_claim(admitted))->status, 200);
+    if (std::string(phase) == "cancelling")
+      ASSERT_EQ(post(build_path + "/cancel", build_cancel())->status, 202);
+    ASSERT_EQ(record(build_path).at("build").at("reservation"), "reserved");
+    const auto before = checkpoint();
+    const auto denied =
+        post("workers", provider(std::string("provider-") + phase, "tool-allocation-1"));
+    ASSERT_TRUE(denied);
+    EXPECT_EQ(denied->status, 409) << denied->body;
+    unchanged(before);
+  }
+  const auto parent = hmas_task_to_json(*store.get_hmas_task("real-parent-task"));
+  ASSERT_EQ(supervisor_post(build_path + "/facts", terminal_fact(admitted, true))->status, 200);
+  EXPECT_EQ(record(build_path).at("build").at("reservation"), "released");
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), parent);
+  EXPECT_EQ(post("workers", provider("after-release", "tool-allocation-1"))->status, 201);
+  restart_service();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto before = checkpoint();
+  EXPECT_EQ(post("workers", provider("still-configured", "tool-allocation-1"))->status, 409);
+  unchanged(before);
+}
+
+TEST_F(FleetBuildAllocationRoutes, RestartConflictFencesFreshDeliveryAndGrantWithAnActiveParent) {
+  add_provider();
+  admit();
+  ASSERT_FALSE(HasFatalFailure());
+  restart_with_historical_overlap(false);
+  ASSERT_FALSE(HasFatalFailure());
+  refresh_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto before = checkpoint();
+  const auto replay = post("build-jobs/submit", submission());
+  ASSERT_TRUE(replay);
+  ASSERT_EQ(replay->status, 202) << replay->body;
+  EXPECT_EQ(json::parse(replay->body).at("record"), before.child);
+  EXPECT_EQ(json::parse(replay->body).at("command"), admitted.at("command"));
+  unchanged(before);
+  const json delivery = {{"schema", "hi/fleet/build-delivery/v1"},
+                         {"commandId", admitted.at("command").at("commandId")},
+                         {"generation", 1},
+                         {"attempt", 1}};
+  const auto delivered = post(build_path + "/deliver", delivery);
+  ASSERT_TRUE(delivered);
+  EXPECT_EQ(delivered->status, 409) << delivered->body;
+  unchanged(before);
+  const auto granted = supervisor_post(build_path + "/claim-run", run_claim(admitted));
+  ASSERT_TRUE(granted);
+  EXPECT_EQ(granted->status, 409) << granted->body;
+  unchanged(before);
+}
+
+TEST_F(FleetBuildAllocationRoutes, RestartConflictPreservesHistoricalReplaysAndTerminalCleanup) {
+  add_provider();
+  admit();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto granted = supervisor_post(build_path + "/claim-run", run_claim(admitted));
+  ASSERT_TRUE(granted);
+  ASSERT_EQ(granted->status, 200) << granted->body;
+  const auto original_grant = json::parse(granted->body);
+  restart_with_historical_overlap(false);
+  ASSERT_FALSE(HasFatalFailure());
+  // Parent observation intentionally stays unknown: historical replay needs no new admission.
+  const auto before = checkpoint();
+  const auto replay = post("build-jobs/submit", submission());
+  ASSERT_TRUE(replay);
+  ASSERT_EQ(replay->status, 202) << replay->body;
+  EXPECT_EQ(json::parse(replay->body).at("record"), before.child);
+  EXPECT_EQ(json::parse(replay->body).at("command"), admitted.at("command"));
+  const auto grant_replay = supervisor_post(build_path + "/claim-run", run_claim(admitted));
+  ASSERT_TRUE(grant_replay);
+  ASSERT_EQ(grant_replay->status, 200) << grant_replay->body;
+  EXPECT_EQ(json::parse(grant_replay->body), original_grant);
+  auto changed = run_claim(admitted);
+  changed["claimId"] = "different-historical-claim";
+  EXPECT_EQ(supervisor_post(build_path + "/claim-run", changed)->status, 409);
+  unchanged(before);
+  ASSERT_EQ(supervisor_post(build_path + "/facts", terminal_fact(admitted))->status, 200);
+  EXPECT_EQ(record(build_path).at("build").at("reservation"), "released");
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), before.parent_task);
+}
+
+TEST_F(FleetBuildAllocationRoutes, RestartConflictKeepsInspectionCancellationAndExactCleanup) {
+  add_provider();
+  admit();
+  ASSERT_FALSE(HasFatalFailure());
+  restart_with_historical_overlap(false);
+  ASSERT_FALSE(HasFatalFailure());
+  const auto before = checkpoint();
+  EXPECT_EQ(record("build-jobs").at("total"), 1);
+  EXPECT_EQ(
+      record("commands/" + admitted.at("command").at("commandId").get<std::string>()).at("record"),
+      before.child);
+  EXPECT_TRUE(record("events?after=0").contains("events"));
+  unchanged(before);
+  const auto stop = post(build_path + "/cancel", build_cancel());
+  ASSERT_TRUE(stop);
+  ASSERT_EQ(stop->status, 202) << stop->body;
+  ASSERT_EQ(publisher.calls.size(), before.publications + 1);
+  const auto command = json::parse(stop->body).at("command");
+  EXPECT_EQ(json::parse(publisher.calls.back().payload), command);
+  const auto stopping = checkpoint();
+  ASSERT_EQ(post(build_path + "/cancel", build_cancel())->status, 202);
+  EXPECT_EQ(github->created_issues, stopping.backing);
+  EXPECT_EQ(writes(), stopping.durable_writes);
+  ASSERT_EQ(publisher.calls.size(), stopping.publications + 1);
+  EXPECT_EQ(json::parse(publisher.calls.back().payload), command);
+  const auto retry = checkpoint();
+  auto wrong = terminal_fact(admitted, true);
+  wrong["allocationId"] = "wrong-allocation";
+  EXPECT_EQ(supervisor_post(build_path + "/facts", wrong)->status, 409);
+  wrong = terminal_fact(admitted, true);
+  wrong["cleanup"] = "unknown";
+  EXPECT_EQ(supervisor_post(build_path + "/facts", wrong)->status, 409);
+  unchanged(retry);
+  ASSERT_EQ(supervisor_post(build_path + "/facts", terminal_fact(admitted, true))->status, 200);
+  EXPECT_EQ(record(build_path).at("build").at("reservation"), "released");
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), before.parent_task);
+  EXPECT_EQ(publisher.calls.size(), retry.publications);
+}
+
+using ProviderActivationCase = std::pair<const char*, const char*>;
+class FleetBuildProviderActivation : public FleetBuildAllocationRoutes,
+                                     public ::testing::WithParamInterface<ProviderActivationCase> {
+};
+
+TEST_P(FleetBuildProviderActivation, RestartConflictFencesNewAndPendingButAllowsReadOnlyReplay) {
+  const std::string operation = GetParam().first;
+  const std::string phase = GetParam().second;
+  add_provider();
+  admit();
+  ASSERT_FALSE(HasFatalFailure());
+  HmasTask task{};
+  task.id = "provider-task";
+  task.layer = HmasLayer::L3_TaskAgent;
+  task.state = TaskState::Pending;
+  store.create_hmas_task(task);
+  ASSERT_EQ(post("sessions", {{"id", "provider-session"},
+                              {"workerId", "provider-worker"},
+                              {"agentId", "provider-agent"},
+                              {"workspace", "/work/provider"},
+                              {"taskId", task.id},
+                              {"domain", "pipeline"},
+                              {"hmasRole", "task-agent"}})
+                ->status,
+            201);
+  const std::string path = "sessions/provider-session/";
+  if (operation == "resume") {
+    ASSERT_EQ(post(path + "start", control("start"))->status, 202);
+    ASSERT_EQ(post(path + "interrupt", control("interrupt"))->status, 202);
+    const auto stopped = post("events", {{"schema", "hi/fleet/v1"},
+                                         {"eventId", "provider-stopped"},
+                                         {"workerId", "provider-worker"},
+                                         {"targetKind", "sessions"},
+                                         {"targetId", "provider-session"},
+                                         {"generation", 1},
+                                         {"sourceSequence", 1},
+                                         {"kind", "activity"},
+                                         {"event",
+                                          {{"activity", "idle"},
+                                           {"outcome", "interrupted"},
+                                           {"backgroundCleanup", "confirmed_empty"},
+                                           {"commandId", "provider-interrupt"},
+                                           {"observedAt", "2026-09-16T00:00:00Z"}}}});
+    ASSERT_TRUE(stopped);
+    ASSERT_EQ(stopped->status, 200) << stopped->body;
+    ASSERT_EQ(record("sessions/provider-session").at("status"), "interrupted");
+    ASSERT_EQ(record("sessions/provider-session").at("claimStatus"), "released");
+  }
+  if (phase != "new") {
+    ASSERT_EQ(post(path + operation, control(operation))->status, 202);
+    if (phase != "pending") {
+      ASSERT_EQ(post(path + "ack", {{"schema", "hi/fleet/v1"},
+                                    {"workerId", "provider-worker"},
+                                    {"generation", 1},
+                                    {"commandId", "provider-" + operation},
+                                    {"eventId", "provider-received"},
+                                    {"status", phase}})
+                    ->status,
+                200);
+    }
+    ASSERT_EQ(record("commands/provider-" + operation).at("status"), phase);
+  }
+  restart_with_historical_overlap();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto before = checkpoint();
+  const auto target = record("sessions/provider-session");
+  const auto provider_task = hmas_task_to_json(*store.get_hmas_task(task.id));
+  const auto response = post(path + operation, control(operation));
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, phase == "new" || phase == "pending" ? 409 : 202) << response->body;
+  unchanged(before);
+  EXPECT_EQ(record("sessions/provider-session"), target);
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task(task.id)), provider_task);
+}
+
+INSTANTIATE_TEST_SUITE_P(AllocationOverlap, FleetBuildProviderActivation,
+                         ::testing::Values(ProviderActivationCase{"start", "new"},
+                                           ProviderActivationCase{"start", "pending"},
+                                           ProviderActivationCase{"start", "accepted"},
+                                           ProviderActivationCase{"start", "completed"},
+                                           ProviderActivationCase{"resume", "new"},
+                                           ProviderActivationCase{"resume", "pending"},
+                                           ProviderActivationCase{"resume", "accepted"},
+                                           ProviderActivationCase{"resume", "completed"}));
+
 TEST_F(FleetConfiguredBuildRoutes, FencingDeliveryRetryRequiresTheCurrentParentAndSameCommand) {
   active_parent();
   ASSERT_FALSE(HasFatalFailure());
