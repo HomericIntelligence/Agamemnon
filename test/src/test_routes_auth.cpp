@@ -71,11 +71,10 @@ TEST_F(RoutesAuthTest, ChaosListUnauthorized) {
   EXPECT_EQ(res->status, 401);
 }
 
-TEST_F(RoutesAuthTest, WorkflowsListUnauthorized) {
-  auto res = get_no_auth("/v1/workflows");
-  ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 401);
-}
+// /v1/workflows route is not implemented; see issue #175 (and #46) for
+// background. The two former Workflows* tests were removed when this
+// previously-orphaned file was wired into the unit-test target in #175.
+// Re-add them if and when the route lands.
 
 TEST_F(RoutesAuthTest, VersionUnauthorized) {
   auto res = get_no_auth("/v1/version");
@@ -119,12 +118,6 @@ TEST_F(RoutesAuthTest, TasksListWithApiKey) {
 
 TEST_F(RoutesAuthTest, ChaosListWithApiKey) {
   auto res = get_with_key("/v1/chaos");
-  ASSERT_TRUE(res);
-  EXPECT_EQ(res->status, 200);
-}
-
-TEST_F(RoutesAuthTest, WorkflowsListWithApiKey) {
-  auto res = get_with_key("/v1/workflows");
   ASSERT_TRUE(res);
   EXPECT_EQ(res->status, 200);
 }

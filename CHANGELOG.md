@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Tests
+
+- Wired previously-orphaned `test_routes_auth.cpp` into the unit-test build target (the two `/v1/workflows` tests removed — route not implemented; see #175, #46)
+- Added HTTP-layer pagination tests for `/v1/agents`, `/v1/tasks`, `/v1/chaos`, `/v1/teams` list endpoints (limit, offset, edge cases, non-numeric input → 400)
+- Added route tests for populated dead-letter queue (GET drain + DELETE), chaos creation happy path, escalate happy path (drives task to `InProgress` via state-machine internals before hitting the HTTP route), and the per-team empty task list (#175)
+
 ### Added
 
 - `feat(ci)`: add markdownlint/pixi/justfile/symlink CI jobs + fix lint blockers (#34)

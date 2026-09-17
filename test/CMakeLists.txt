@@ -35,6 +35,9 @@ add_executable(${PROJECT_NAME}_tests
   src/test_agent_envelope.cpp
   src/test_orchestrator_persistence.cpp
   src/test_github_webhook.cpp
+  src/test_routes_auth.cpp               # #175: previously orphaned, wired in
+  src/test_routes_pagination_http.cpp    # #175
+  src/test_routes_extra.cpp              # #175
 )
 
 target_compile_features(${PROJECT_NAME}_tests PRIVATE cxx_std_20)
