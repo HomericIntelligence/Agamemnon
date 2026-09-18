@@ -1094,6 +1094,9 @@ json FleetService::resolve(const std::string& kind, const std::string& id, const
 }
 
 void register_fleet_routes(httplib::Server& server, std::shared_ptr<FleetService> fleet) {
+  // These handlers parse HTTP inputs and map service results to responses.
+  // FleetService checks admission and ownership and applies state changes.
+  // Build routes separate submission, delivery, run claims, facts, and log reads.
   server.Get(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/logs)",
              [fleet](const httplib::Request& request, httplib::Response& response) {
                reply(response, 200, [&] {
@@ -1132,6 +1135,7 @@ void register_fleet_routes(httplib::Server& server, std::shared_ptr<FleetService
               [fleet](const httplib::Request& request, httplib::Response& response) {
                 reply(response, 202, [&] { return fleet->submit_build(request_body(request)); });
               });
+  // Project routes expose health and explicit reconciliation.
   server.Get("/v1/fleet/projects", [fleet](const httplib::Request&, httplib::Response& response) {
     reply(response, 200, [&] { return fleet->projects_health(); });
   });
@@ -1139,6 +1143,7 @@ void register_fleet_routes(httplib::Server& server, std::shared_ptr<FleetService
               [fleet](const httplib::Request&, httplib::Response& response) {
                 reply(response, 200, [&] { return fleet->reconcile_projects(); });
               });
+  // The service checks the separate operator credential for manual resolution.
   server.Post(R"(/v1/fleet/(sessions|executions|build-jobs)/([A-Za-z0-9_-]+)/resolve)",
               [fleet](const httplib::Request& request, httplib::Response& response) {
                 reply(response, 200, [&] {
@@ -1147,6 +1152,7 @@ void register_fleet_routes(httplib::Server& server, std::shared_ptr<FleetService
                                         request.get_header_value("X-Fleet-Resolution-Key"));
                 });
               });
+  // Command and event routes expose status and pass worker facts to the service.
   server.Get(R"(/v1/fleet/commands/([A-Za-z0-9_-]+))",
              [fleet](const httplib::Request& request, httplib::Response& response) {
                reply(response, 200, [&] { return fleet->get_command(request.matches[1]); });
@@ -1171,6 +1177,7 @@ void register_fleet_routes(httplib::Server& server, std::shared_ptr<FleetService
                  }
                });
              });
+  // Shared resource routes delegate record access and control to the service.
   server.Get(R"(/v1/fleet/(pools|workers|sessions|executions|build-jobs))",
              [fleet](const httplib::Request& request, httplib::Response& response) {
                reply(response, 200, [&] { return fleet->list(request.matches[1]); });
