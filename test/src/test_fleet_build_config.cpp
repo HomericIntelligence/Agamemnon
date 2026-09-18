@@ -1,3 +1,4 @@
+#include "agamemnon/fleet_build.hpp"
 #include "agamemnon/fleet_build_config.hpp"
 
 #include <fcntl.h>
@@ -11,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include "fleet_build_tls_fixture.hpp"
 #include <gtest/gtest.h>
 
 namespace {
@@ -80,8 +82,13 @@ class FleetBuildConfig : public ::testing::Test {
     }
   }
 
-  static json artifacts(const std::string& origin = "http://127.0.0.1:43210") {
-    return {{"schema", "hi/fleet/build-artifacts/v1"}, {"origin", origin}, {"key", secret}};
+  static json artifacts(const std::string& origin = "https://127.0.0.1:43210") {
+    // Generate once so repeated reads and expected JSON use the same public CA.
+    static const auto certificate = fleet_build_tls_test::certificate_pem();
+    return {{"schema", "hi/fleet/build-artifacts/v2"},
+            {"origin", origin},
+            {"key", secret},
+            {"caCertificatePem", certificate}};
   }
 
   void rejects_artifact(const std::optional<std::string>& selected, bool durable = true,
@@ -94,6 +101,8 @@ class FleetBuildConfig : public ::testing::Test {
       EXPECT_FALSE(message.empty());
       EXPECT_EQ(message.find(secret), std::string::npos);
       EXPECT_EQ(message.find(path.string()), std::string::npos);
+      EXPECT_EQ(message.find("fleet-artifact-invalid-trust"), std::string::npos);
+      EXPECT_EQ(message.find("-----BEGIN"), std::string::npos);
     }
   }
 };
@@ -338,10 +347,42 @@ TEST_F(FleetBuildConfig, ArtifactPathAbsentIsDisabled) {
   EXPECT_EQ(load_build_artifact_configuration(std::nullopt, false, false), json::object());
 }
 
-TEST_F(FleetBuildConfig, ArtifactConfigurationPreservesLiteralLoopbackProfiles) {
-  for (const auto& value : {json::object(), artifacts(), artifacts("http://[::1]:43210")}) {
+TEST_F(FleetBuildConfig, ArtifactHttpsProfileAcceptsDedicatedTrust) {
+  for (const auto* origin : {"https://127.0.0.1:43210", "https://[::1]:43210"}) {
+    SCOPED_TRACE(origin);
+    const auto value = artifacts(origin);
     write(value.dump(), 0400);
-    EXPECT_EQ(load_build_artifact_configuration(path.string(), true, true), value);
+    EXPECT_NO_THROW(
+        { EXPECT_EQ(load_build_artifact_configuration(path.string(), true, true), value); });
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRejectsLegacyPlaintextProfiles) {
+  for (const auto* origin : {"http://127.0.0.1:43210", "http://[::1]:43210"}) {
+    SCOPED_TRACE(origin);
+    const json legacy = {
+        {"schema", "hi/fleet/build-artifacts/v1"}, {"origin", origin}, {"key", secret}};
+    write(legacy.dump());
+    rejects_artifact(path.string());
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRejectsPlaintextEvenWithTheV2SchemaAndTrust) {
+  for (const auto* origin : {"http://127.0.0.1:43210", "http://[::1]:43210"}) {
+    SCOPED_TRACE(origin);
+    write(artifacts(origin).dump());
+    rejects_artifact(path.string());
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactConfigurationPreservesLiteralLoopbackProfiles) {
+  for (const auto& value : {json::object(), artifacts(), artifacts("https://[::1]:43210"),
+                            artifacts("https://127.0.0.1:1"), artifacts("https://[::1]:65535")}) {
+    for (const mode_t mode : {0400, 0600}) {
+      SCOPED_TRACE(mode);
+      write(value.dump(), mode);
+      EXPECT_EQ(load_build_artifact_configuration(path.string(), true, true), value);
+    }
   }
 }
 
@@ -372,27 +413,159 @@ TEST_F(FleetBuildConfig, ArtifactConfigurationUsesThePrivateBoundedJsonReader) {
   // Last-value-wins parsing would otherwise leave a valid literal-loopback document.
   write("{\"key\":\"discard\"," + artifacts().dump().substr(1));
   rejects_artifact(path.string());
+  write("{\"caCertificatePem\":\"discard\"," + artifacts().dump().substr(1));
+  rejects_artifact(path.string());
   write("{\"" + std::string(secret) + "\":}");
   rejects_artifact(path.string());
 }
 
 TEST_F(FleetBuildConfig, ArtifactConfigurationRejectsRemoteAndUnknownProfiles) {
-  for (const auto* origin : {"https://127.0.0.1:43210", "http://localhost:43210",
-                             "http://192.0.2.1:43210", "http://127.0.0.1:43210/path",
-                             "http://127.0.0.1:43210?proxy=1", "http://127.0.0.1:65536"}) {
+  for (const auto* origin : {"https://localhost:43210",
+                             "https://192.0.2.1:43210",
+                             "https://127.0.0.2:43210",
+                             "https://127.1:43210",
+                             "https://2130706433:43210",
+                             "https://[0:0:0:0:0:0:0:1]:43210",
+                             "https://[::ffff:127.0.0.1]:43210",
+                             "https://[::1%25lo]:43210",
+                             "https://user:pass@127.0.0.1:43210",
+                             "https://127.0.0.1:43210/",
+                             "https://127.0.0.1:43210/path",
+                             "https://127.0.0.1:43210?proxy=1",
+                             "https://127.0.0.1:43210#fragment",
+                             "https://127.0.0.1",
+                             "https://127.0.0.1:0",
+                             "https://127.0.0.1:01",
+                             "https://127.0.0.1:+1",
+                             "https://127.0.0.1:65536",
+                             "https://[::1]:65536",
+                             "HTTPS://127.0.0.1:43210",
+                             " https://127.0.0.1:43210",
+                             "https://127.0.0.1:43210 "}) {
+    SCOPED_TRACE(origin);
     write(artifacts(origin).dump());
     rejects_artifact(path.string());
   }
   auto extra = artifacts();
   extra["redirects"] = true;
   auto wrong_schema = artifacts();
-  wrong_schema["schema"] = "hi/fleet/build-artifacts/v2";
+  wrong_schema["schema"] = "hi/fleet/build-artifacts/v1";
   auto invalid_key = artifacts();
   invalid_key["key"] = std::string(secret) + "\n";
   for (const auto& value : {json::array(), extra, wrong_schema, invalid_key}) {
     write(value.dump());
     rejects_artifact(path.string());
   }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRequiresEveryClosedProfileField) {
+  for (const auto* field : {"schema", "origin", "key", "caCertificatePem"}) {
+    SCOPED_TRACE(field);
+    auto value = artifacts();
+    value.erase(field);
+    write(value.dump());
+    rejects_artifact(path.string());
+  }
+  auto trust_path = artifacts();
+  trust_path["caCertificateFile"] = path.string();
+  write(trust_path.dump());
+  rejects_artifact(path.string());
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRequiresStringCertificateDataAtStartup) {
+  for (const auto& certificate :
+       {json(nullptr), json(false), json(1), json::array(), json::object()}) {
+    auto value = artifacts();
+    value["caCertificatePem"] = certificate;
+    write(value.dump());
+    rejects_artifact(path.string());
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRejectsMalformedCertificateAtStartup) {
+  const auto certificate = artifacts().at("caCertificatePem").get<std::string>();
+  const std::vector<std::string> invalid = {
+      "",
+      " \t\r\n",
+      "fleet-artifact-invalid-trust",
+      "-----BEGIN CERTIFICATE-----\nfleet-artifact-invalid-trust\n"
+      "-----END CERTIFICATE-----\n",
+      "-----BEGIN CERTIFICATE-----\n-----END CERTIFICATE-----\n",
+      certificate.substr(0, certificate.find("-----END CERTIFICATE-----")),
+      "-----BEGIN TRUSTED CERTIFICATE-----\nfleet-artifact-invalid-trust\n"
+      "-----END TRUSTED CERTIFICATE-----\n"};
+  for (std::size_t index = 0; index < invalid.size(); ++index) {
+    SCOPED_TRACE(index);
+    auto value = artifacts();
+    value["caCertificatePem"] = invalid[index];
+    write(value.dump());
+    rejects_artifact(path.string());
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRejectsAdditionalPemObjectsAtStartup) {
+  const auto certificate = artifacts().at("caCertificatePem").get<std::string>();
+  // Deliberately invalid envelope text, not a private key or CRL. No synthetic
+  // or operator private-key bytes are written to the configuration fixture.
+  const auto invalid_envelope = [](const std::string& label) {
+    return "-----BEGIN " + label + "-----\nfleet-artifact-invalid-trust\n-----END " + label +
+           "-----\n";
+  };
+  const auto key_envelope = invalid_envelope("PRIVATE KEY");
+  const auto crl_envelope = invalid_envelope("X509 CRL");
+  const std::vector<std::string> invalid = {certificate + certificate, certificate + key_envelope,
+                                            key_envelope + certificate, certificate + crl_envelope,
+                                            crl_envelope + certificate};
+  for (std::size_t index = 0; index < invalid.size(); ++index) {
+    SCOPED_TRACE(index);
+    auto value = artifacts();
+    value["caCertificatePem"] = invalid[index];
+    write(value.dump());
+    rejects_artifact(path.string());
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsAllowsOnlyWhitespaceOutsideTheCertificateEnvelope) {
+  const auto certificate = artifacts().at("caCertificatePem").get<std::string>();
+  auto value = artifacts();
+  value["caCertificatePem"] = " \t\r\n" + certificate + " \t\r\n";
+  write(value.dump());
+  EXPECT_EQ(load_build_artifact_configuration(path.string(), true, true), value);
+  for (const auto& invalid :
+       {"fleet-artifact-invalid-trust\n" + certificate,
+        certificate + "fleet-artifact-invalid-trust", certificate + std::string(1, '\x7f')}) {
+    value["caCertificatePem"] = invalid;
+    write(value.dump());
+    rejects_artifact(path.string());
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsRejectsEmbeddedAndTrailingNulCertificateData) {
+  const auto certificate = artifacts().at("caCertificatePem").get<std::string>();
+  for (const auto position : {std::size_t{0}, certificate.size() / 2, certificate.size()}) {
+    SCOPED_TRACE(position);
+    auto invalid = certificate;
+    invalid.insert(position, 1, '\0');
+    auto value = artifacts();
+    value["caCertificatePem"] = invalid;
+    write(value.dump());
+    rejects_artifact(path.string());
+    EXPECT_THROW(agamemnon::fleet_build::validate_log_configuration(value), std::exception);
+  }
+}
+
+TEST_F(FleetBuildConfig, ArtifactHttpsBoundsTrustEvenWithoutTheStartupFileReader) {
+  auto certificate = artifacts().at("caCertificatePem").get<std::string>();
+  ASSERT_LT(certificate.size(), max_bytes);
+  certificate.resize(max_bytes, ' ');
+  auto value = artifacts();
+  value["caCertificatePem"] = certificate;
+  EXPECT_NO_THROW(agamemnon::fleet_build::validate_log_configuration(value));
+  certificate.push_back(' ');
+  value["caCertificatePem"] = certificate;
+  EXPECT_THROW(agamemnon::fleet_build::validate_log_configuration(value), std::exception);
+  write(value.dump());
+  rejects_artifact(path.string());
 }
 
 }  // namespace

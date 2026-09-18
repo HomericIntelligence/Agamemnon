@@ -454,18 +454,36 @@ backend URL, credential or filesystem path.
 `AGAMEMNON_FLEET_BUILD_ARTIFACTS` selects a separate private operator file. It
 uses the same 1 MiB, ownership, mode and no-link checks as the admission file,
 and requires durable persistence and API authentication. Its closed document
-contains `schema: hi/fleet/build-artifacts/v1`, `origin`, and the dedicated `key`.
+contains `schema: hi/fleet/build-artifacts/v2`, `origin`, the dedicated `key`,
+and `caCertificatePem` with one ordinary X509 PEM trust certificate. The trust
+field is bounded to 1 MiB even when validation is called directly; the startup
+file's 1 MiB limit covers the whole document. Invalid PEM, embedded NUL,
+additional PEM objects, and non-whitespace outside the certificate are rejected.
 An absent variable or an empty object disables log reads. Invalid configuration
 stops startup before external services; loading the file makes no connection.
 
 The first backend profile accepts only canonical literal
-`http://127.0.0.1:<port>` or `http://[::1]:<port>` origins with explicit ports
-1 through 65535. DNS names, other addresses, HTTPS, URL credentials, paths,
+`https://127.0.0.1:<port>` or `https://[::1]:<port>` origins with explicit ports
+1 through 65535. DNS names, other addresses, HTTP, URL credentials, paths,
 queries and fragments are rejected before connecting. Redirects and inherited
 proxies are disabled. The local read uses its dedicated backend key, a 500 ms
 connection limit, a 1 s total limit and a 400,000-byte encoded response ceiling.
 Remote artifact backends are not enabled by this profile and require a separate
-qualified interface.
+qualified interface. TLS verifies the certificate chain against the dedicated
+trust and checks the URL's host identity. Default trust paths are disabled.
+Provision the backend certificate with the selected literal IP in its IP SAN.
+
+Existing v1/HTTP files fail startup; there is no downgrade or compatibility retry.
+Remove the configuration to leave log reads disabled until a compatible TLS
+artifact service is available. Then install the v2 configuration and restart.
+Certificate renewal under the same trust anchor requires no client trust change.
+Changing the trust anchor requires a coordinated configuration/service rollout
+and can temporarily make reads unavailable.
+
+The planned Hephaestus supervisor/collector owns this private artifact endpoint.
+It is not implemented in Hephaestus revision `ce29bd8732cceaadcd958d0b58586be81a4de73f`.
+The controller client and its synthetic tests do not constitute a deployed
+artifact service, independent collection, or safe worker isolation.
 
 The returned `hi/fleet/build-logs/v1` object binds `buildId`, `attempt`,
 `snapshotDigest`, `stream`, `after`, `next`, `data`, `chunkDigest`, `complete`,

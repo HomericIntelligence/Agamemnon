@@ -16,8 +16,10 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <thread>
 
+#include "fleet_build_tls_fixture.hpp"
 #include "httplib.h"
 #include <gtest/gtest.h>
 
@@ -1804,52 +1806,52 @@ TEST_F(FleetLargeBuildRoutes, SerializedAdmissionRetainsCancelAndCleanupAfterEvi
 
 class FleetLoggedBuildRoutes : public FleetConfiguredBuildRoutes {
  protected:
-  httplib::Server backend;
-  std::thread backend_thread;
   int backend_port = 0;
   std::mutex backend_mutex;
   json page;
   std::string raw_body;
   int backend_status = 200;
   int delay_ms = 0;
-  std::vector<httplib::Request> requests;
+  std::vector<fleet_build_tls_test::Request> requests;
   json config_override;
+  // Destroy the listener before any state its callback borrows, including on a
+  // failed setup. Normal teardown first joins the frontend, then this backend.
+  std::unique_ptr<fleet_build_tls_test::Server> backend;
+
+  virtual fleet_build_tls_test::Mode backend_mode() { return fleet_build_tls_test::Mode::Trusted; }
 
   json build_artifacts() override {
     if (!config_override.is_null()) return config_override;
-    return {{"schema", "hi/fleet/build-artifacts/v1"},
-            {"origin", "http://127.0.0.1:" + std::to_string(backend_port)},
-            {"key", "private-artifact-fixture"}};
+    return {{"schema", "hi/fleet/build-artifacts/v2"},
+            {"origin", "https://127.0.0.1:" + std::to_string(backend_port)},
+            {"key", "private-artifact-fixture"},
+            {"caCertificatePem", backend->ca_pem()}};
   }
 
   void SetUp() override {
-    backend.Get(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/logs)",
-                [this](const httplib::Request& request, httplib::Response& response) {
-                  std::string body;
-                  int delay = 0;
-                  {
-                    std::lock_guard lock(backend_mutex);
-                    requests.push_back(request);
-                    response.status = backend_status;
-                    body = raw_body.empty() ? page.dump() : raw_body;
-                    delay = delay_ms;
-                  }
-                  if (delay) std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-                  response.set_header("Location", "/must-not-follow");
-                  response.set_content(body, "application/json");
-                });
-    backend_port = backend.bind_to_any_port("127.0.0.1");
-    ASSERT_GT(backend_port, 0);
-    backend_thread = std::thread([this] { backend.listen_after_bind(); });
-    backend.wait_until_ready();
+    backend = std::make_unique<fleet_build_tls_test::Server>(
+        [this](const fleet_build_tls_test::Request& request) {
+          std::lock_guard lock(backend_mutex);
+          requests.push_back(request);
+          if (!std::regex_match(request.target.substr(0, request.target.find('?')),
+                                std::regex(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/logs)")))
+            return fleet_build_tls_test::Response{404, "{}", std::chrono::milliseconds(0)};
+          return fleet_build_tls_test::Response{backend_status,
+                                                raw_body.empty() ? page.dump() : raw_body,
+                                                std::chrono::milliseconds(delay_ms)};
+        },
+        backend_mode());
+    backend_port = backend->port();
     FleetConfiguredBuildRoutes::SetUp();
-    client->set_read_timeout(5);
+    if (!HasFatalFailure()) client->set_read_timeout(5);
   }
 
   void TearDown() override {
     FleetConfiguredBuildRoutes::TearDown();
-    backend.stop();
-    if (backend_thread.joinable()) backend_thread.join();
+    if (backend) {
+      backend->stop();
+      EXPECT_TRUE(backend->error().empty()) << backend->error();
+    }
   }
 
   json admit() {
@@ -1891,15 +1893,31 @@ class FleetLoggedBuildRoutes : public FleetConfiguredBuildRoutes {
   }
 };
 
+class FleetPlaintextBuildRoutes : public FleetLoggedBuildRoutes {
+ protected:
+  json build_artifacts() override {
+    return config_override.is_null() ? json::object() : config_override;
+  }
+};
+
+TEST_F(FleetPlaintextBuildRoutes, PlaintextArtifactProfileIsRejectedBeforeAnyRequest) {
+  config_override = {{"schema", "hi/fleet/build-artifacts/v1"},
+                     {"origin", "http://127.0.0.1:" + std::to_string(backend_port)},
+                     {"key", "private-artifact-fixture"}};
+  EXPECT_THROW((void)configured_service(build_catalog(), build_authorities()), FleetError);
+  EXPECT_EQ(request_count(), 0);
+}
+
 TEST_F(FleetLoggedBuildRoutes, OnlyExplicitCanonicalLoopbackOriginsCanBeConfigured) {
   const auto valid = build_artifacts();
   for (const auto& origin :
-       {"https://127.0.0.1:443", "https://artifacts.example:443", "http://localhost:1234",
-        "http://192.0.2.1:1234", "http://127.0.0.2:1234", "http://127.0.0.1", "http://127.0.0.1:0",
-        "http://127.0.0.1:0123", "http://127.0.0.1:65536", "http://127.0.0.1:1234/",
-        "http://127.0.0.1:1234/path", "http://127.0.0.1:1234?token=x",
-        "http://127.0.0.1:1234#fragment", "http://user@127.0.0.1:1234", "http://2130706433:1234",
-        "http://[::2]:1234", "http://[::1]", "file:///tmp/logs"}) {
+       {"http://127.0.0.1:443", "http://[::1]:443", "https://artifacts.example:443",
+        "https://localhost:1234", "https://192.0.2.1:1234", "https://127.0.0.2:1234",
+        "https://127.0.0.1", "https://127.0.0.1:0", "https://127.0.0.1:0123",
+        "https://127.0.0.1:65536", "https://127.0.0.1:1234/", "https://127.0.0.1:1234/path",
+        "https://127.0.0.1:1234?token=x", "https://127.0.0.1:1234#fragment",
+        "https://user@127.0.0.1:1234", "https://2130706433:1234", "https://[::2]:1234",
+        "https://[::1]", "file:///tmp/logs"}) {
     SCOPED_TRACE(origin);
     config_override = valid;
     config_override["origin"] = origin;
@@ -1912,9 +1930,10 @@ TEST_F(FleetLoggedBuildRoutes, OnlyExplicitCanonicalLoopbackOriginsCanBeConfigur
     EXPECT_THROW((void)configured_service(build_catalog(), build_authorities()), FleetError);
   }
   config_override = valid;
-  config_override["origin"] = "http://[::1]:1234";
+  config_override["origin"] = "https://[::1]:1234";
   EXPECT_NO_THROW((void)configured_service(build_catalog(), build_authorities()));
-  EXPECT_EQ(request_count(), 0);  // Configuration never contacts even the local backend.
+  EXPECT_EQ(request_count(), 0);
+  EXPECT_EQ(backend->connections(), 0);  // Configuration never contacts the backend.
 }
 
 TEST_F(FleetLoggedBuildRoutes, PrivatePagesRetainByteIdentityAndNeverWriteControlHistory) {
@@ -1933,9 +1952,13 @@ TEST_F(FleetLoggedBuildRoutes, PrivatePagesRetainByteIdentityAndNeverWriteContro
   EXPECT_EQ(response->status, 200) << response->body;
   if (response->status == 200) EXPECT_EQ(json::parse(response->body), expected);
   ASSERT_EQ(request_count(), 1);
+  EXPECT_EQ(backend->handshakes(), 1);
+  EXPECT_EQ(github->created_issues, before);
+  EXPECT_EQ(publisher.calls.size(), calls_before);
   {
     std::lock_guard lock(backend_mutex);
     const auto& request = requests.front();
+    EXPECT_EQ(request.target.substr(0, request.target.find('?')), path);
     EXPECT_EQ(request.get_header_value("Authorization"), "Bearer private-artifact-fixture");
     EXPECT_FALSE(request.has_header("X-Fleet-Build-Key"));
     EXPECT_EQ(request.get_param_value("attempt"), "1");
@@ -1975,7 +1998,7 @@ TEST_F(FleetLoggedBuildRoutes, PrivatePagesRetainByteIdentityAndNeverWriteContro
   EXPECT_EQ(calls_before + 1, terminal_calls);
 }
 
-TEST_F(FleetLoggedBuildRoutes, WrongOrOversizedPrivatePagesAreRejectedAfterRealHttp) {
+TEST_F(FleetLoggedBuildRoutes, WrongOrOversizedPrivatePagesAreRejectedAfterRealHttps) {
   const auto admitted = admit();
   ASSERT_FALSE(HasFatalFailure());
   const auto valid = log_page(admitted);
@@ -2041,6 +2064,102 @@ TEST_F(FleetLoggedBuildRoutes, BackendStatusRedirectAndDeadlineKeepReadOnlyFailu
   EXPECT_EQ(github->created_issues, before);
   EXPECT_EQ(publisher.calls.size(), calls_before);
 }
+
+TEST_F(FleetLoggedBuildRoutes, ProxyEnvironmentCannotReceivePrivateArtifactRequests) {
+  fleet_build_tls_test::Server proxy(
+      [](const fleet_build_tls_test::Request&) { return fleet_build_tls_test::Response{}; },
+      fleet_build_tls_test::Mode::Plaintext);
+  const auto proxy_origin = "http://127.0.0.1:" + std::to_string(proxy.port());
+  struct RestoreEnvironment {
+    std::vector<std::pair<std::string, std::optional<std::string>>> saved;
+    ~RestoreEnvironment() {
+      for (const auto& [name, value] : saved)
+        EXPECT_EQ(value ? ::setenv(name.c_str(), value->c_str(), 1) : ::unsetenv(name.c_str()), 0);
+    }
+  } environment;
+  for (const auto* name : {"http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy",
+                           "ALL_PROXY", "no_proxy", "NO_PROXY"}) {
+    const auto* prior = std::getenv(name);
+    environment.saved.emplace_back(name, prior ? std::optional<std::string>(prior) : std::nullopt);
+    const bool bypass =
+        std::string_view(name) == "no_proxy" || std::string_view(name) == "NO_PROXY";
+    ASSERT_EQ(::setenv(name, bypass ? "" : proxy_origin.c_str(), 1), 0);
+  }
+  const auto admitted = admit();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto expected = log_page(admitted);
+  respond_with(expected);
+  const auto path = "/v1/fleet/build-jobs/" + expected.at("buildId").get<std::string>() + "/logs";
+  const auto before = github->created_issues;
+  const auto calls_before = publisher.calls.size();
+  const auto response = client->Get(path);
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 200) << response->body;
+  if (response->status == 200) EXPECT_EQ(json::parse(response->body), expected);
+  EXPECT_EQ(request_count(), 1);
+  proxy.stop();
+  EXPECT_EQ(proxy.connections(), 0);
+  EXPECT_TRUE(proxy.error().empty()) << proxy.error();
+  EXPECT_EQ(github->created_issues, before);
+  EXPECT_EQ(publisher.calls.size(), calls_before);
+}
+
+class FleetArtifactTlsRoutes : public FleetLoggedBuildRoutes,
+                               public ::testing::WithParamInterface<fleet_build_tls_test::Mode> {
+ protected:
+  fleet_build_tls_test::Mode backend_mode() override { return GetParam(); }
+};
+
+TEST_P(FleetArtifactTlsRoutes, TrustAndIdentityGateAuthorizationWithoutControlWrites) {
+  using fleet_build_tls_test::Mode;
+  const auto admitted = admit();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto expected = log_page(admitted);
+  respond_with(expected);
+  const auto path = "/v1/fleet/build-jobs/" + expected.at("buildId").get<std::string>() + "/logs";
+  const auto before = github->created_issues;
+  const auto calls_before = publisher.calls.size();
+  const auto fences_before = github->fence_writes;
+  const auto response = client->Get(path);
+  ASSERT_TRUE(response);
+  ASSERT_GE(backend->connections(), 1);  // Rejection must reach the actual transport.
+  const bool trusted = GetParam() == Mode::Trusted;
+  EXPECT_EQ(response->status, trusted ? 200 : 503) << response->body;
+  if (trusted && response->status == 200) EXPECT_EQ(json::parse(response->body), expected);
+  EXPECT_EQ(request_count(), trusted ? 1 : 0);  // No accepted HTTP authorization on failure.
+  if (trusted) {
+    EXPECT_EQ(backend->handshakes(), 1);
+    std::lock_guard lock(backend_mutex);
+    ASSERT_EQ(requests.size(), 1);
+    EXPECT_EQ(requests.front().get_header_value("Authorization"),
+              "Bearer private-artifact-fixture");
+  }
+  EXPECT_EQ(github->created_issues, before);
+  EXPECT_EQ(github->fence_writes, fences_before);
+  EXPECT_EQ(publisher.calls.size(), calls_before);
+}
+
+INSTANTIATE_TEST_SUITE_P(Transport, FleetArtifactTlsRoutes,
+                         ::testing::Values(fleet_build_tls_test::Mode::Trusted,
+                                           fleet_build_tls_test::Mode::WrongTrust,
+                                           fleet_build_tls_test::Mode::WrongIp,
+                                           fleet_build_tls_test::Mode::Expired,
+                                           fleet_build_tls_test::Mode::Plaintext),
+                         [](const ::testing::TestParamInfo<fleet_build_tls_test::Mode>& info) {
+                           switch (info.param) {
+                             case fleet_build_tls_test::Mode::Trusted:
+                               return "Trusted";
+                             case fleet_build_tls_test::Mode::WrongTrust:
+                               return "WrongTrust";
+                             case fleet_build_tls_test::Mode::WrongIp:
+                               return "WrongIp";
+                             case fleet_build_tls_test::Mode::Expired:
+                               return "Expired";
+                             case fleet_build_tls_test::Mode::Plaintext:
+                               return "Plaintext";
+                           }
+                           return "Unknown";
+                         });
 
 // Fixed harmless source bytes for the separate consumer fixture.
 constexpr const char* export_justfile = "test-unit:\n  @printf 'fixture build\\n'\n";

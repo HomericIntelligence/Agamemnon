@@ -9,9 +9,11 @@
 #include <limits>
 #include <memory>
 #include <openssl/evp.h>
+#include <openssl/pem.h>
 #include <regex>
 #include <set>
 #include <sstream>
+#include <string_view>
 
 namespace agamemnon::fleet_build {
 namespace {
@@ -28,6 +30,29 @@ void fields(const json& value, const std::set<std::string>& names) {
 
 bool matches(const json& value, const char* pattern) {
   return value.is_string() && std::regex_match(value.get<std::string>(), std::regex(pattern));
+}
+
+void validate_certificate(const json& value) {
+  require(value.is_string());
+  const auto& bytes = value.get_ref<const std::string&>();
+  require(!bytes.empty() && bytes.size() <= 1024 * 1024 && bytes.find('\0') == std::string::npos);
+  constexpr std::string_view whitespace = " \t\r\n\f\v";
+  constexpr std::string_view begin = "-----BEGIN CERTIFICATE-----";
+  constexpr std::string_view end = "-----END CERTIFICATE-----";
+  const auto first = bytes.find_first_not_of(whitespace);
+  require(first != std::string::npos);
+  const auto last = bytes.find_last_not_of(whitespace);
+  const std::string_view envelope(bytes.data() + first, last - first + 1);
+  // The PEM reader otherwise tolerates unrelated text and further PEM objects.
+  require(envelope.starts_with(begin) && envelope.ends_with(end) &&
+          envelope.find("-----BEGIN", begin.size()) == std::string_view::npos &&
+          envelope.find("-----END") == envelope.size() - end.size());
+  const std::unique_ptr<BIO, decltype(&BIO_free)> input(
+      BIO_new_mem_buf(envelope.data(), static_cast<int>(envelope.size())), BIO_free);
+  require(input != nullptr);
+  const std::unique_ptr<X509, decltype(&X509_free)> certificate(
+      PEM_read_bio_X509(input.get(), nullptr, nullptr, nullptr), X509_free);
+  require(certificate != nullptr);
 }
 
 std::uint64_t quantity(const json& value) {
@@ -70,22 +95,23 @@ std::string byte_digest(const std::string& data) {
 
 void validate_log_configuration(const json& config) {
   if (config.is_object() && config.empty()) return;
-  fields(config, {"schema", "origin", "key"});
-  require(config.at("schema") == "hi/fleet/build-artifacts/v1" && config.at("origin").is_string() &&
+  fields(config, {"schema", "origin", "key", "caCertificatePem"});
+  require(config.at("schema") == "hi/fleet/build-artifacts/v2" && config.at("origin").is_string() &&
           config.at("key").is_string());
   const auto key = config.at("key").get<std::string>();
   require(!key.empty() && key.size() <= 4096 &&
           std::all_of(key.begin(), key.end(), [](unsigned char c) { return c > 32 && c < 127; }));
   const auto origin = config.at("origin").get<std::string>();
   std::smatch matched;
-  // First profile is deliberately local only. No DNS, HTTPS, alternate numeric
+  // This profile is deliberately local only. No DNS, HTTP, alternate numeric
   // host spelling, implicit port, URL credentials, path, query or fragment.
   require(std::regex_match(origin, matched,
-                           std::regex(R"(http://(127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4}))")));
+                           std::regex(R"(https://(127\.0\.0\.1|\[::1\]):([1-9][0-9]{0,4}))")));
   const auto port = matched[2].str();
   int number = 0;
   const auto [end, error] = std::from_chars(port.data(), port.data() + port.size(), number);
   require(error == std::errc{} && end == port.data() + port.size() && number <= 65535);
+  validate_certificate(config.at("caCertificatePem"));
 }
 
 void validate_log_page(const json& page, const json& record, const std::string& stream,
@@ -140,7 +166,15 @@ json read_logs(const json& config, const json& record, const std::string& stream
   option(CURLOPT_URL, url.c_str());
   option(CURLOPT_HTTPHEADER, headers.get());
   option(CURLOPT_HTTPGET, 1L);
-  option(CURLOPT_PROTOCOLS_STR, "http");
+  option(CURLOPT_PROTOCOLS_STR, "https");
+  auto certificate = config.at("caCertificatePem").get<std::string>();
+  curl_blob trust{certificate.data(), certificate.size(), CURL_BLOB_COPY};
+  option(CURLOPT_SSL_VERIFYPEER, 1L);
+  option(CURLOPT_SSL_VERIFYHOST, 2L);
+  option(CURLOPT_CAINFO, static_cast<const char*>(nullptr));
+  option(CURLOPT_CAPATH, static_cast<const char*>(nullptr));
+  option(CURLOPT_SSL_OPTIONS, 0L);
+  option(CURLOPT_CAINFO_BLOB, &trust);
   option(CURLOPT_FOLLOWLOCATION, 0L);
   option(CURLOPT_PROXY, "");
   option(CURLOPT_CONNECTTIMEOUT_MS, 500L);
