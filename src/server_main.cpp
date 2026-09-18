@@ -1,5 +1,7 @@
 #include "agamemnon/auth.hpp"
 #include "agamemnon/fleet.hpp"
+#include "agamemnon/fleet_build_config.hpp"
+#include "agamemnon/fleet_issue_config.hpp"
 #include "agamemnon/fleet_research.hpp"
 #include "agamemnon/metrics.hpp"
 #include "agamemnon/nats_client.hpp"
@@ -77,6 +79,29 @@ int main() {
     std::cerr << "[agamemnon] FATAL: invalid Nestor research import configuration\n";
     return 1;
   }
+  std::shared_ptr<const agamemnon::IssueImportConfiguration> issue_config;
+  try {
+    issue_config = agamemnon::load_issue_import_configuration(
+        optional_env("AGAMEMNON_ISSUE_INTAKE_CONFIG"),
+        optional_env("AGAMEMNON_IMPORT_STATE_BRANCH"), gh_token && *gh_token,
+        api_key_env && *api_key_env, research_config.has_value());
+  } catch (const std::exception&) {
+    std::cerr << "[agamemnon] FATAL: invalid issue intake configuration\n";
+    return 1;
+  }
+  agamemnon::BuildConfiguration build_config;
+  nlohmann::json build_artifacts;
+  try {
+    build_config = agamemnon::load_build_configuration(
+        optional_env("AGAMEMNON_FLEET_BUILD_CONFIG"), gh_token && *gh_token,
+        api_key_env && *api_key_env, optional_env("AGAMEMNON_FLEET_BUILD_STATE_BRANCH"));
+    build_artifacts = agamemnon::load_build_artifact_configuration(
+        optional_env("AGAMEMNON_FLEET_BUILD_ARTIFACTS"), gh_token && *gh_token,
+        api_key_env && *api_key_env);
+  } catch (const std::exception&) {
+    std::cerr << "[agamemnon] FATAL: invalid Fleet build configuration\n";
+    return 1;
+  }
 
   // ── Rate limiter ──────────────────────────────────────────────────────────
   const char* rps_env = std::getenv("RATE_LIMIT_RPS");
@@ -128,8 +153,17 @@ int main() {
                  "persistence)\n";
   }
 
-  agamemnon::Store store(gh_client);
+  agamemnon::Store store(gh_client, issue_config);
   store.set_metrics(&metrics);
+  std::shared_ptr<agamemnon::FleetIssueService> issue;
+  if (issue_config) {
+    try {
+      issue = std::make_shared<agamemnon::FleetIssueService>(store, issue_config, auth);
+    } catch (const std::exception&) {
+      std::cerr << "[agamemnon] FATAL: issue intake initialization failed\n";
+      return 1;
+    }
+  }
   std::shared_ptr<agamemnon::FleetResearchService> research;
   if (research_config) {
     try {
@@ -208,7 +242,8 @@ int main() {
     });
   }
   auto fleet = std::make_shared<agamemnon::FleetService>(
-      store, nats, &orchestrator, resolution_key ? resolution_key : "", projects);
+      store, nats, &orchestrator, resolution_key ? resolution_key : "", projects,
+      build_config.catalog, build_config.authorities, build_artifacts, build_config.state_branch);
   // GitHub-backed Fleet must not silently use Core epic delivery. Explicit
   // durable mode without GitHub is rejected before attaching a consumer.
   const char* durable_env = std::getenv("AGAMEMNON_DURABLE_EPICS");
@@ -298,7 +333,7 @@ int main() {
   server->set_payload_max_length(static_cast<size_t>(request_limit_mb) * 1024UL * 1024UL);
 
   agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator, fleet,
-                             research);
+                             research, issue);
 
   // ── Signal handling ───────────────────────────────────────────────────────
   // Heap-allocated so the signal trampoline's g_shutdown_flag pointer never

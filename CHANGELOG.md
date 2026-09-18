@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `feat(fleet)`: import an explicitly selected planned GitHub issue from an
+  operator registry as a durable Pending implementation leaf, preserving the
+  canonical work issue and keeping worker admission separate (Refs #510).
+
+- `feat(fleet)`: admit registered snapshot-bound subordinate build jobs while
+  preserving the parent issue writer, with durable run grants, fenced cleanup,
+  private loopback log pages, operator configuration, and Python client methods
+  with whole-request deadlines and bounded response reads (Refs #508).
+  Runtime execution and artifact collection require separate qualification.
+
 - `test(fleet)`: add an executable receiver for actual Telemachy producer bytes,
   with private-broker replay and controlled GitHub failure checks (Refs #504).
 
@@ -24,6 +34,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `feat`: add hybrid Conan 2.x packaging for turnkey builds
 
 ### Fixed
+
+- `fix(fleet)`: return a verified canonical task reference on unique import
+  conflicts after complete history validation, preserving legacy identities and
+  withholding references for ambiguous, malformed or incomplete history (Refs #510).
+
+- `fix(fleet)`: share bounded GitHub reconciliation and conditional creation
+  attempts across research/direct imports, preserve uncertain attempts across
+  restart, and reject generic mutations that bypass retained work ownership
+  (Refs #510).
+
+- `fix(fleet)`: reject shared provider/tool allocation identities at registration,
+  admission and fresh execution authorization, including after restart, while
+  preserving historical replay and confirmed cleanup (Refs #508).
 
 - `fix(ci)`: run all eight private JetStream durability regressions through the
   standard CTest integration gate and provision its pinned broker in the CI image

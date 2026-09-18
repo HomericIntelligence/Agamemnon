@@ -17,6 +17,7 @@ class MetricsRegistry;
 class Orchestrator;
 class FleetService;
 class FleetResearchService;
+class FleetIssueService;
 
 /// Register all /v1/ route handlers on the given server.
 /// Store, NatsPublisher, RateLimiter, AuthMiddleware, MetricsRegistry, and
@@ -26,6 +27,7 @@ class FleetResearchService;
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
                      Orchestrator& orchestrator, std::shared_ptr<FleetService> fleet = nullptr,
-                     std::shared_ptr<FleetResearchService> research = nullptr);
+                     std::shared_ptr<FleetResearchService> research = nullptr,
+                     std::shared_ptr<FleetIssueService> issue = nullptr);
 
 }  // namespace agamemnon

@@ -1,5 +1,6 @@
 #include "agamemnon/fleet.hpp"
 
+#include "agamemnon/fleet_build.hpp"
 #include "agamemnon/nats_publisher.hpp"
 #include "agamemnon/orchestrator.hpp"
 #include "agamemnon/projects.hpp"
@@ -7,6 +8,8 @@
 #include "agamemnon/version.hpp"
 
 #include <algorithm>
+#include <charconv>
+#include <limits>
 #include <openssl/crypto.h>
 #include <regex>
 #include <set>
@@ -41,11 +44,29 @@ json canonical_claim(const json& record) {
           {"workspace", record.at("workspace")}};
 }
 
+bool shares_build_capacity(const json& worker, const json& allocation) {
+  const auto allocation_id = worker.find("allocationId");
+  return worker.at("id") == allocation.at("workerId") ||
+         (allocation_id != worker.end() && allocation_id->is_string() &&
+          *allocation_id == allocation.at("id"));
+}
+
 json request_body(const httplib::Request& request) {
   if (request.body.size() > 16384) throw FleetError(413, "Fleet request exceeds 16 KiB");
   auto body = json::parse(request.body, nullptr, false);
   if (!body.is_object()) throw FleetError(400, "request must be a JSON object");
   return body;
+}
+
+std::uint64_t log_quantity(const httplib::Request& request, const char* name,
+                           std::uint64_t fallback) {
+  if (!request.has_param(name)) return fallback;
+  const auto text = request.get_param_value(name);
+  std::uint64_t value = 0;
+  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (error != std::errc{} || end != text.data() + text.size())
+    throw FleetError(400, "invalid build log quantity");
+  return value;
 }
 
 template <typename Function>
@@ -70,13 +91,24 @@ void reply(httplib::Response& response, int status, Function function) {
 }  // namespace
 
 FleetService::FleetService(Store& store, NatsPublisher& publisher, Orchestrator* orchestrator,
-                           std::string resolution_key, std::shared_ptr<ProjectProjection> projects)
+                           std::string resolution_key, std::shared_ptr<ProjectProjection> projects,
+                           json build_catalog, json build_authorities, json build_artifacts,
+                           std::string build_state_branch)
     : store_(store),
       publisher_(publisher),
       orchestrator_(orchestrator),
       resolution_key_(std::move(resolution_key)),
       github_(store.github_client()),
-      projects_(projects ? std::move(projects) : std::make_shared<ProjectProjection>(github_)) {}
+      projects_(projects ? std::move(projects) : std::make_shared<ProjectProjection>(github_)),
+      build_catalog_(std::move(build_catalog)),
+      build_authorities_(std::move(build_authorities)),
+      build_artifacts_(std::move(build_artifacts)),
+      build_state_branch_(std::move(build_state_branch)) {
+  fleet_build::validate_log_configuration(build_artifacts_);
+  if (!build_state_branch_.empty()) validate_github_state_branch(build_state_branch_);
+  if (!build_catalog_.empty() && build_state_branch_.empty())
+    throw FleetError(503, "build admission requires its durable state branch");
+}
 
 json FleetService::projects_health() const { return projects_->health(); }
 json FleetService::reconcile_projects() { return projects_->reconcile(); }
@@ -103,8 +135,24 @@ void FleetService::load_() {
       if (document.at("schema") != "hi/fleet/v1")
         throw FleetError(503, "unsupported Fleet record schema");
       auto kind = document.at("kind").get<std::string>();
-      check_kind(kind);
       auto id = document.at("record").at("id").get<std::string>();
+      const auto& intents = document.at("commands");
+      const bool build_command =
+          std::any_of(intents.begin(), intents.end(), [](const auto& intent) {
+            const auto payload = intent.at("command").value("payload", json());
+            return payload.is_object() &&
+                   payload.value("schema", json()) == "hi/fleet/build-command/v1";
+          });
+      // Retained commands keep their protocol even if record metadata is lost.
+      if (build_command || document.at("record").contains("build") ||
+          (kind == "build-jobs" && !document.at("record").contains("workerId"))) {
+        try {
+          fleet_build::validate_document(document);
+        } catch (const FleetError&) {
+          throw FleetError(503, "malformed subordinate build; reconciliation required");
+        }
+      }
+      check_kind(kind);
       document["record"]["activity"] = "unknown";
       document["record"]["observationState"] = "reconciliation_required";
       for (const auto& event : document.at("events"))
@@ -130,16 +178,57 @@ FleetService::Entry& FleetService::find_(const std::string& kind, const std::str
   return found->second;
 }
 
+void FleetService::check_provider_isolation_(const json& worker) const {
+  ImportContext context;
+  if (const auto fence = read_build_fence_(context)) {
+    const auto& identity = fence->document.at("identity");
+    const auto found = entries_.find("build-jobs/" + identity.at("buildId").get<std::string>());
+    if (found != entries_.end() &&
+        (fleet_build::admission_identity(found->second.document).dump() != identity.dump() ||
+         (fence->document.at("phase") == "linked" &&
+          fence->document.at("backingIssue") != found->second.issue)))
+      throw FleetError(503, "build creation requires exact canonical reconciliation");
+    const bool unresolved = fence->document.at("phase") == "creating" || found == entries_.end();
+    if (unresolved && shares_build_capacity(worker, identity.at("allocation")))
+      throw FleetError(409, "unresolved build creation retains its tool capacity");
+  }
+  for (const auto& allocation : build_catalog_.value("allocations", json::array()))
+    if (shares_build_capacity(worker, allocation))
+      throw FleetError(409, "registered tool identity cannot become an issue worker");
+  for (const auto& [key, entry] : entries_) {
+    const auto& other = entry.document.at("record");
+    if (fleet_build::typed(other) && other.at("build").at("reservation") != "released" &&
+        shares_build_capacity(worker, other.at("build").at("allocation")))
+      throw FleetError(409, "active tool identity cannot become an issue worker");
+  }
+}
+
+void FleetService::check_tool_isolation_(const json& allocation) const {
+  for (const auto& [key, entry] : entries_)
+    if (entry.document.at("kind") == "workers" &&
+        shares_build_capacity(entry.document.at("record"), allocation))
+      throw FleetError(409, "tool allocation cannot use a provider worker");
+}
+
 void FleetService::persist_(Entry& entry, json document, const std::string& event) {
   auto& record = document["record"];
   record["updatedAt"] = now_iso8601();
-  document["events"].push_back({{"seq", sequence_ + 1},
-                                {"kind", document["kind"]},
-                                {"targetId", record["id"]},
-                                {"event", event},
-                                {"at", record["updatedAt"]},
-                                {"record", record}});
+  json transition = {{"seq", sequence_ + 1},
+                     {"kind", document["kind"]},
+                     {"targetId", record["id"]},
+                     {"event", event},
+                     {"at", record["updatedAt"]}};
+  if (fleet_build::typed(record)) {
+    transition["buildTransition"] = {{"status", record.at("status")},
+                                     {"reservation", record.at("build").at("reservation")}};
+  } else {
+    transition["record"] = record;
+  }
+  document["events"].push_back(std::move(transition));
   auto body = body_(document);
+  if (fleet_build::typed(record) && body.size() > 45000 && event != "build.cancel_requested" &&
+      event != "build.terminal")
+    throw FleetError(507, "build history must retain its cancellation and cleanup reserve");
   try {
     if (entry.issue.empty()) {
       auto issue = github_->create_issue(
@@ -192,6 +281,7 @@ json FleetService::create(const std::string& kind, const json& body) {
       throw FleetError(400, "capacity must be between 1 and 108");
   }
   if (kind == "workers") {
+    check_provider_isolation_(record);
     auto& pool = find_("pools", string_field(body, "poolId")).document["record"];
     auto capacity = body["capacity"].get<int>();
     for (const auto& [key, entry] : entries_) {
@@ -228,6 +318,355 @@ json FleetService::create(const std::string& kind, const json& body) {
   auto result = entry.document["record"];
   entries_.emplace(kind + "/" + id, std::move(entry));
   return result;
+}
+
+json FleetService::build_parent_(const json& requested_parent, const json& workspace) {
+  const auto& parent = find_(requested_parent.at("targetKind"), requested_parent.at("targetId"))
+                           .document.at("record");
+  for (const auto* field : {"generation", "sessionId", "executionId"})
+    if (parent.value(field, json(nullptr)) != requested_parent.at(field))
+      throw FleetError(409, "build parent execution identity is stale");
+  if ((parent.value("claimStatus", "") != "reserved" &&
+       parent.value("claimStatus", "") != "claimed") ||
+      (parent.value("status", "") != "running" && parent.value("status", "") != "waiting" &&
+       parent.value("status", "") != "idle") ||
+      parent.value("observationState", "") != "observed" ||
+      parent.value("activity", "unknown") == "unknown" ||
+      parent.value("activity", "") == "disconnected")
+    throw FleetError(409, "build parent requires current eligible observation");
+  const auto task = store_.get_hmas_task(string_field(parent, "taskId"));
+  if (!task || task->fleet_claim != canonical_claim(parent) ||
+      task->state == TaskState::Completed || task->state == TaskState::Failed)
+    throw FleetError(409, "build parent does not retain the canonical task claim");
+  if (parent.at("workspace") != workspace.at("parentWorkspace") ||
+      task->repo != workspace.at("repository").get<std::string>())
+    throw FleetError(409, "parent workspace is not the registered build source");
+  auto binding = requested_parent;
+  binding["taskId"] = parent.at("taskId");
+  binding["agentId"] = parent.at("agentId");
+  binding["claim"] = canonical_claim(parent);
+  return binding;
+}
+
+std::optional<ImportFence> FleetService::read_build_fence_(ImportContext& context) const {
+  if (build_state_branch_.empty()) return std::nullopt;
+  if (!github_) throw FleetError(503, "build admission requires GitHub persistence");
+  const auto fence = github_->build_read_fence(build_state_branch_, context);
+  if (fence) {
+    try {
+      if (!std::regex_match(fence->sha, std::regex("[a-f0-9]{40}")))
+        throw FleetError(503, "invalid build creation revision");
+      fleet_build::validate_create_attempt(fence->document);
+    } catch (const std::exception&) {
+      throw FleetError(503, "build creation requires reconciliation");
+    }
+  }
+  return fence;
+}
+
+ImportFence FleetService::write_build_fence_(const json& document,
+                                             const std::optional<std::string>& expected_sha,
+                                             ImportContext& context) {
+  fleet_build::validate_create_attempt(document);
+  const auto confirmed =
+      github_->build_write_fence(build_state_branch_, document, expected_sha, context);
+  if (!std::regex_match(confirmed.sha, std::regex("[a-f0-9]{40}")) ||
+      confirmed.document.dump() != document.dump())
+    throw FleetError(503, "build creation write is unconfirmed");
+  return confirmed;
+}
+
+std::optional<ImportFence> FleetService::reconcile_build_fence_(ImportContext& context) {
+  auto fence = read_build_fence_(context);
+  if (!fence) return std::nullopt;
+  const auto key = "build-jobs/" + fence->document.at("identity").at("buildId").get<std::string>();
+  if (!entries_.contains(key)) {
+    // A prior empty scan cannot resolve a create that can still commit later.
+    loaded_ = false;
+    load_();
+  }
+  const auto found = entries_.find(key);
+  if (found == entries_.end())
+    throw FleetError(503, "build creation is unresolved; new admission is blocked");
+  const auto& entry = found->second;
+  try {
+    fleet_build::validate_document(entry.document);
+    if (fleet_build::admission_identity(entry.document).dump() !=
+            fence->document.at("identity").dump() ||
+        (fence->document.at("phase") == "linked" &&
+         fence->document.at("backingIssue") != entry.issue))
+      throw FleetError(503, "build creation identity changed");
+  } catch (const std::exception&) {
+    throw FleetError(503, "build creation requires exact canonical reconciliation");
+  }
+  if (fence->document.at("phase") == "creating") {
+    auto linked = fence->document;
+    linked["phase"] = "linked";
+    linked["backingIssue"] = entry.issue;
+    fence = write_build_fence_(linked, fence->sha, context);
+  }
+  return fence;
+}
+
+json FleetService::submit_build(const json& request) {
+  std::lock_guard lock(mutex_);
+  fleet_build::validate_submission(request);
+  load_();
+  const auto id =
+      "build-" + fleet_build::digest({{"workspaceId", request.at("workspaceId")},
+                                      {"idempotencyKey", request.at("idempotencyKey")}});
+  ImportContext context;
+  if (auto found = entries_.find("build-jobs/" + id); found != entries_.end()) {
+    const auto& document = found->second.document;
+    const auto& record = document.at("record");
+    if (!fleet_build::typed(record) || record.at("build").at("request").dump() != request.dump())
+      throw FleetError(409, "build identity reused with different intent");
+    if (const auto fence = read_build_fence_(context);
+        fence && fence->document.at("identity").at("buildId") == id)
+      (void)reconcile_build_fence_(context);
+    // A historical replay does not authorize delivery or a run.
+    return {{"record", record}, {"command", document.at("commands").at(0).at("command")}};
+  }
+  if (build_state_branch_.empty()) throw FleetError(503, "build creation state is not configured");
+  const auto prior = reconcile_build_fence_(context);
+  // Reconciliation can discover the original record after an earlier empty scan.
+  if (auto found = entries_.find("build-jobs/" + id); found != entries_.end()) {
+    const auto& document = found->second.document;
+    if (document.at("record").at("build").at("request").dump() != request.dump())
+      throw FleetError(409, "build identity reused with different intent");
+    return {{"record", document.at("record")},
+            {"command", document.at("commands").at(0).at("command")}};
+  }
+  if (build_catalog_.empty()) throw FleetError(503, "build admission is not configured");
+  const auto policies = fleet_build::policies(build_catalog_, build_authorities_, request);
+  if (policies.empty()) throw FleetError(503, "no qualified build allocation matches the policy");
+  const auto parent_binding = build_parent_(request.at("parent"), policies.at(0).at("workspace"));
+  json policy;
+  for (const auto& candidate : policies) {
+    const auto& allocation = candidate.at("allocation");
+    check_tool_isolation_(allocation);
+    bool occupied = false;
+    for (const auto& [key, entry] : entries_) {
+      const auto& peer = entry.document.at("record");
+      if (fleet_build::typed(peer) && peer.at("build").at("reservation") != "released") {
+        const auto& retained = peer.at("build").at("policy");
+        for (const auto* name : {"workspace", "recipe"})
+          if (retained.at(name).at("id") == candidate.at(name).at("id") &&
+              retained.at(name) != candidate.at(name))
+            throw FleetError(409, "active build retains a different policy under this identity");
+      }
+      if (fleet_build::typed(peer) && peer.at("build").at("reservation") != "released" &&
+          (peer.at("build").at("allocation").at("id") == allocation.at("id") ||
+           peer.at("build").at("allocation").at("workerId") == allocation.at("workerId")))
+        occupied = true;
+    }
+    if (!occupied && policy.is_null()) policy = candidate;
+  }
+  if (policy.is_null()) throw FleetError(409, "tool allocation capacity is reserved");
+  const auto& allocation = policy.at("allocation");
+  const auto policy_digest = fleet_build::digest(policy);
+  const auto command_id = id + "-start";
+  for (const auto& [key, other] : entries_)
+    for (const auto& intent : other.document.at("commands"))
+      if (intent.at("command").at("commandId") == command_id)
+        throw FleetError(409, "commandId already belongs to another intent");
+  json build = {{"schema", "hi/fleet/build/v1"},
+                {"request", request},
+                {"policy", policy},
+                {"policyDigest", policy_digest},
+                {"parametersDigest", fleet_build::digest(request.at("parameters"))},
+                {"allocation", allocation},
+                {"attempt", 1},
+                {"reservation", "reserved"},
+                {"snapshotWorkspace", id + "-attempt-1"}};
+  json record = {{"schema", "hi/fleet/v1"},
+                 {"kind", "build-jobs"},
+                 {"id", id},
+                 {"status", "admitted"},
+                 {"claimStatus", "unclaimed"},
+                 {"generation", allocation.at("generation")},
+                 {"createdAt", now_iso8601()},
+                 {"parent", parent_binding},
+                 {"build", build},
+                 {"collectionVerified", false},
+                 {"commandId", command_id}};
+  const auto envelope = fleet_build::start_command(record);
+  json document = {
+      {"schema", "hi/fleet/v1"},
+      {"kind", "build-jobs"},
+      {"record", record},
+      {"commands",
+       json::array({{{"command", envelope}, {"status", "pending"}, {"facts", json::array()}}})},
+      {"events", json::array()}};
+  if (body_(document).size() > 30000)
+    throw FleetError(507, "build intent exceeds durable admission budget");
+  const json creating{{"schema", "hi/fleet/build-create-attempt/v1"},
+                      {"attemptId", generate_uuid()},
+                      {"phase", "creating"},
+                      {"identity", fleet_build::admission_identity(document)},
+                      {"backingIssue", nullptr}};
+  // Only this invocation's confirmed conditional write permits one issue POST.
+  const auto fence =
+      write_build_fence_(creating, prior ? std::optional(prior->sha) : std::nullopt, context);
+  Entry entry;
+  persist_(entry, std::move(document), "build.admitted");
+  const auto result = entry.document.at("record");
+  auto linked = creating;
+  linked["phase"] = "linked";
+  linked["backingIssue"] = entry.issue;
+  entries_.emplace("build-jobs/" + id, std::move(entry));
+  (void)write_build_fence_(linked, fence.sha, context);
+  if (!publisher_.publish("hi.fleet.control." + allocation.at("workerId").get<std::string>(),
+                          envelope.dump()))
+    throw FleetError(503, "build persisted; delivery is uncertain");
+  return {{"record", result}, {"command", envelope}};
+}
+
+json FleetService::deliver_build(const std::string& id, const json& request) {
+  std::lock_guard lock(mutex_);
+  load_();
+  const auto& document = find_("build-jobs", id).document;
+  const auto& record = document.at("record");
+  if (!fleet_build::typed(record)) throw FleetError(409, "target is not a subordinate build");
+  const auto& intent = document.at("commands").at(0);
+  const auto& command = intent.at("command");
+  fleet_build::validate_delivery(request, record, command);
+  const auto& build = record.at("build");
+  if (record.at("status") != "admitted" || build.at("reservation") != "reserved" ||
+      intent.at("status") != "pending" || build.contains("grant"))
+    throw FleetError(409, "build is not awaiting initial delivery");
+  if (build_parent_(build.at("request").at("parent"), build.at("policy").at("workspace")) !=
+      record.at("parent"))
+    throw FleetError(409, "build parent no longer matches the admitted claim");
+  check_tool_isolation_(build.at("allocation"));
+  if (!publisher_.publish("hi.fleet.control." + command.at("workerId").get<std::string>(),
+                          command.dump()))
+    throw FleetError(503, "build delivery remains uncertain");
+  return {{"record", record}, {"command", command}};
+}
+
+json FleetService::build_logs(const std::string& id, const std::string& stream, std::uint64_t after,
+                              std::uint64_t limit) {
+  if ((stream != "stdout" && stream != "stderr") || limit == 0 || limit > 65536 ||
+      after > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
+    throw FleetError(400, "invalid build log cursor, stream or limit");
+  const auto record = get("build-jobs", id);
+  if (!fleet_build::typed(record)) throw FleetError(409, "target is not a subordinate build");
+  const auto page = fleet_build::read_logs(build_artifacts_, record, stream, after, limit);
+  // Keep network reads outside the control mutex; recheck a terminal manifest
+  // that may have become durable while the bounded local request ran.
+  fleet_build::validate_log_page(page, get("build-jobs", id), stream, after, limit);
+  return page;
+}
+
+json FleetService::claim_build_run(const std::string& id, const json& claim,
+                                   const std::string& key) {
+  std::lock_guard lock(mutex_);
+  load_();
+  auto& entry = find_("build-jobs", id);
+  auto document = entry.document;
+  auto& record = document.at("record");
+  fleet_build::authorize(record, build_authorities_, key);
+  const auto& command = document.at("commands").at(0).at("command");
+  fleet_build::validate_claim(claim, record, command);
+  auto& build = record.at("build");
+  if (build.contains("grant")) {
+    if (build.at("grant").at("claim") != claim)
+      throw FleetError(409, "build already has a different durable run grant");
+    // Historical replay is deliberately independent of current parent liveness.
+    return {{"grant", build.at("grant")}, {"command", command}};
+  }
+  if (record.at("status") != "admitted" || build.at("reservation") != "reserved")
+    throw FleetError(409, "build no longer permits a new run grant");
+  if (build_parent_(build.at("request").at("parent"), build.at("policy").at("workspace")) !=
+      record.at("parent"))
+    throw FleetError(409, "build parent claim has changed");
+  check_tool_isolation_(build.at("allocation"));
+  const json grant = {{"schema", "hi/fleet/build-grant/v1"},
+                      {"claim", claim},
+                      {"grantId", fleet_build::digest({{"buildId", id}, {"claim", claim}})},
+                      {"authorizedAt", now_iso8601()}};
+  build["grant"] = grant;
+  record["status"] = "authorized";
+  const json result = {{"grant", grant}, {"command", command}};
+  // This confirmed durable write is the authorization point ordered with parent
+  // stop under mutex_. It is not atomic with the supervisor's later process start.
+  persist_(entry, std::move(document), "build.run_authorized");
+  return result;
+}
+
+json FleetService::cancel_build_(Entry& entry, const json& request) {
+  auto document = entry.document;
+  auto& record = document.at("record");
+  auto& build = record.at("build");
+  fleet_build::validate_cancel(request, record);
+  if (build.contains("cancellation")) {
+    if (build.at("cancellation") != request)
+      throw FleetError(409, "build cancellation identity changed");
+    const auto& command = document.at("commands").back();
+    if (command.at("status") == "pending" &&
+        !publisher_.publish(
+            "hi.fleet.control." + build.at("allocation").at("workerId").get<std::string>(),
+            command.at("command").dump()))
+      throw FleetError(503, "build cancellation persisted; delivery uncertain");
+    return {{"record", record}, {"command", command.at("command")}};
+  }
+  if (build.at("reservation") == "released") throw FleetError(409, "build is already terminal");
+  for (const auto& [id, other] : entries_)
+    for (const auto& prior : other.document.at("commands"))
+      if (prior.at("command").at("commandId") == request.at("commandId"))
+        throw FleetError(409, "commandId already belongs to an intent");
+  json envelope = document.at("commands").at(0).at("command");
+  envelope["operation"] = "cancel";
+  envelope["commandId"] = request.at("commandId");
+  envelope["idempotencyKey"] = request.at("idempotencyKey");
+  envelope["payload"]["stopStartCommandId"] = record.at("commandId");
+  build["cancellation"] = request;
+  record["status"] = "cancelling";
+  record["commandId"] = request.at("commandId");
+  for (auto& prior : document.at("commands")) prior["status"] = "superseded";
+  document["commands"].push_back(
+      {{"command", envelope}, {"status", "pending"}, {"facts", json::array()}});
+  persist_(entry, std::move(document), "build.cancel_requested");
+  if (!publisher_.publish("hi.fleet.control." + envelope.at("workerId").get<std::string>(),
+                          envelope.dump()))
+    throw FleetError(503, "build cancellation persisted; delivery uncertain");
+  return {{"record", entry.document.at("record")}, {"command", envelope}};
+}
+
+json FleetService::build_fact(const std::string& id, const json& fact, const std::string& key) {
+  std::lock_guard lock(mutex_);
+  load_();
+  auto& entry = find_("build-jobs", id);
+  auto document = entry.document;
+  auto& record = document.at("record");
+  fleet_build::authorize(record, build_authorities_, key);
+  fleet_build::validate_terminal(fact, record);
+  auto& build = record.at("build");
+  if (build.contains("terminal")) {
+    if (build.at("terminal") != fact)
+      throw FleetError(409, "build already has a different terminal fact");
+    return {{"record", record}, {"eventId", fact.at("eventId")}};
+  }
+  if (record.at("status") == "cancelling") {
+    if (fact.at("outcome") != "cancelled" || !fact.at("startFenced").get<bool>())
+      throw FleetError(409, "cancellation requires a retained no-start fence and owned cleanup");
+  } else if (record.at("status") != "authorized" || !build.contains("grant") ||
+             fact.at("outcome") == "cancelled") {
+    throw FleetError(409, "terminal result has no matching durable run authorization");
+  }
+  build["terminal"] = fact;
+  build["reservation"] = "released";
+  build["evidenceState"] =
+      fact.at("receipt").is_null() || fact.at("logs").is_null() || fact.at("artifacts").is_null()
+          ? "incomplete"
+          : "unverified";
+  record["status"] = fact.at("outcome");
+  for (auto& intent : document.at("commands"))
+    if (intent.at("command").at("commandId") == fact.at("commandId"))
+      intent["status"] = "completed";
+  persist_(entry, std::move(document), "build.terminal");
+  return {{"record", entry.document.at("record")}, {"eventId", fact.at("eventId")}};
 }
 
 json FleetService::list(const std::string& kind) {
@@ -281,6 +720,10 @@ json FleetService::command(const std::string& kind, const std::string& id,
   auto& entry = find_(kind, id);
   auto document = entry.document;
   auto& record = document["record"];
+  if (fleet_build::typed(record)) {
+    if (operation != "cancel") throw FleetError(409, "subordinate build requires typed control");
+    return cancel_build_(entry, body);
+  }
   if (kind == "pools") throw FleetError(409, "pool control requires an allocation adapter");
   static const std::set<std::string> operations{"start",  "input",  "respond", "interrupt",
                                                 "cancel", "resume", "drain"};
@@ -331,8 +774,12 @@ json FleetService::command(const std::string& kind, const std::string& id,
     const auto& prior = previous["command"];
     if (prior["idempotencyKey"] == key || prior["commandId"] == command_id) {
       if (prior != envelope) throw FleetError(409, "command identity reused with different intent");
-      if (previous["status"] == "pending" && !publisher_.publish(subject, envelope.dump()))
-        throw FleetError(503, "command persisted; delivery uncertain; retry the same command");
+      if (previous["status"] == "pending") {
+        if (operation == "start" || operation == "resume")
+          check_provider_isolation_(find_("workers", worker_id).document.at("record"));
+        if (!publisher_.publish(subject, envelope.dump()))
+          throw FleetError(503, "command persisted; delivery uncertain; retry the same command");
+      }
       return {{"command", envelope}, {"status", previous["status"]}};
     }
   }
@@ -363,6 +810,7 @@ json FleetService::command(const std::string& kind, const std::string& id,
         (operation == "resume" && status != "interrupted"))
       throw FleetError(409, "target is not eligible for this operation");
     auto& worker = find_("workers", worker_id).document["record"];
+    check_provider_isolation_(worker);
     if (worker["status"] == "draining") throw FleetError(409, "worker is draining");
     int occupied = 0;
     for (const auto& [entry_key, other] : entries_) {
@@ -646,6 +1094,44 @@ json FleetService::resolve(const std::string& kind, const std::string& id, const
 }
 
 void register_fleet_routes(httplib::Server& server, std::shared_ptr<FleetService> fleet) {
+  server.Get(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/logs)",
+             [fleet](const httplib::Request& request, httplib::Response& response) {
+               reply(response, 200, [&] {
+                 std::set<std::string> seen;
+                 for (const auto& [name, value] : request.params)
+                   if ((name != "stream" && name != "after" && name != "limit") ||
+                       !seen.insert(name).second)
+                     throw FleetError(400, "unknown or repeated build log query");
+                 return fleet->build_logs(
+                     request.matches[1],
+                     request.has_param("stream") ? request.get_param_value("stream") : "stdout",
+                     log_quantity(request, "after", 0), log_quantity(request, "limit", 65536));
+               });
+             });
+  server.Post(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/deliver)",
+              [fleet](const httplib::Request& request, httplib::Response& response) {
+                reply(response, 202, [&] {
+                  return fleet->deliver_build(request.matches[1], request_body(request));
+                });
+              });
+  server.Post(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/facts)",
+              [fleet](const httplib::Request& request, httplib::Response& response) {
+                reply(response, 200, [&] {
+                  return fleet->build_fact(request.matches[1], request_body(request),
+                                           request.get_header_value("X-Fleet-Build-Key"));
+                });
+              });
+  server.Post(R"(/v1/fleet/build-jobs/([A-Za-z0-9_-]+)/claim-run)",
+              [fleet](const httplib::Request& request, httplib::Response& response) {
+                reply(response, 200, [&] {
+                  return fleet->claim_build_run(request.matches[1], request_body(request),
+                                                request.get_header_value("X-Fleet-Build-Key"));
+                });
+              });
+  server.Post("/v1/fleet/build-jobs/submit",
+              [fleet](const httplib::Request& request, httplib::Response& response) {
+                reply(response, 202, [&] { return fleet->submit_build(request_body(request)); });
+              });
   server.Get("/v1/fleet/projects", [fleet](const httplib::Request&, httplib::Response& response) {
     reply(response, 200, [&] { return fleet->projects_health(); });
   });

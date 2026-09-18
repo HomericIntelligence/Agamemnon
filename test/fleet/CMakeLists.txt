@@ -14,12 +14,12 @@ find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 set(ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
-set(CORE_SOURCES routes fleet_research store github_client github_webhook auth rate_limiter metrics
+set(CORE_SOURCES routes fleet_research fleet_issue fleet_issue_config store github_client github_webhook auth rate_limiter metrics
     orchestrator hmas_types planning_breakdown state_machine circuit_breaker dead_letter_queue)
 foreach(SOURCE IN LISTS CORE_SOURCES)
   list(APPEND SOURCES ${ROOT}/src/${SOURCE}.cpp)
 endforeach()
-list(APPEND SOURCES ${ROOT}/src/fleet.cpp ${ROOT}/src/projects.cpp ${ROOT}/src/durable_epics.cpp)
+list(APPEND SOURCES ${ROOT}/src/fleet.cpp ${ROOT}/src/fleet_build.cpp ${ROOT}/src/fleet_build_logs.cpp ${ROOT}/src/fleet_build_config.cpp ${ROOT}/src/projects.cpp ${ROOT}/src/durable_epics.cpp)
 add_library(fleet_native_core STATIC ${SOURCES} ${ROOT}/src/agents/agent_envelope.cpp)
 target_include_directories(fleet_native_core PUBLIC ${ROOT}/include ${ROOT}/src)
 target_include_directories(fleet_native_core SYSTEM PUBLIC
@@ -27,7 +27,11 @@ target_include_directories(fleet_native_core SYSTEM PUBLIC
 target_link_libraries(fleet_native_core PUBLIC
     ${PROMETHEUS_LIBRARY} OpenSSL::SSL OpenSSL::Crypto CURL::libcurl Threads::Threads)
 add_executable(fleet_contract_tests ${ROOT}/test/src/test_fleet.cpp
+    ${ROOT}/test/src/test_fleet_build.cpp
+    ${ROOT}/test/src/test_fleet_build_config.cpp
     ${ROOT}/test/src/test_fleet_research.cpp
+    ${ROOT}/test/src/test_fleet_issue.cpp
+    ${ROOT}/test/src/test_fleet_issue_config.cpp
     ${ROOT}/test/src/test_durable_epics.cpp
     ${ROOT}/test/src/test_projects.cpp
     ${ROOT}/test/src/test_parse_port.cpp

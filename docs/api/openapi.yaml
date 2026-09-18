@@ -20,7 +20,7 @@ info:
     (100.x.x.x) or localhost.
 
     **NATS side-effects:** Some mutating endpoints publish events to NATS subjects;
-    research intake import persists metadata without dispatch. See the
+    research and planned-issue intake imports persist metadata without dispatch. See the
     `x-nats-events` extension field on each operation and `docs/api/nats-events.md` for the
     full reference.
 
@@ -72,15 +72,504 @@ tags:
       (escalate / complete / state lookup).
 
 paths:
+  /v1/fleet/build-jobs/submit:
+    post:
+      tags: [fleet]
+      operationId: fleetSubmitBuild
+      summary: Admit one subordinate tool build without changing its parent claim
+      description: >-
+        Requires a registered immutable first-profile policy, qualified tool
+        capacity with a separately configured supervisor authority, and an eligible
+        currently observed parent with its exact canonical claim. Persists one reservation and start
+        intent before Keystone publication. Admission does not verify snapshot
+        bytes or authorize process execution. Exact submission replay is a read
+        that returns the historical record and start command; it never republishes.
+        New admission is unavailable when the operator removes the catalog.
+      x-nats-events:
+        - subject: hi.fleet.control.{workerId}
+          description: Typed build start command after confirmed durable admission; absent on replay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildSubmit'}
+      responses:
+        '202':
+          description: Durable admission or exact historical replay; no process-start guarantee
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildSubmitResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    get:
+      tags: [fleet]
+      operationId: fleetGetBuild
+      summary: Read a retained build record
+      description: >-
+        Existing generic GET route. Typed records carry build.schema
+        hi/fleet/build/v1 and a separate tool reservation; legacy generic build
+        records retain their existing shape. Reading status does not deliver a
+        command or authorize a run. Recovery remains available after admission
+        policy removal. collectionVerified false is not an independently verified
+        result; terminal child status never resolves the parent's issue.
+      x-nats-events: []
+      responses:
+        '200':
+          description: Retained typed or legacy generic build record
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+  /v1/fleet/build-jobs/{id}/deliver:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetDeliverBuild
+      summary: Retry delivery of the same admitted start intent
+      description: >-
+        Requires a typed build in admitted status with reserved capacity, pending
+        original start intent and no grant, plus the exact currently eligible
+        parent claim. Revalidates the parent even after hydration; an unknown or
+        stale parent blocks delivery. Republishes the same retained command with
+        no durable mutation or new attempt. A consumer must deduplicate delivery.
+      x-nats-events:
+        - subject: hi.fleet.control.{workerId}
+          description: Exact retained typed start command after current-parent validation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildDelivery'}
+      responses:
+        '202':
+          description: Same start intent delivered; run grant is still required
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildSubmitResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+  /v1/fleet/build-jobs/{id}/claim-run:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetClaimBuildRun
+      summary: Persist or replay one supervisor run grant
+      description: >-
+        Requires both API authentication and the separately bound supervisor key.
+        A new grant revalidates current parent eligibility and is ordered with
+        parent stop under the Fleet mutex. Stop-before-grant denies a new grant;
+        grant-before-stop authorizes the retained attempt. Later parent stop cannot
+        retract an already durable grant or make controller authorization atomic
+        with a remote process start. Exact claim replay returns the historical
+        grant and original command, including after parent stop or cancellation;
+        it grants no new attempt. The supervisor must retain its stop fence and
+        journal the grant before launching, so replay cannot launch a second process.
+      security:
+        - bearerAuth: []
+          buildKey: []
+        - apiKeyAuth: []
+          buildKey: []
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildClaim'}
+      responses:
+        '200':
+          description: One confirmed durable grant or exact historical replay
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildGrantResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '403': {$ref: './fleet.yaml#/components/responses/BuildForbidden'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}/cancel:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetCancelBuild
+      summary: Persist or replay typed build cancellation or an existing generic cancel
+      description: >-
+        The retained record selects the contract. A typed build requires BuildCancel
+        with schema hi/fleet/build-cancel/v1, generation and attempt, and no payload;
+        a legacy generic build continues to use CommandRequest. Typed cancellation
+        persists an exact stop before publication and preserves its reservation.
+        It remains available after parent invalidation or admission catalog removal.
+        Exact pending-stop replay may republish the same command. ACK, publication
+        and parent stop do not release tool capacity; only an exact trusted cancelled
+        fact with the stop command, start fence and confirmed cleanup releases it.
+      x-nats-events:
+        - subject: hi.fleet.control.{workerId}
+          description: Retained cancel intent after persistence, or pending-stop replay.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: './fleet.yaml#/components/schemas/BuildCancel'
+                - $ref: './fleet.yaml#/components/schemas/CommandRequest'
+      responses:
+        '202':
+          description: Typed record/command or legacy command/status; stop may still be pending
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: './fleet.yaml#/components/schemas/BuildCancelResponse'
+                  - $ref: './fleet.yaml#/components/schemas/LegacyCommandResponse'
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}/facts:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    post:
+      tags: [fleet]
+      operationId: fleetBuildFact
+      summary: Record one trusted terminal cleanup fact for a subordinate build
+      description: >-
+        Requires normal API authentication and the dedicated supervisor authority
+        matching the retained worker/allocation/generation, including during
+        recovery with admission disabled. The closed fact binds every command,
+        attempt, policy, parameters, snapshot and execution-platform identity.
+        A matching terminal fact with owned-process cleanup releases only the child
+        tool reservation. Missing evidence references report incomplete; present
+        references report unverified. collectionVerified remains false. No inline
+        logs, collector success flag, HMAS claim change or parent issue resolution
+        is accepted. Generic ACK/HTTP events/unqualified NATS events are not a
+        supervisor authority path for typed builds.
+      security:
+        - bearerAuth: []
+          buildKey: []
+        - apiKeyAuth: []
+          buildKey: []
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/BuildFact'}
+      responses:
+        '200':
+          description: Terminal fact durably retained or exactly replayed; tool reservation released
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildFactResponse'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '403': {$ref: './fleet.yaml#/components/responses/BuildForbidden'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409': {$ref: './fleet.yaml#/components/responses/BuildConflict'}
+        '413': {$ref: './fleet.yaml#/components/responses/BuildTooLarge'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503': {$ref: './fleet.yaml#/components/responses/BuildUnavailable'}
+        '507': {$ref: './fleet.yaml#/components/responses/BuildFull'}
+  /v1/fleet/build-jobs/{id}/logs:
+    parameters:
+      - $ref: './fleet.yaml#/components/parameters/Id'
+    get:
+      tags: [fleet]
+      operationId: fleetBuildLogs
+      summary: Read one bounded UTF-8 log page from the configured local backend
+      description: >-
+        Only stream, after and limit query keys are accepted, at most once each.
+        No caller URL, path, attempt, snapshotDigest or backend credential is
+        accepted. The controller uses the admitted build/attempt/snapshot identity
+        and its separately configured backend credential to request
+        GET /v1/fleet/build-jobs/{id}/logs with attempt, snapshotDigest, stream,
+        after and limit on the private backend. The first backend profile permits
+        only literal http://127.0.0.1:<port> or http://[::1]:<port>, with an explicit
+        decimal port from 1 through 65535 and no leading zero. HTTPS, DNS names,
+        external origins, alternate numeric host spellings, URL credentials,
+        paths, queries and fragments are rejected. Redirects and proxies are
+        disabled. Connection timeout is 500 ms and total timeout is 1000 ms;
+        response body is capped at 400000 bytes including JSON escaping. Duplicate
+        response keys, nesting beyond 16, malformed/oversized data and any identity,
+        range or digest mismatch fail closed. Reads never modify the durable
+        record or event history. An empty backend configuration returns 503;
+        real backend/executor qualification and remote transport remain pending.
+      x-nats-events: []
+      parameters:
+        - name: stream
+          in: query
+          schema: {type: string, enum: [stdout, stderr], default: stdout}
+        - name: after
+          in: query
+          description: Unsigned decimal byte offset; signs, fractions and exponents are rejected.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 9223372036854775807
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum returned UTF-8 bytes; unsigned decimal integer only.
+          schema: {type: integer, minimum: 1, maximum: 65536, default: 65536}
+      responses:
+        '200':
+          description: Identity-bound bounded log page; complete requires a manifest
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildLogPage'}
+        '400': {$ref: './fleet.yaml#/components/responses/BuildInvalid'}
+        '401': {$ref: './fleet.yaml#/components/responses/BuildUnauthorized'}
+        '404': {$ref: './fleet.yaml#/components/responses/BuildMissing'}
+        '409':
+          description: Target is a legacy generic record or backend cursor is ahead of available output
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildError'}
+        '429': {$ref: './fleet.yaml#/components/responses/BuildRateLimited'}
+        '503':
+          description: >-
+            Durable record unavailable, local backend unconfigured/unavailable,
+            connection/response timeout, or invalid backend configuration/response.
+            No durable state changes and no fabricated empty successful page.
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/BuildError'}
+  /v1/fleet/issue-intakes/repositories:
+    get:
+      tags: [fleet]
+      operationId: fleetIssueIntakeRepositories
+      summary: List the configured planned-issue repository selections
+      description: >-
+        Authenticated finite public projection of the operator registry. Does not
+        contact GitHub, approve a plan or validate current repository identity.
+        No query parameters are accepted. Requires the shared issue-intake
+        configuration and durable import-state branch; configuration paths and
+        credentials are never returned.
+      x-nats-events: []
+      responses:
+        '200':
+          description: Configured repository keys and canonical names/native IDs
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueRepositories'}
+        '400':
+          description: Query parameters are not accepted
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: Issue import is disabled; issue_import_unavailable
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+  /v1/fleet/issue-intakes/{repositoryKey}/{issueNumber}:
+    get:
+      tags: [fleet]
+      operationId: fleetInspectIssueIntake
+      summary: Inspect a registered work issue and exact selected plan snapshot
+      description: >-
+        Uses a fixed GitHub read under one 30-second operation deadline. Returns
+        canonical identity, title, open/closed state and an exact content digest,
+        without persisting anything or returning issue/plan text. The selected
+        plan is the issue body unless planCommentId identifies a comment on that
+        same issue. Only that optional query parameter is accepted, exactly once;
+        digests, timestamps, URLs and alternate origins are not query inputs.
+        Inspection is optional and does not prove plan approval or stage eligibility.
+        A subsequent explicit import repeats identity and snapshot validation.
+      x-nats-events: []
+      parameters:
+        - name: repositoryKey
+          in: path
+          required: true
+          description: Exact key from the operator registry
+          schema: {$ref: './fleet.yaml#/components/schemas/IssueRepositoryKey'}
+        - name: issueNumber
+          in: path
+          required: true
+          description: Canonical positive decimal integer, with no sign or leading zero
+          schema: {type: integer, minimum: 1, maximum: 2147483647}
+        - name: planCommentId
+          in: query
+          required: false
+          description: Explicit opaque node ID of a comment belonging to the selected issue
+          schema: {$ref: './fleet.yaml#/components/schemas/IssueNativeId'}
+      responses:
+        '200':
+          description: Canonical inspection; the work issue may be open or closed
+          headers:
+            X-API-Version:
+              description: Current Agamemnon API version
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueInspection'}
+        '400':
+          description: Malformed or unknown selection, or an unsupported/duplicate query parameter
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '404':
+          description: Registered repository lookup reports no such work issue; issue_not_found
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: >-
+            Disabled service, bounded lookup failure, invalid canonical repository
+            identity, invalid comment parent, or empty/oversized selected content
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+  /v1/fleet/issue-intakes:
+    post:
+      tags: [fleet]
+      operationId: fleetImportIssueIntake
+      summary: Import one selected planned GitHub issue as a durable Pending implementation leaf
+      description: >-
+        Requires authenticated durable persistence and the operator-owned
+        AGAMEMNON_ISSUE_INTAKE_CONFIG registry plus AGAMEMNON_IMPORT_STATE_BRANCH
+        in the existing backing repository. No query parameters are accepted.
+        The closed body is limited to 4096 raw UTF-8 bytes; duplicate JSON keys,
+        invalid UTF-8 and unknown fields are rejected. An expected repositoryId
+        that differs from the selected registry entry is rejected before I/O.
+        Fixed GitHub lookup revalidates the native issue identity and exact selected
+        plan digest. One 30-second deadline covers lookup, Store lock acquisition,
+        complete backing enumeration, conditional fence writes and the possible
+        single backing-issue create. Timeout or a lost write response may leave an
+        uncertain persisted result; caller disconnect does not cancel persistence.
+
+        Direct and research imports share a canonical work-issue creation fence.
+        Only this invocation's confirmed prepared write can advance to a confirmed
+        creating grant and one create. Any retained prepared/creating record permits
+        observation/reconciliation only; an empty scan, elapsed time or restart
+        does not reset it. A uniquely matching durable task can be replayed with
+        unchanged state, ownership and provenance. A task of the other intake kind
+        returns work_issue_already_imported, never a receipt of the requested kind.
+
+        A new leaf is standalone L3, Pending and unassigned, with no claim, children
+        or dependencies. Import does not call Nestor, approve plan content, create
+        another work issue, dispatch work, start a session or publish NATS messages.
+        Existing Fleet admission and start/input/respond remain separate. Generic
+        task reads retain the existing HMAS shape; the receipt is not an activity view.
+        See docs/fleet.md for configuration, rollout and recovery requirements.
+      x-nats-events: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: './fleet.yaml#/components/schemas/IssueImport'}
+      responses:
+        '201':
+          description: One new durable Pending L3 implementation leaf; no dispatch occurred
+          headers:
+            X-API-Version:
+              description: Current Agamemnon API version
+              schema: {type: string}
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportReceipt'}
+        '200':
+          description: Exact replay with current canonical task state and original provenance/observedAt
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportReceipt'}
+        '400':
+          description: >-
+            Invalid closed request/query, unknown registry selection, or expected
+            repositoryId inconsistent with the selected operator entry before I/O
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '401':
+          description: Missing or invalid existing Agamemnon API credential
+        '404':
+          description: Registered repository lookup reports no such work issue; issue_not_found
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '409':
+          description: >-
+            Changed expected issue identity or selected snapshot; closed work issue
+            before first creation; conflicting, ambiguous, closed or malformed
+            backing identity. Another retained owner returns
+            work_issue_already_imported without a direct-intake receipt. A unique
+            fully validated retained task may supply optional canonical
+            reconciliation metadata with its exact task ID and open/closed
+            backingState. A closed exact replay remains issue_import_conflict.
+            Ambiguous or malformed history supplies no reference. No conflict
+            authorizes work or replacement.
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '413':
+          description: Raw request exceeds 4096 bytes; invalid_issue_import
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
+        '429':
+          description: Existing API rate limit exceeded
+        '503':
+          description: >-
+            Disabled/missing authority, bounded GitHub failure, incomplete scan,
+            busy lock, or uncertain persistence/fence requiring reconciliation.
+            This response does not establish that no write occurred.
+            Incomplete enumeration or uncertain identity supplies no canonical reference.
+          content:
+            application/json:
+              schema: {$ref: './fleet.yaml#/components/schemas/IssueImportError'}
   /v1/fleet/research-intakes:
     post:
       tags: [fleet]
       operationId: fleetImportResearchIntake
       summary: Import one confirmed Nestor intake as a durable Pending L3 leaf
       description: >-
-        Requires a configured Nestor authority and GitHub persistence. Reads only
-        the supported Nestor v1 generation-1 metadata record and verifies its digest
-        and confirmed issue receipt. Exact replay returns the current task state.
+        Requires a configured Nestor authority, authenticated GitHub persistence,
+        and the shared operator repository registry/import-state branch. Reads the
+        supported Nestor v1 generation-1 metadata record within the existing
+        5-second lookup deadline and verifies its digest and confirmed issue receipt.
+        The subsequent GitHub reconciliation, Store lock and conditional attempt
+        fence share a separate 30-second deadline. New admission resolves the
+        Nestor-confirmed work issue against the registered canonical repository.
+        Exact replay preserves the existing research task ID, provenance and state.
+        Only this invocation's confirmed prepared fence write can grant one create;
+        retained prepared/creating records allow observation/reconciliation only.
+        Timeout, disconnect, restart or an empty scan never resets that permission.
+        Direct and research imports cannot each own the same work issue.
         Does not create a canonical research issue, TaskBrief, Fleet session or NATS
         publication. Existing worker admission and Fleet start/input/respond remain
         separate. Duplicate JSON keys, extra fields and invalid UTF-8 are rejected.
@@ -118,14 +607,25 @@ paths:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
         '409':
-          description: Unconfirmed or changed intake, or ambiguous/closed/malformed backing identity
+          description: >-
+            Unconfirmed or changed intake, or conflicting, ambiguous, closed or
+            malformed backing identity. Another retained owner returns
+            work_issue_already_imported without a research receipt. A unique
+            fully validated retained task may supply optional canonical
+            reconciliation metadata with its exact task ID and open/closed
+            backingState. A closed exact replay remains research_import_conflict.
+            Ambiguous or malformed history supplies no reference. No conflict
+            authorizes work or replacement.
           content:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
         '429':
           description: Existing API rate limit exceeded
         '503':
-          description: Import disabled, authority unavailable/invalid, or persistence uncertain
+          description: >-
+            Import disabled, authority unavailable/invalid, bounded reconciliation
+            or lock unavailable, or persistence uncertain. Does not prove no write occurred.
+            Incomplete enumeration or uncertain identity supplies no canonical reference.
           content:
             application/json:
               schema: {$ref: './fleet.yaml#/components/schemas/ResearchImportError'}
@@ -174,7 +674,7 @@ paths:
                 properties:
                   items:
                     type: array
-                    items: {$ref: './fleet.yaml#/components/schemas/Record'}
+                    items: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
                   total: {type: integer, minimum: 0}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
     post:
@@ -210,7 +710,7 @@ paths:
           description: Resource with explicit ownership and observations
           content:
             application/json:
-              schema: {$ref: './fleet.yaml#/components/schemas/Record'}
+              schema: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
         '404': {$ref: './fleet.yaml#/components/responses/Missing'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
   /v1/fleet/{kind}/{id}/{operation}:
@@ -231,21 +731,30 @@ paths:
         Reuse commandId and idempotencyKey when delivery is uncertain. Only a
         worker confirmation completes a stop. Pool control and worker startup
         require allocation adapters and currently return 409. Drain applies to workers.
+        Typed subordinate builds accept only BuildCancel here, selected by the
+        retained record; the explicit build-jobs/{id}/cancel path documents that
+        contract. Other generic commands return 409 for typed builds. Existing
+        records without build metadata retain the CommandRequest contract.
       requestBody:
         required: true
         content:
           application/json:
-            schema: {$ref: './fleet.yaml#/components/schemas/CommandRequest'}
+            schema:
+              oneOf:
+                - $ref: './fleet.yaml#/components/schemas/CommandRequest'
+                - $ref: './fleet.yaml#/components/schemas/BuildCancel'
       responses:
         '202':
           description: Durable intent; execution may still be pending
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  command: {$ref: './fleet.yaml#/components/schemas/Command'}
-                  status: {type: string, enum: [pending, accepted, completed, failed, superseded]}
+                anyOf:
+                  - type: object
+                    properties:
+                      command: {$ref: './fleet.yaml#/components/schemas/Command'}
+                      status: {type: string, enum: [pending, accepted, completed, failed, superseded]}
+                  - $ref: './fleet.yaml#/components/schemas/BuildCancelResponse'
         '400': {$ref: './fleet.yaml#/components/responses/Invalid'}
         '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
@@ -258,7 +767,10 @@ paths:
       tags: [fleet]
       operationId: fleetAcknowledge
       summary: Persist an idempotent worker command receipt
-      description: Validates command identity, ownership, and generation before recording acknowledgment.
+      description: >-
+        Validates command identity, ownership, and generation before recording
+        acknowledgment. Typed subordinate builds reject generic ACK; their trusted
+        terminal fact path is build-jobs/{id}/facts and requires a dedicated key.
       requestBody:
         required: true
         content:
@@ -278,7 +790,8 @@ paths:
       operationId: fleetResolve
       summary: Record an explicit manual orchestration decision for inactive work
       description: >-
-        Applies to sessions, executions and build-jobs with a canonical task.
+        Applies to sessions, executions and legacy generic build-jobs with a canonical task.
+        Typed subordinate builds cannot resolve a canonical task through this path.
         Disabled unless a separate operator resolution key is configured.
         An evidence reference does not verify approval. The persisted resolution
         is manual with verifiedApproval false and cannot establish independently
@@ -308,7 +821,10 @@ paths:
       tags: [fleet]
       operationId: fleetVerifyCommand
       summary: Verify immutable durable intent against current ownership
-      description: This read gate is for an attachment adapter, not another work queue.
+      description: >-
+        This read gate is for an attachment adapter, not another work queue.
+        It also returns retained typed build commands; reading a start command
+        does not substitute for the dedicated supervisor claim-run grant.
       responses:
         '200':
           description: Original command, receipt status, and current resource
@@ -318,9 +834,9 @@ paths:
                 type: object
                 required: [command, status, record]
                 properties:
-                  command: {$ref: './fleet.yaml#/components/schemas/Command'}
+                  command: {$ref: './fleet.yaml#/components/schemas/FleetReadableCommand'}
                   status: {type: string}
-                  record: {$ref: './fleet.yaml#/components/schemas/Record'}
+                  record: {$ref: './fleet.yaml#/components/schemas/FleetReadableRecord'}
         '404': {$ref: './fleet.yaml#/components/responses/Missing'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
   /v1/fleet/events:
@@ -332,6 +848,8 @@ paths:
         The cursor covers persisted control transitions only. High-volume activity
         has a worker sourceSequence and is visible in current resource observations.
         A cursor ahead of this controller requires resynchronization and returns 409.
+        Typed build entries carry compact buildTransition status/reservation fields
+        instead of a record copy. Exact replay and log polling append no events.
       parameters:
         - name: after
           in: query
@@ -347,16 +865,7 @@ paths:
                 properties:
                   events:
                     type: array
-                    items:
-                      type: object
-                      required: [seq, kind, targetId, event, at, record]
-                      properties:
-                        seq: {type: integer, minimum: 1}
-                        kind: {type: string}
-                        targetId: {type: string}
-                        event: {type: string}
-                        at: {type: string, format: date-time}
-                        record: {$ref: './fleet.yaml#/components/schemas/Record'}
+                    items: {$ref: './fleet.yaml#/components/schemas/FleetReadableTransition'}
                   cursor: {type: integer, minimum: 0}
         '409': {$ref: './fleet.yaml#/components/responses/Conflict'}
         '503': {$ref: './fleet.yaml#/components/responses/Unavailable'}
@@ -364,7 +873,10 @@ paths:
       tags: [fleet]
       operationId: fleetObserve
       summary: Accept a versioned worker fact through Agamemnon
-      description: Applies fenced command receipts or observed activity without authorizing issue completion.
+      description: >-
+        Applies fenced command receipts or observed activity without authorizing
+        issue completion. Typed build grants and terminal facts are rejected here;
+        the dedicated claim-run/facts paths require a separately bound supervisor key.
       requestBody:
         required: true
         content:
@@ -1190,6 +1702,8 @@ paths:
 components:
 
   securitySchemes:
+    buildKey:
+      $ref: './fleet.yaml#/components/securitySchemes/buildKey'
     resolutionKey:
       type: apiKey
       in: header
@@ -1820,11 +2334,14 @@ components:
         delivery:
           type: object
           description: >-
-            Orchestrator-owned durable checkpoints and immutable research intake
-            provenance; neither is a task-state authority. Generic updates retain
-            researchIntake exactly, including numeric types.
+            Orchestrator-owned durable checkpoints and immutable intake provenance;
+            neither is a task-state authority. Generic updates retain researchIntake
+            or issueIntake exactly, including numeric types. New work acquisition
+            also respects retained ownership and unresolved shared creation attempts,
+            even when import routes or configuration are disabled.
           properties:
             researchIntake: {$ref: './fleet.yaml#/components/schemas/ResearchProvenance'}
+            issueIntake: {$ref: './fleet.yaml#/components/schemas/IssueProvenance'}
           additionalProperties: true
         blocked_by:
           type: array

@@ -42,7 +42,7 @@ struct EscalationRecord {
 struct HmasTask {
   std::string id;
   std::string brief_id;        // root brief this task belongs to
-  std::string parent_task_id;  // empty for L0 root or standalone research leaf
+  std::string parent_task_id;  // empty for L0 root or standalone imported leaf
   HmasLayer layer;
   TaskState state;
   std::string subject;
@@ -54,7 +54,7 @@ struct HmasTask {
   // Additive, versioned Fleet ownership. Legacy mutations cannot replace it.
   json fleet_claim = nullptr;
   json fleet_resolution = nullptr;
-  // Orchestrator-owned checkpoints and immutable researchIntake provenance.
+  // Orchestrator-owned checkpoints and immutable researchIntake/issueIntake provenance.
   // Neither is a task state authority; generic writes preserve provenance types.
   json delivery = json::object();
   std::vector<std::string> blocked_by;  // task IDs this task depends on

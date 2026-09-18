@@ -84,7 +84,12 @@ target_compile_options(agamemnon_peer_discovery PRIVATE
 add_library(Agamemnon_core STATIC
   src/routes.cpp
   src/fleet.cpp
+  src/fleet_build.cpp
+  src/fleet_build_logs.cpp
+  src/fleet_build_config.cpp
   src/fleet_research.cpp
+  src/fleet_issue.cpp
+  src/fleet_issue_config.cpp
   src/projects.cpp
   src/store.cpp
   src/nats_client.cpp
