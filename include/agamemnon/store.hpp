@@ -5,13 +5,16 @@
 
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
+#include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "nlohmann/json.hpp"
@@ -21,6 +24,18 @@ namespace agamemnon {
 using json = nlohmann::json;
 
 class MetricsRegistry;
+struct IssueImportConfiguration;
+struct CanonicalWorkIssue;
+
+/// Import reconciliation conflict; a reference is present only after a complete
+/// history scan verifies one retained task. It grants no execution authority.
+class ImportConflict : public std::invalid_argument {
+ public:
+  explicit ImportConflict(const std::string& reason, json reference = nullptr)
+      : std::invalid_argument(reason), canonical(std::move(reference)) {}
+
+  const json canonical;
+};
 
 /// Generate a UUID-like string using <random>.
 std::string generate_uuid();
@@ -33,7 +48,15 @@ std::string now_iso8601();
 /// Pass nullptr (or use the default constructor) for pure in-memory mode.
 class Store {
  public:
-  explicit Store(std::shared_ptr<IGitHubClient> gh = nullptr) : gh_(std::move(gh)) {}
+  explicit Store(std::shared_ptr<IGitHubClient> gh = nullptr,
+                 std::shared_ptr<const IssueImportConfiguration> import_configuration = nullptr)
+      : gh_(std::move(gh)), import_configuration_(std::move(import_configuration)) {}
+
+  /// Fleet shares this backing store; it never permits memory-only operation.
+  std::shared_ptr<IGitHubClient> github_client() const { return gh_; }
+  std::shared_ptr<const IssueImportConfiguration> import_configuration() const {
+    return import_configuration_;
+  }
 
   /// Attach a MetricsRegistry for instrumentation (nullable; pass nullptr to disable).
   void set_metrics(MetricsRegistry* metrics) noexcept { metrics_ = metrics; }
@@ -89,6 +112,12 @@ class Store {
 
   // ── HMAS typed tasks ───────────────────────────────────────────────────
   void create_hmas_task(const HmasTask& task);
+  /// Reconcile every backing issue before creating or replaying a research leaf.
+  /// The boolean is true only after a new durable creation is acknowledged.
+  std::pair<HmasTask, bool> import_research_task(const HmasTask& proposed);
+  std::pair<HmasTask, bool> import_issue_task(const HmasTask& proposed,
+                                              const CanonicalWorkIssue& work,
+                                              ImportContext& context);
   /// Returns a value copy of the task; safe to use outside the mutex.
   std::optional<HmasTask> get_hmas_task(const std::string& id);
   bool update_hmas_task_state(const std::string& id, TaskState state);
@@ -96,12 +125,30 @@ class Store {
   bool update_hmas_task_state_and_record_escalation(const std::string& id, TaskState new_state,
                                                     const EscalationRecord& escalation);
   bool update_hmas_task(const HmasTask& task);
+  /// Serialize legacy planning against Fleet admission. Persist parent links
+  /// before child creation so a partial write cannot leave untracked children.
+  bool append_hmas_children(const HmasTask& expected, const std::vector<HmasTask>& children);
+  /// Metadata-only compare-and-write, including Fleet-owned tasks; no state/claim mutation.
+  bool update_hmas_delivery(const std::string& id, const json& expected, const json& delivery);
+  /// Publish only while both snapshots remain current and the parent is parked
+  /// in a durable epic. Holds the HMAS read lock through the bounded callback;
+  /// the callback must perform transport only and must not call Store or GitHub.
+  bool publish_hmas_parent_wakeup(const HmasTask& child, const HmasTask& parent,
+                                  const std::function<void()>& publish);
+  /// Durable exclusive reservation; false means ineligible or another owner.
+  bool reserve_hmas_fleet_claim(const std::string& id, const json& claim);
+  /// A matching worker observation may start work; it cannot complete a task.
+  bool observe_hmas_fleet_start(const std::string& id, const json& claim);
+  std::optional<HmasTask> resolve_hmas_fleet_task(const std::string& id, const json& claim,
+                                                  const json& decision);
   std::vector<HmasTask> list_hmas_tasks_by_layer(HmasLayer layer);
   std::vector<HmasTask> list_hmas_tasks_by_parent(const std::string& parent_id);
   std::vector<HmasTask> list_hmas_tasks_by_brief(const std::string& brief_id);
 
   // ── TaskBriefs (HMAS root submissions) ─────────────────────────────────
   void create_task_brief(const TaskBrief& brief);
+  /// Strict all-state reconciliation for deterministic durable registrations.
+  void ensure_durable_task_brief(const TaskBrief& brief);
   std::optional<TaskBrief> get_task_brief(const std::string& id);
   std::vector<TaskBrief> list_task_briefs();
 
@@ -112,6 +159,7 @@ class Store {
 
  private:
   std::shared_ptr<IGitHubClient> gh_;
+  std::shared_ptr<const IssueImportConfiguration> import_configuration_;
   MetricsRegistry* metrics_ = nullptr;
 
   // One mutex per collection (#184): agents_/teams_/tasks_/faults_ each get
@@ -123,7 +171,7 @@ class Store {
   mutable std::shared_mutex teams_mutex_;
   mutable std::shared_mutex tasks_mutex_;
   mutable std::shared_mutex faults_mutex_;
-  mutable std::shared_mutex hmas_mutex_;
+  mutable std::shared_timed_mutex hmas_mutex_;
   mutable std::shared_mutex briefs_mutex_;
 
   std::unordered_map<std::string, json> agents_;
@@ -140,7 +188,8 @@ class Store {
   std::unordered_map<std::string, std::string> hmas_task_issue_numbers_;
   std::unordered_map<std::string, std::string> brief_issue_numbers_;
 
-  // Atomic flags: checked outside the lock; once_flags guard the single fetch.
+  // Atomic flags: checked outside the lock. Legacy once_flags guard a single
+  // fetch; retryable HMAS hydration and invalidation use hmas_mutex_.
   std::atomic<bool> agents_loaded_{false};
   std::atomic<bool> teams_loaded_{false};
   std::atomic<bool> tasks_loaded_{false};
@@ -151,16 +200,21 @@ class Store {
   mutable std::once_flag teams_once_;
   mutable std::once_flag tasks_once_;
   mutable std::once_flag faults_once_;
-  mutable std::once_flag hmas_tasks_once_;
   mutable std::once_flag briefs_once_;
 
-  // Called while holding the collection's mutex; loads entity type from GitHub
-  // on first access.
+  // Called without holding a collection mutex; each loader locks internally.
   void ensure_agents_loaded_();
   void ensure_teams_loaded_();
   void ensure_tasks_loaded_();
   void ensure_faults_loaded_();
   void ensure_hmas_tasks_loaded_();
+  // Called under hmas_mutex_; an uncertain response invalidates HMAS state.
+  void persist_hmas_task_(const HmasTask& task);
+  // Under hmas_mutex_: refuse imported/uncertain work and return its verified key for batch checks.
+  std::optional<std::string> guard_work_acquisition_(const HmasTask& task,
+                                                     bool existing_identity = false);
+  std::pair<HmasTask, bool> import_task_(const HmasTask& proposed, const CanonicalWorkIssue& work,
+                                         ImportContext& context);
   void ensure_briefs_loaded_();
 
   // Returns the mutex guarding the given collection.
@@ -179,7 +233,7 @@ class Store {
   CollectionRef pick_collection_(std::string_view entity_label);
 
   // Parses the JSON payload embedded in an issue body; returns nullptr on failure.
-  static json parse_issue_entity_(const json& issue);
+  static json parse_issue_entity_(const json& issue, bool reject_duplicate_keys = false);
 
   // Builds a GitHub issue body containing a labelled JSON block.
   static std::string make_issue_body_(std::string_view entity_type, const json& entity);

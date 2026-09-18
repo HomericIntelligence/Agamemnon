@@ -24,6 +24,10 @@ class FakeNatsPublisher : public NatsPublisher {
     calls.push_back({subject, payload});
     return true;
   }
+  bool publish_durable(const std::string& subject, const std::string& payload,
+                       const std::string&) override {
+    return publish(subject, payload);
+  }
 
   void publish_log(const std::string& subject, const std::string& /*level*/,
                    const std::string& /*message*/, const nlohmann::json& /*metadata*/) override {

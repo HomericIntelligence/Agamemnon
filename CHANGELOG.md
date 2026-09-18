@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- `feat(fleet)`: import an explicitly selected planned GitHub issue from an
+  operator registry as a durable Pending implementation leaf, preserving the
+  canonical work issue and keeping worker admission separate (Refs #510).
+
+- `feat(fleet)`: admit registered snapshot-bound subordinate build jobs while
+  preserving the parent issue writer, with durable run grants, fenced cleanup,
+  private loopback log pages, operator configuration, and Python client methods
+  with whole-request deadlines and bounded response reads (Refs #508).
+  Runtime execution and artifact collection require separate qualification.
+
+- `test(fleet)`: add an executable receiver for actual Telemachy producer bytes,
+  with private-broker replay and controlled GitHub failure checks (Refs #504).
+
+- `feat(fleet)`: add GitHub-backed Fleet control, shared canonical task claims,
+  private worker attachment, configured Projects projection, and durable JetStream
+  epic replay/parent wakeup with explicit single-writer and deployment limits (Refs #504).
 - `feat(ci)`: add markdownlint/pixi/justfile/symlink CI jobs + fix lint blockers (#34)
 - `feat(nats)`: publish hi.logs.agamemnon.\* structured log events
 - `feat(clients/python)`: add agamemnon-client Python package
@@ -19,6 +35,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(fleet)`: return a verified canonical task reference on unique import
+  conflicts after complete history validation, preserving legacy identities and
+  withholding references for ambiguous, malformed or incomplete history (Refs #510).
+
+- `fix(fleet)`: share bounded GitHub reconciliation and conditional creation
+  attempts across research/direct imports, preserve uncertain attempts across
+  restart, and reject generic mutations that bypass retained work ownership
+  (Refs #510).
+
+- `fix(fleet)`: reject shared provider/tool allocation identities at registration,
+  admission and fresh execution authorization, including after restart, while
+  preserving historical replay and confirmed cleanup (Refs #508).
+
+- `fix(ci)`: run all eight private JetStream durability regressions through the
+  standard CTest integration gate and provision its pinned broker in the CI image
+  (Refs #504).
+- `fix(api)`: include the canonical `X-API-Version` header on Fleet success and
+  error responses (Refs #504).
+- `fix(ci)`: give the port parsing smoke test explicit local fixture configuration
+  so it can exercise parsing with required startup authentication enabled (Refs #504).
+
+- `fix(fleet)`: reject per-subject retention settings that can evict pending
+  durable work, with a private JetStream preservation regression (Refs #504).
+
+- `fix(ci)`: upgrade the audit environment's pip security floor and locked
+  version to remove PYSEC-2026-3721 from the required scan (Refs #504).
+
+- `fix(ci)`: create empty Conan cache directories before required-job container
+  mounts, preserving cold-cache test and build execution (Refs #504).
+
+- `fix(fleet)`: propagate durable-write failures before state changes or dispatch,
+  reject ambiguous POST retries and legacy mutations of Fleet-owned work, and
+  require correlated inactive-worker cleanup before releasing admission (Refs #504).
 - `fix(docs)`: add blank lines around list blocks in CLAUDE.md (MD032) (#87)
 - `fix(ci)`: replace gitleaks-action with binary, fix cmake preset, make mypy advisory
 - `fix(ci)`: use valid job IDs in \_required.yml (no slashes in keys)

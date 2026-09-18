@@ -60,8 +60,8 @@ bool progresses_while_pinned(Store& s, Store::Collection pinned, std::function<v
   const bool done = body_fut.wait_for(deadline) == std::future_status::ready;
 
   release.set_value();
-  pin_thread.wait();
-  if (!done) body_fut.wait();  // drain before Store teardown
+  pin_thread.get();
+  body_fut.get();  // drain before Store teardown and propagate operation failures
   return done;
 }
 
@@ -119,6 +119,57 @@ TEST(StorePerCollection, PinnedTasksDoNotBlockHmasReads) {
       std::chrono::seconds{2});
   EXPECT_TRUE(ok) << "hmas reads blocked while tasks_ was exclusively locked";
   EXPECT_EQ(reads, kIterations);
+}
+
+TEST(StorePerCollection, PinnedAgentsDoNotBlockDurableFleetClaim) {
+  auto github = std::make_shared<MockGitHubClient>();
+  Store store(github);
+  HmasTask task;
+  task.id = "fleet-leaf";
+  task.layer = HmasLayer::L3_TaskAgent;
+  task.state = TaskState::Pending;
+  const json claim = {
+      {"schema", "hi/fleet/claim/v1"}, {"agentId", "worker-agent"}, {"generation", 1}};
+  bool claimed = false;
+  const bool progressed = progresses_while_pinned(
+      store, Store::Collection::kAgents,
+      [&] {
+        // Cold HMAS hydration, creation, claim, and legacy fencing must all use
+        // the HMAS collection. The unrelated agent lock remains held throughout.
+        store.create_hmas_task(task);
+        claimed = store.reserve_hmas_fleet_claim(task.id, claim);
+        EXPECT_THROW(store.update_hmas_task_state(task.id, TaskState::Completed),
+                     std::runtime_error);
+      },
+      std::chrono::seconds{2});
+  EXPECT_TRUE(progressed);
+  ASSERT_TRUE(claimed);
+  const auto canonical = store.get_hmas_task(task.id);
+  ASSERT_TRUE(canonical.has_value());
+  EXPECT_EQ(canonical->fleet_claim, claim);
+  EXPECT_EQ(canonical->state, TaskState::Delegated);
+  ASSERT_EQ(github->updated_bodies.size(), 1u);
+  EXPECT_NE(github->updated_bodies.begin()->second.find("worker-agent"), std::string::npos);
+}
+
+TEST(StorePerCollection, PinnedTasksDoNotBlockDurableBriefRegistration) {
+  auto github = std::make_shared<MockGitHubClient>();
+  Store store(github);
+  TaskBrief brief;
+  brief.id = "fleet-brief";
+  brief.title = "durable brief with independent collection";
+  const bool progressed = progresses_while_pinned(
+      store, Store::Collection::kTasks,
+      [&] {
+        store.ensure_durable_task_brief(brief);
+        const auto registered = store.get_task_brief(brief.id);
+        ASSERT_TRUE(registered.has_value());
+        EXPECT_EQ(registered->title, brief.title);
+      },
+      std::chrono::seconds{2});
+  EXPECT_TRUE(progressed);
+  ASSERT_EQ(github->created_issues.size(), 1u);
+  EXPECT_EQ(github->created_issues.begin()->second["label"], "agamemnon-brief");
 }
 
 // ── Contention measurement (#184 profiling evidence) ─────────────────────────

@@ -54,6 +54,7 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
+          mkdir -p "$HOME/.conan2"
           podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -286,6 +287,7 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
+          mkdir -p "$HOME/.conan2"
           podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -338,6 +340,7 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
+          mkdir -p "$HOME/.conan2"
           podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -401,6 +404,7 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
+          mkdir -p "$HOME/.conan2"
           podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -528,6 +532,7 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
+          mkdir -p "$HOME/.conan2"
           podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -672,6 +677,7 @@ jobs:
         run: |
           set -euo pipefail
           set +e
+          mkdir -p "$HOME/.conan2"
           podman run --rm -i \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \
@@ -770,6 +776,7 @@ jobs:
         env:
           CONAN_HOME: /home/ci/.conan2
         run: |
+          mkdir -p "$HOME/.conan2"
           podman run --rm \
             --userns=keep-id:uid=1000,gid=1000 \
             -v "$PWD:/workspace:Z" \

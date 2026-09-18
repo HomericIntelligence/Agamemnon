@@ -16,6 +16,10 @@ class NatsPublisher {
   virtual ~NatsPublisher() = default;
 
   virtual bool publish(const std::string& subject, const std::string& payload) = 0;
+  /// Strict broker persistence acknowledgment; implementations must never fall back to Core.
+  virtual bool publish_durable(const std::string&, const std::string&, const std::string&) {
+    return false;
+  }
 
   virtual void publish_log(const std::string& subject, const std::string& level,
                            const std::string& message, const nlohmann::json& metadata) = 0;

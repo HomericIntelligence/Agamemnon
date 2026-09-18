@@ -310,6 +310,52 @@ def _required_context_names(workflows: dict[str, dict]) -> set[str]:
     return contexts
 
 
+@pytest.mark.parametrize(
+    "filename,job_id", [*REQUIRED_CONTEXT_JOBS.values(), ("build-test.yml", "build-test")]
+)
+def test_required_jobs_do_not_exclude_queue_events(filename: str, job_id: str) -> None:
+    """Required jobs cannot use a PR-only or push-only execution condition."""
+    job = _load_workflow(WORKFLOW_DIR / filename)["jobs"][job_id]
+    assert job.get("if") in (None, "always()"), (filename, job_id)
+
+
+@pytest.mark.parametrize(
+    "filename,job_id",
+    [
+        ("_required.yml", "test"),
+        ("build-test.yml", "check-all"),
+        ("static-analysis.yml", "check-all"),
+    ],
+)
+def test_aggregate_scripts_preserve_dependency_failures(
+    filename: str, job_id: str, tmp_path: Path
+) -> None:
+    """Execute the actual aggregate script for success and each failed dependency."""
+    job = _load_workflow(WORKFLOW_DIR / filename)["jobs"][job_id]
+    step = next(step for step in job["steps"] if "run" in step)
+    statuses = {key: "success" for key in step["env"] if key.endswith("_RESULT")}
+    context = {"EVENT_NAME": "merge_group"} if "EVENT_NAME" in step["env"] else {}
+
+    def run(values: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-e", "-c", step["run"]],
+            env={"PATH": os.defpath, **context, **values},
+            cwd=tmp_path,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+    success = run(statuses)
+    assert success.returncode == 0, success.stderr
+    for dependency in statuses:
+        failed = run({**statuses, dependency: "failure"})
+        assert failed.returncode != 0, (filename, dependency, failed.stdout)
+    if "DOCS_RESULT" in statuses:
+        # Documentation is required for both PR and merge-group commits.
+        assert run({**statuses, "DOCS_RESULT": "skipped"}).returncode != 0
+
+
 def test_live_required_context_names_remain_exact() -> None:
     """Required job names must continue to match the live ruleset contexts exactly."""
     workflows = {
@@ -403,7 +449,7 @@ def test_pip_audit_manifest_floor_meets_advisory_fix() -> None:
     """The lint-group pip floor must be at or above the PYSEC-2026-3721 fix."""
     floor = _lint_group_pip_floor()
     assert floor >= PIP_AUDIT_FLOOR, (
-        f'{PYPROJECT_SECTION} pip floor {floor} is below the advisory fix '
+        f"{PYPROJECT_SECTION} pip floor {floor} is below the advisory fix "
         f"{PIP_AUDIT_FLOOR} — security/dependency-scan fails closed on PYSEC-2026-3721"
     )
 
@@ -432,9 +478,7 @@ def test_dependency_scan_runs_the_bound_pip_audit_command() -> None:
     steps = workflow["jobs"]["security-dependency-scan"]["steps"]
     runnable = [step for step in steps if "run" in step]
     audit_step = next((step for step in runnable if PIP_AUDIT_COMMAND in step["run"]), None)
-    assert audit_step is not None, (
-        f"security-dependency-scan does not run '{PIP_AUDIT_COMMAND}'"
-    )
+    assert audit_step is not None, f"security-dependency-scan does not run '{PIP_AUDIT_COMMAND}'"
 
     run_block = audit_step["run"]
     assert "continue-on-error" not in audit_step, (
@@ -443,9 +487,7 @@ def test_dependency_scan_runs_the_bound_pip_audit_command() -> None:
     assert "--ignore-vuln" not in run_block, (
         "Dependency scan suppresses advisories with --ignore-vuln instead of fixing them"
     )
-    command_line = next(
-        line for line in run_block.splitlines() if PIP_AUDIT_COMMAND in line
-    )
+    command_line = next(line for line in run_block.splitlines() if PIP_AUDIT_COMMAND in line)
     assert "||" not in command_line, (
         "Dependency scan masks pip-audit failures with a shell fallback"
     )
@@ -458,8 +500,7 @@ def test_build_matrix_does_not_pay_for_clang_tidy() -> None:
     """clang-tidy must be opt-in, or the matrix races its own timeout (issue #515)."""
     option = CLANG_TIDY_OPTION.search(ANALYZERS_PATH.read_text())
     assert option is not None, (
-        "cmake/StaticAnalyzers.cmake no longer declares "
-        "Agamemnon_ENABLE_CLANG_TIDY"
+        "cmake/StaticAnalyzers.cmake no longer declares Agamemnon_ENABLE_CLANG_TIDY"
     )
     assert option.group(1) == "OFF", (
         "ENABLE_CLANG_TIDY defaults ON, so every Build and Test matrix job pays "
@@ -525,10 +566,9 @@ def test_dedicated_jobs_still_enable_clang_tidy(filename: str, job_id: str) -> N
     workflow = _load_workflow(WORKFLOW_DIR / filename)
     steps = workflow["jobs"][job_id]["steps"]
 
-    assert any(
-        "-DAgamemnon_ENABLE_CLANG_TIDY=ON" in str(step.get("run", ""))
-        for step in steps
-    ), f"{filename}:{job_id} no longer enables clang-tidy (issue #515)"
+    assert any("-DAgamemnon_ENABLE_CLANG_TIDY=ON" in str(step.get("run", "")) for step in steps), (
+        f"{filename}:{job_id} no longer enables clang-tidy (issue #515)"
+    )
 
 
 def test_gitleaks_scan_step_is_blocking() -> None:
@@ -563,3 +603,48 @@ def test_gitleaks_sarif_upload_step_not_affected() -> None:
         "Upload Gitleaks SARIF step lost its 'always()' condition — "
         "SARIF reports will not be uploaded when the scan fails"
     )
+
+
+def test_empty_conan_cache_is_created_before_container_mount(tmp_path: Path) -> None:
+    """Execute each mount step up to a controlled container boundary on a cache miss."""
+    workflow = _load_workflow()
+    checked = []
+    for job_id, job in workflow["jobs"].items():
+        for step in job.get("steps", []):
+            script = step.get("run", "")
+            if "$HOME/.conan2:/home/ci/.conan2:Z" not in script:
+                continue
+            sandbox = tmp_path / job_id
+            sandbox.mkdir()
+            fake_home = sandbox / "home"
+            fake_home.mkdir()
+            executable = sandbox / "podman"
+            executable.write_text(
+                '#!/bin/sh\nif [ ! -d "$FLEET_TEST_HOME/.conan2" ]; then exit 74; fi\nexit 73\n'
+            )
+            executable.chmod(0o700)
+            env = {
+                "PATH": str(sandbox) + os.pathsep + os.defpath,
+                "FLEET_TEST_HOME": str(fake_home),
+                "CONAN_HOME": "/home/ci/.conan2",
+                "FLEET_TEST_PACKAGE_OUTPUT": str(sandbox / "package.out"),
+            }
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-e",
+                    "-c",
+                    script.replace("$HOME", "$FLEET_TEST_HOME").replace(
+                        "/tmp/agamemnon-package.out", '"$FLEET_TEST_PACKAGE_OUTPUT"'
+                    ),
+                ],
+                cwd=sandbox,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            assert result.returncode == 73, (job_id, result.returncode, result.stderr)
+            assert (fake_home / ".conan2").is_dir()
+            checked.append(job_id)
+    assert len(checked) == 7

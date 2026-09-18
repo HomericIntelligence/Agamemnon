@@ -100,6 +100,15 @@ bool Orchestrator::escalate(const std::string& task_id, const std::string& reaso
   return true;
 }
 
+bool Orchestrator::resolve_fleet_task(const std::string& task_id, const json& claim,
+                                      const json& decision) {
+  auto task = store_.resolve_hmas_fleet_task(task_id, claim, decision);
+  if (!task) return false;
+  publish_task_state(*task);
+  if (task->state == TaskState::Completed) delegate_unblocked_children(task_id);
+  return true;
+}
+
 void Orchestrator::on_myrmidon_completion(const std::string& subject, const std::string& payload) {
   try {
     auto msg = json::parse(payload);
@@ -271,8 +280,9 @@ void Orchestrator::on_myrmidon_failed(const std::string& subject, const std::str
   }
 }
 
-std::string Orchestrator::on_epic_registered(const std::string& subject,
-                                             const std::string& payload) {
+std::string Orchestrator::on_epic_registered(const std::string& subject, const std::string& payload,
+                                             bool durable) {
+  if (durable) return register_epic_durable(subject, payload);
   try {
     auto msg = json::parse(payload);
     const json epic = msg.value("epic", json::object());
@@ -337,6 +347,9 @@ json Orchestrator::split_task(const std::string& task_id, const json& subtasks) 
   }
 
   auto original = std::move(*task_opt);
+  if (!original.fleet_claim.is_null())
+    return {{"error", "Fleet-owned task requires generation-fenced planning"}};
+  std::vector<HmasTask> children;
   std::vector<std::string> created;
   std::string prev_id;
   const std::string ts = now_iso8601();
@@ -375,13 +388,13 @@ json Orchestrator::split_task(const std::string& task_id, const json& subtasks) 
       }
     }
 
-    store_.create_hmas_task(child);
-    original.child_task_ids.push_back(child.id);
+    children.push_back(child);
     created.push_back(child.id);
     prev_id = child.id;
   }
 
-  store_.update_hmas_task(original);
+  if (!store_.append_hmas_children(original, children))
+    return {{"error", "Task ownership or plan changed; reconcile before splitting"}};
   nats_.publish_log("hi.logs.agamemnon.task_split", "info", "Task split: " + task_id,
                     {{"task_id", task_id}, {"created", created}});
   return {{"task_id", task_id}, {"created", created}};

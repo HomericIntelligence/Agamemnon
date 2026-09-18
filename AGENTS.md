@@ -23,15 +23,26 @@ Agamemnon receives researched briefs from ProjectNestor and manages:
 - REST API: `/v1/*` (coordination) and `/v1/chaos/*` (chaos injection for ProjectCharybdis)
 - Peer discovery via Tailscale (100.x.x.x scan)
 
-Agamemnon does **not** perform research (Nestor's responsibility), provide UI (Odysseus), or make
-myrmidon-level decisions (myrmidons communicate peer-to-peer directly).
+Nestor owns research questions, content, and the canonical research issue. Agamemnon may import
+a confirmed Nestor intake reference as a durable Pending L3 execution leaf; import does not
+dispatch work or grant worker admission. Later execution uses existing Fleet controls and
+separate environment gates. See [the research import contract](docs/fleet.md#import-a-nestor-research-intake).
+Independently of Nestor, Agamemnon may import an explicitly selected planned GitHub issue
+from an operator registry as a Pending implementation leaf. Both import paths share bounded
+GitHub reconciliation and a conditional creation-attempt record; neither approves plan content
+nor dispatches work. Generic work acquisition cannot bypass retained ownership or unresolved
+attempts when routes or configuration are disabled. See
+[the direct import and recovery contract](docs/fleet.md#import-a-planned-github-issue).
+Agamemnon does **not** provide UI (Odysseus) or make myrmidon-level decisions
+(myrmidons communicate peer-to-peer directly).
 
 ### Key Principles
 
 1. **Pull-based:** Agamemnon enqueues work. Myrmidons pull when ready. MaxAckPending=1.
 2. **GitHub = backing store:** All task state lives in GitHub Issues/Projects.
 3. **Bidirectional:** Agents can clarify upstream at every stage.
-4. **No research:** Receives researched briefs only. All research is Nestor's responsibility.
+4. **Research ownership:** Nestor owns content and handoff. Agamemnon receives briefs and may
+   admit confirmed intake metadata for later execution, without researching or dispatching at import.
 5. **HMAS hierarchy:** L0→L3 internal orchestration primitives manage delegation and escalation.
 
 ---
@@ -189,6 +200,13 @@ GitHub Issues and GitHub Projects are the sole backing store for task and pipeli
 - Each pipeline corresponds to a GitHub Project.
 - No relational database, no in-memory store.
 - State transitions are durable and auditable via GitHub's event timeline.
+
+Build creation also uses a conditional attempt record on an explicit branch in
+the same GitHub backing repository. This record reserves uncertain creation;
+it does not replace the build issue, grant execution, or create another queue.
+Keep its branch configured when the build catalog is disabled. The retained
+attempt and canonical build issues continue to protect tool capacity. See
+[build admission and recovery](docs/fleet.md#subordinate-build-jobs).
 
 ---
 
