@@ -66,9 +66,10 @@ class FleetBuildConfig : public ::testing::Test {
     ASSERT_EQ(::chmod(path.c_str(), mode), 0);
   }
 
-  void rejects(const std::optional<std::string>& selected, bool durable = true, bool auth = true) {
+  void rejects(const std::optional<std::string>& selected, bool durable = true, bool auth = true,
+               std::optional<std::string> state_branch = std::string("fleet-state")) {
     try {
-      (void)load_build_configuration(selected, durable, auth);
+      (void)load_build_configuration(selected, durable, auth, state_branch);
       ADD_FAILURE() << "invalid operator configuration was accepted";
     } catch (const std::exception& error) {
       const std::string message = error.what();
@@ -101,15 +102,56 @@ TEST_F(FleetBuildConfig, AbsentPathDisablesAdmissionWithoutStartupPrerequisites)
   const auto result = load_build_configuration(std::nullopt, false, false);
   EXPECT_EQ(result.catalog, json::object());
   EXPECT_EQ(result.authorities, json::object());
+  EXPECT_TRUE(result.state_branch.empty());
+}
+
+TEST_F(FleetBuildConfig, AbsentCatalogRetainsRecoveryBranchWithoutEnablingAdmission) {
+  for (const auto& branch :
+       {std::string("fleet-state"), std::string("fleet/state"),
+        std::string(100, 'a') + "/" + std::string(100, 'b') + "/" + std::string(53, 'c')}) {
+    SCOPED_TRACE(branch);
+    const auto result = load_build_configuration(std::nullopt, true, true, branch);
+    EXPECT_EQ(result.catalog, json::object());
+    EXPECT_EQ(result.authorities, json::object());
+    EXPECT_EQ(result.state_branch, branch);
+  }
+  rejects(std::nullopt, false, true);
+  rejects(std::nullopt, true, false);
+  rejects(std::nullopt, false, false);
+}
+
+TEST_F(FleetBuildConfig, RecoveryBranchMustBeValidWithOrWithoutAConfigurationFile) {
+  write(document().dump());
+  const std::vector<std::string> invalid{
+      "",
+      "/main",
+      "main/",
+      "main//state",
+      "main..state",
+      ".main",
+      "main.",
+      "main.lock",
+      "main?ref=other",
+      "main#fragment",
+      "main:other",
+      std::string(101, 'a'),
+      std::string(100, 'a') + "/" + std::string(100, 'b') + "/" + std::string(54, 'c'),
+      std::string("main\0other", 10)};
+  for (const auto& branch : invalid) {
+    SCOPED_TRACE(branch);
+    rejects(std::nullopt, true, true, branch);
+    rejects(path.string(), true, true, branch);
+  }
 }
 
 TEST_F(FleetBuildConfig, PrivateRecoveryConfigurationPreservesAuthoritiesExactly) {
   for (const mode_t mode : {0400, 0600}) {
     SCOPED_TRACE(mode);
     write(document().dump(), mode);
-    const auto result = load_build_configuration(path.string(), true, true);
+    const auto result = load_build_configuration(path.string(), true, true, "fleet-state");
     EXPECT_EQ(result.catalog, json::object());
     EXPECT_EQ(result.authorities, authorities());
+    EXPECT_EQ(result.state_branch, "fleet-state");
   }
 }
 
@@ -159,9 +201,12 @@ TEST_F(FleetBuildConfig, PreservesTheCompleteAdmissionCatalogAndAuthorityBinding
                         {"recipes", json::array({recipe})},
                         {"allocations", json::array({allocation})}};
   write(document(catalog).dump());
-  const auto result = load_build_configuration(path.string(), true, true);
+  rejects(path.string(), true, true, std::nullopt);
+  rejects(path.string(), true, true, std::string());
+  const auto result = load_build_configuration(path.string(), true, true, "fleet-state");
   EXPECT_EQ(result.catalog, catalog);
   EXPECT_EQ(result.authorities, authorities());
+  EXPECT_EQ(result.state_branch, "fleet-state");
   auto incompatible = authorities();
   incompatible["authorities"][0]["workerId"] = "different-worker";
   write(document(catalog, incompatible).dump());
@@ -229,7 +274,8 @@ TEST_F(FleetBuildConfig, EnforcesOneMiBAtTheBoundaryWithoutTruncation) {
   auto bytes = document().dump();
   bytes.resize(max_bytes, ' ');
   write(bytes);
-  EXPECT_EQ(load_build_configuration(path.string(), true, true).authorities, authorities());
+  EXPECT_EQ(load_build_configuration(path.string(), true, true, "fleet-state").authorities,
+            authorities());
   bytes.push_back(' ');
   write(bytes);
   rejects(path.string());

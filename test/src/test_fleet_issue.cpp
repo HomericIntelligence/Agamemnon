@@ -573,6 +573,91 @@ TEST_F(FleetIssueConfigured, MalformedImportedRawIdentityCannotHydrateOrBeRewrit
   }
 }
 
+TEST_F(FleetIssueConfigured, MissingImportedStateCannotBeRewrittenByFirstUpdate) {
+  ASSERT_EQ(issue_service()->import_request(json::parse(request())).status, 201);
+  ASSERT_TRUE(store.update_hmas_task_state(direct_task, TaskState::Completed));
+  auto raw = hmas_task_to_json(store.get_hmas_task(direct_task).value());
+  ASSERT_EQ(raw.erase("state"), 1u);
+  github->created_issues.at("1")["body"] =
+      "## AgamemnonEntity: hmas-tasks/" + direct_task + "\n\n```json\n" + raw.dump() + "\n```\n";
+  const auto retained = github->created_issues;
+  const auto calls = github->calls.size();
+
+  Store restarted{github, config};
+  EXPECT_THROW(restarted.update_hmas_task_state(direct_task, TaskState::Completed), std::exception);
+  EXPECT_EQ(github->created_issues, retained);
+  EXPECT_EQ(github->calls.size(), calls);
+  EXPECT_TRUE(publisher.calls.empty());
+}
+
+TEST_F(FleetIssueConfigured, MissingUntypedLegacyStateDefaultsToPending) {
+  const auto legacy = ordinary_task("legacy-state-default");
+  store.create_hmas_task(legacy);
+  auto raw = hmas_task_to_json(legacy);
+  ASSERT_EQ(raw.erase("state"), 1u);
+  github->created_issues.at("1")["body"] =
+      "## AgamemnonEntity: hmas-tasks/" + legacy.id + "\n\n```json\n" + raw.dump() + "\n```\n";
+  const auto retained = github->created_issues;
+
+  Store restarted{github};
+  EXPECT_EQ(hmas_task_to_json(restarted.get_hmas_task(legacy.id).value()),
+            hmas_task_to_json(legacy));
+  EXPECT_EQ(github->created_issues, retained);
+  ASSERT_TRUE(restarted.update_hmas_task_state(legacy.id, TaskState::Completed));
+  Store restored{github};
+  EXPECT_EQ(restored.get_hmas_task(legacy.id)->state, TaskState::Completed);
+  EXPECT_TRUE(publisher.calls.empty());
+}
+
+TEST_F(FleetIssueConfigured, MissingImportedStateCannotHydrateOrAcquireFleetClaim) {
+  ASSERT_EQ(issue_service()->import_request(json::parse(request())).status, 201);
+  ASSERT_TRUE(store.update_hmas_task_state(direct_task, TaskState::Completed));
+  const auto original = store.get_hmas_task(direct_task).value();
+  ASSERT_TRUE(original.fleet_claim.is_null());
+
+  Store restarted{github, config};
+  FleetService fleet{restarted, publisher, nullptr, "fixture-operator-key"};
+  fleet.create("pools", {{"id", "fixture-laptop"}, {"capacity", 1}});
+  fleet.create("workers", {{"id", "fixture-worker"},
+                           {"poolId", "fixture-laptop"},
+                           {"capacity", 1},
+                           {"host", "fixture-host"}});
+  fleet.create("sessions", {{"id", "fixture-session"},
+                            {"workerId", "fixture-worker"},
+                            {"agentId", "fixture-agent"},
+                            {"executionId", "fixture-execution"},
+                            {"workspace", "/work/fixture-issue"},
+                            {"taskId", direct_task},
+                            {"domain", "pipeline"},
+                            {"hmasRole", "task-agent"},
+                            {"stage", "implementation"}});
+  const auto original_backing = github->created_issues;
+  auto raw = hmas_task_to_json(original);
+  ASSERT_EQ(raw.erase("state"), 1u);
+  github->created_issues.at("1")["body"] =
+      "## AgamemnonEntity: hmas-tasks/" + direct_task + "\n\n```json\n" + raw.dump() + "\n```\n";
+  const auto retained = github->created_issues;
+  const auto calls = github->calls.size();
+
+  EXPECT_THROW(restarted.get_hmas_task(direct_task), std::exception);
+  EXPECT_THROW(fleet.command("sessions", "fixture-session", "start",
+                             {{"commandId", "fixture-start"},
+                              {"idempotencyKey", "fixture-start"},
+                              {"generation", 1},
+                              {"payload", json::object()}}),
+               std::exception);
+  EXPECT_EQ(github->created_issues, retained);
+  EXPECT_EQ(github->calls.size(), calls);
+  EXPECT_EQ(fleet.get("sessions", "fixture-session").at("claimStatus"), "unclaimed");
+  EXPECT_EQ(fleet.get("sessions", "fixture-session").at("status"), "created");
+  EXPECT_TRUE(publisher.calls.empty());
+
+  github->created_issues = original_backing;
+  Store restored{github, config};
+  EXPECT_EQ(hmas_task_to_json(restored.get_hmas_task(direct_task).value()),
+            hmas_task_to_json(original));
+}
+
 TEST_F(FleetIssueConfigured, MalformedPreparedFenceCannotGrantBackingCreation) {
   github->reject_creating = true;
   EXPECT_EQ(issue_service()->import_request(json::parse(request())).status, 503);

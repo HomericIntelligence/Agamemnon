@@ -283,6 +283,10 @@ check all proposed child IDs and resolved canonical work identities together
 before writing the parent or any child. Distinct work issues and unassigned
 legacy children with issue number zero remain supported.
 
+Typed `issueIntake` and `researchIntake` records require an explicit recognized
+`state` before hydration or a Fleet claim. A missing state is invalid; it cannot
+default to `Pending`. Existing defaults for untyped legacy records remain unchanged.
+
 The fixed GitHub import client uses normal HTTPS verification, no redirects,
 ambient proxy or automatic retry. Its runtime must expose libcurl asynchronous
 DNS (`CURL_VERSION_ASYNCHDNS`); otherwise it returns unavailable before I/O.
@@ -334,6 +338,40 @@ control. The catalog has `schema: hi/fleet/build-catalog/v1`, `workspaces`,
 entry binds its ID and private key to a tool worker, allocation and generation.
 Keys are never copied into public policy, GitHub records or Keystone commands.
 
+Set `AGAMEMNON_FLEET_BUILD_STATE_BRANCH` to an existing branch in `GITHUB_REPO`.
+Enabled build admission requires this separate setting. The service does not
+create the branch. The backing credential needs read/write access to its
+contents. Keep the branch setting when the catalog is disabled or its file is
+removed. Recovery and provider-capacity checks still read the retained attempt.
+Removing or changing the recovery namespace before every attempt is resolved is
+unsupported. Removing both settings cannot serve as a release operation.
+Existing deployments that have never enabled builds can retain the default
+construction without a build state branch.
+
+The fixed path `fleet/build-admission/current.json` holds one bounded
+`hi/fleet/build-create-attempt/v1` record. It binds a unique attempt ID to the
+build ID, selected worker/allocation/generation, and digests of the immutable
+request, policy, parent claim binding, and first command. It contains no worker
+credential. It is a GitHub-backed creation barrier, not another task queue.
+
+Before one issue POST, the current invocation must confirm a conditional
+`creating` write and exact same-branch readback. A retained attempt never grants
+another POST. A lost acknowledgment, empty listing, restart, or new parent
+observation cannot clear it. While creation is unresolved, all new build
+admissions stop. The selected worker and allocation also remain unavailable to
+provider admission when the catalog is disabled. Other admitted work can
+continue through its existing controls.
+
+After the original canonical issue is visible, reconciliation validates its
+complete lifecycle document and the same immutable admission fields. A valid
+cancellation, grant, or terminal fact does not change those fields. An exact
+match can conditionally mark the attempt `linked`; it cannot publish or acquire
+a parent claim. A later creation can replace that linked barrier only after the
+prior issue is present and valid. Active capacity then remains reserved by the
+canonical issue. Malformed, conflicting, duplicate, or absent records preserve
+uncertainty. There is no automatic reset for a conclusively unstarted retained
+attempt in this version.
+
 Policy, parameter and grant digests use SHA-256 over compact, sorted-key UTF-8
 JSON with no trailing newline. The owning Hephaestus snapshot contract separately
 defines its canonical manifest with one trailing newline. The controller checks
@@ -353,10 +391,12 @@ the six snapshot commitment fields; it does not read or verify snapshot bytes.
    `members`, positive integer `bytes`, and `policyDigest`. References are opaque
    IDs; admission never opens them as a path or URL.
 3. Read the returned `{record, command}` and retain the deterministic build ID.
-   Admission first acknowledges the durable GitHub write, then publishes the
-   fixed command through Keystone. A response lost after the write is uncertain;
-   replay the identical submission. Exact replay reads the retained job without
-   another reservation, policy selection, command or publication. Changed
+   Admission confirms its creation barrier, acknowledges the durable issue write,
+   and confirms the link before it publishes the fixed command through Keystone.
+   A response lost after a write is uncertain;
+   replay the identical submission. Exact replay returns the retained job and
+   can confirm its barrier link. It does not create another reservation, select
+   another policy, or publish a command. Changed
    requests or colliding command IDs return 409.
 4. If initial command publication is uncertain, use the separate `/deliver`
    operation with the exact admitted command ID, generation and attempt.
@@ -575,6 +615,8 @@ are included in hydration; closing an issue is not claim release or archival.
 GitHub issue creation and GraphQL POST operations make one transport attempt.
 An ambiguous response returns to the owning operation for identity reconciliation;
 the HTTP client never automatically repeats a possibly committed creation.
+Subordinate build creation additionally uses the conditional barrier above;
+an empty hydration result alone cannot release its uncertain reservation.
 
 GitHub stores control transitions only. Frequent activity updates refresh the
 read model without writing GitHub on each message. A control transition

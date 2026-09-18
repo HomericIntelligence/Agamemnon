@@ -92,7 +92,8 @@ void reply(httplib::Response& response, int status, Function function) {
 
 FleetService::FleetService(Store& store, NatsPublisher& publisher, Orchestrator* orchestrator,
                            std::string resolution_key, std::shared_ptr<ProjectProjection> projects,
-                           json build_catalog, json build_authorities, json build_artifacts)
+                           json build_catalog, json build_authorities, json build_artifacts,
+                           std::string build_state_branch)
     : store_(store),
       publisher_(publisher),
       orchestrator_(orchestrator),
@@ -101,8 +102,12 @@ FleetService::FleetService(Store& store, NatsPublisher& publisher, Orchestrator*
       projects_(projects ? std::move(projects) : std::make_shared<ProjectProjection>(github_)),
       build_catalog_(std::move(build_catalog)),
       build_authorities_(std::move(build_authorities)),
-      build_artifacts_(std::move(build_artifacts)) {
+      build_artifacts_(std::move(build_artifacts)),
+      build_state_branch_(std::move(build_state_branch)) {
   fleet_build::validate_log_configuration(build_artifacts_);
+  if (!build_state_branch_.empty()) validate_github_state_branch(build_state_branch_);
+  if (!build_catalog_.empty() && build_state_branch_.empty())
+    throw FleetError(503, "build admission requires its durable state branch");
 }
 
 json FleetService::projects_health() const { return projects_->health(); }
@@ -174,6 +179,19 @@ FleetService::Entry& FleetService::find_(const std::string& kind, const std::str
 }
 
 void FleetService::check_provider_isolation_(const json& worker) const {
+  ImportContext context;
+  if (const auto fence = read_build_fence_(context)) {
+    const auto& identity = fence->document.at("identity");
+    const auto found = entries_.find("build-jobs/" + identity.at("buildId").get<std::string>());
+    if (found != entries_.end() &&
+        (fleet_build::admission_identity(found->second.document).dump() != identity.dump() ||
+         (fence->document.at("phase") == "linked" &&
+          fence->document.at("backingIssue") != found->second.issue)))
+      throw FleetError(503, "build creation requires exact canonical reconciliation");
+    const bool unresolved = fence->document.at("phase") == "creating" || found == entries_.end();
+    if (unresolved && shares_build_capacity(worker, identity.at("allocation")))
+      throw FleetError(409, "unresolved build creation retains its tool capacity");
+  }
   for (const auto& allocation : build_catalog_.value("allocations", json::array()))
     if (shares_build_capacity(worker, allocation))
       throw FleetError(409, "registered tool identity cannot become an issue worker");
@@ -330,6 +348,66 @@ json FleetService::build_parent_(const json& requested_parent, const json& works
   return binding;
 }
 
+std::optional<ImportFence> FleetService::read_build_fence_(ImportContext& context) const {
+  if (build_state_branch_.empty()) return std::nullopt;
+  if (!github_) throw FleetError(503, "build admission requires GitHub persistence");
+  const auto fence = github_->build_read_fence(build_state_branch_, context);
+  if (fence) {
+    try {
+      if (!std::regex_match(fence->sha, std::regex("[a-f0-9]{40}")))
+        throw FleetError(503, "invalid build creation revision");
+      fleet_build::validate_create_attempt(fence->document);
+    } catch (const std::exception&) {
+      throw FleetError(503, "build creation requires reconciliation");
+    }
+  }
+  return fence;
+}
+
+ImportFence FleetService::write_build_fence_(const json& document,
+                                             const std::optional<std::string>& expected_sha,
+                                             ImportContext& context) {
+  fleet_build::validate_create_attempt(document);
+  const auto confirmed =
+      github_->build_write_fence(build_state_branch_, document, expected_sha, context);
+  if (!std::regex_match(confirmed.sha, std::regex("[a-f0-9]{40}")) ||
+      confirmed.document.dump() != document.dump())
+    throw FleetError(503, "build creation write is unconfirmed");
+  return confirmed;
+}
+
+std::optional<ImportFence> FleetService::reconcile_build_fence_(ImportContext& context) {
+  auto fence = read_build_fence_(context);
+  if (!fence) return std::nullopt;
+  const auto key = "build-jobs/" + fence->document.at("identity").at("buildId").get<std::string>();
+  if (!entries_.contains(key)) {
+    // A prior empty scan cannot resolve a create that can still commit later.
+    loaded_ = false;
+    load_();
+  }
+  const auto found = entries_.find(key);
+  if (found == entries_.end())
+    throw FleetError(503, "build creation is unresolved; new admission is blocked");
+  const auto& entry = found->second;
+  try {
+    fleet_build::validate_document(entry.document);
+    if (fleet_build::admission_identity(entry.document).dump() !=
+            fence->document.at("identity").dump() ||
+        (fence->document.at("phase") == "linked" &&
+         fence->document.at("backingIssue") != entry.issue))
+      throw FleetError(503, "build creation identity changed");
+  } catch (const std::exception&) {
+    throw FleetError(503, "build creation requires exact canonical reconciliation");
+  }
+  if (fence->document.at("phase") == "creating") {
+    auto linked = fence->document;
+    linked["phase"] = "linked";
+    linked["backingIssue"] = entry.issue;
+    fence = write_build_fence_(linked, fence->sha, context);
+  }
+  return fence;
+}
+
 json FleetService::submit_build(const json& request) {
   std::lock_guard lock(mutex_);
   fleet_build::validate_submission(request);
@@ -337,13 +415,27 @@ json FleetService::submit_build(const json& request) {
   const auto id =
       "build-" + fleet_build::digest({{"workspaceId", request.at("workspaceId")},
                                       {"idempotencyKey", request.at("idempotencyKey")}});
+  ImportContext context;
   if (auto found = entries_.find("build-jobs/" + id); found != entries_.end()) {
     const auto& document = found->second.document;
     const auto& record = document.at("record");
-    if (!fleet_build::typed(record) || record.at("build").at("request") != request)
+    if (!fleet_build::typed(record) || record.at("build").at("request").dump() != request.dump())
       throw FleetError(409, "build identity reused with different intent");
-    // A historical replay is a read. It does not authorize delivery or a run.
+    if (const auto fence = read_build_fence_(context);
+        fence && fence->document.at("identity").at("buildId") == id)
+      (void)reconcile_build_fence_(context);
+    // A historical replay does not authorize delivery or a run.
     return {{"record", record}, {"command", document.at("commands").at(0).at("command")}};
+  }
+  if (build_state_branch_.empty()) throw FleetError(503, "build creation state is not configured");
+  const auto prior = reconcile_build_fence_(context);
+  // Reconciliation can discover the original record after an earlier empty scan.
+  if (auto found = entries_.find("build-jobs/" + id); found != entries_.end()) {
+    const auto& document = found->second.document;
+    if (document.at("record").at("build").at("request").dump() != request.dump())
+      throw FleetError(409, "build identity reused with different intent");
+    return {{"record", document.at("record")},
+            {"command", document.at("commands").at(0).at("command")}};
   }
   if (build_catalog_.empty()) throw FleetError(503, "build admission is not configured");
   const auto policies = fleet_build::policies(build_catalog_, build_authorities_, request);
@@ -408,10 +500,22 @@ json FleetService::submit_build(const json& request) {
       {"events", json::array()}};
   if (body_(document).size() > 30000)
     throw FleetError(507, "build intent exceeds durable admission budget");
+  const json creating{{"schema", "hi/fleet/build-create-attempt/v1"},
+                      {"attemptId", generate_uuid()},
+                      {"phase", "creating"},
+                      {"identity", fleet_build::admission_identity(document)},
+                      {"backingIssue", nullptr}};
+  // Only this invocation's confirmed conditional write permits one issue POST.
+  const auto fence =
+      write_build_fence_(creating, prior ? std::optional(prior->sha) : std::nullopt, context);
   Entry entry;
   persist_(entry, std::move(document), "build.admitted");
   const auto result = entry.document.at("record");
+  auto linked = creating;
+  linked["phase"] = "linked";
+  linked["backingIssue"] = entry.issue;
   entries_.emplace("build-jobs/" + id, std::move(entry));
+  (void)write_build_fence_(linked, fence.sha, context);
   if (!publisher_.publish("hi.fleet.control." + allocation.at("workerId").get<std::string>(),
                           envelope.dump()))
     throw FleetError(503, "build persisted; delivery is uncertain");

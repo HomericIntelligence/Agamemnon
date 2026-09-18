@@ -72,8 +72,9 @@ void validate_import_entity(const json& raw) {
   if (direct == research || !id.is_string() || !raw.value("repo", json()).is_string() ||
       !raw.value("issue", json()).is_number_integer() || raw["issue"] <= 0 ||
       raw["issue"] > std::numeric_limits<int>::max() ||
-      raw.value("layer", json()) != "L3_TaskAgent")
+      raw.value("layer", json()) != "L3_TaskAgent" || !raw.value("state", json()).is_string())
     throw std::invalid_argument("Malformed retained import identity");
+  (void)task_state_from_string(raw["state"].get<std::string>());
   for (const auto* field : {"brief_id", "parent_task_id", "module"})
     if (!raw.contains(field) || raw[field] != "")
       throw std::invalid_argument("Malformed retained import leaf");

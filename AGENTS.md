@@ -201,6 +201,13 @@ GitHub Issues and GitHub Projects are the sole backing store for task and pipeli
 - No relational database, no in-memory store.
 - State transitions are durable and auditable via GitHub's event timeline.
 
+Build creation also uses a conditional attempt record on an explicit branch in
+the same GitHub backing repository. This record reserves uncertain creation;
+it does not replace the build issue, grant execution, or create another queue.
+Keep its branch configured when the build catalog is disabled. The retained
+attempt and canonical build issues continue to protect tool capacity. See
+[build admission and recovery](docs/fleet.md#subordinate-build-jobs).
+
 ---
 
 ## Pull-Based Work Queue Contract

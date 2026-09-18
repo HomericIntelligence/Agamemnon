@@ -102,17 +102,21 @@ json read_configuration(const std::string& selected) {
 }  // namespace
 
 BuildConfiguration load_build_configuration(const std::optional<std::string>& path,
-                                            bool durable_persistence, bool authenticated_api) {
-  if (!path) return {};
+                                            bool durable_persistence, bool authenticated_api,
+                                            const std::optional<std::string>& state_branch) {
+  if (!path && !state_branch) return {};
   try {
     if (!durable_persistence || !authenticated_api) invalid();
+    if (state_branch) validate_github_state_branch(*state_branch);
+    if (!path) return {json::object(), json::object(), *state_branch};
     const auto document = read_configuration(*path);
     if (!document.is_object() || document.size() != 3 ||
         document.value("schema", json()) != "hi/fleet/build-configuration/v1" ||
         !document.contains("catalog") || !document.contains("authorities"))
       invalid();
     fleet_build::validate_configuration(document.at("catalog"), document.at("authorities"));
-    return {document.at("catalog"), document.at("authorities")};
+    if (!document.at("catalog").empty() && !state_branch) invalid();
+    return {document.at("catalog"), document.at("authorities"), state_branch.value_or("")};
   } catch (const std::exception&) {
     // Parser, filesystem and semantic errors can contain operator data.
     invalid();

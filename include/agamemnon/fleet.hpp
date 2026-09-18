@@ -27,13 +27,14 @@ class FleetError : public std::runtime_error {
 
 /// Single-controller GitHub-backed Fleet control records. No task scheduler.
 /// Commands and their state transitions share an atomic issue-body write.
+/// A conditional GitHub Contents record fences uncertain build creation.
 class FleetService {
  public:
   FleetService(Store& store, NatsPublisher& publisher, Orchestrator* orchestrator = nullptr,
                std::string resolution_key = "",
                std::shared_ptr<ProjectProjection> projects = nullptr,
                json build_catalog = json::object(), json build_authorities = json::object(),
-               json build_artifacts = json::object());
+               json build_artifacts = json::object(), std::string build_state_branch = "");
   json projects_health() const;
   json reconcile_projects();
   json create(const std::string& kind, const json& body);
@@ -66,6 +67,7 @@ class FleetService {
   const json build_catalog_;
   const json build_authorities_;
   const json build_artifacts_;
+  const std::string build_state_branch_;
   std::mutex mutex_;
   bool loaded_ = false;
   std::uint64_t sequence_ = 0;
@@ -79,6 +81,11 @@ class FleetService {
   void check_provider_isolation_(const json& worker) const;
   void check_tool_isolation_(const json& allocation) const;
   void persist_(Entry& entry, json document, const std::string& event);
+  std::optional<ImportFence> read_build_fence_(ImportContext& context) const;
+  ImportFence write_build_fence_(const json& document,
+                                 const std::optional<std::string>& expected_sha,
+                                 ImportContext& context);
+  std::optional<ImportFence> reconcile_build_fence_(ImportContext& context);
   json build_parent_(const json& requested_parent, const json& workspace);
   json cancel_build_(Entry& entry, const json& request);
   static std::string body_(const json& document);

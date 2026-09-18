@@ -15,6 +15,9 @@ std::string digest(const json& value);
 bool typed(const json& record);
 json start_command(const json& record);
 void validate_document(const json& document);
+/// Immutable admission fields remain stable through valid lifecycle updates.
+json admission_identity(const json& document);
+void validate_create_attempt(const json& document);
 void authorize(const json& record, const json& authorities, const std::string& key);
 void validate_claim(const json& claim, const json& record, const json& command);
 void validate_cancel(const json& request, const json& record);

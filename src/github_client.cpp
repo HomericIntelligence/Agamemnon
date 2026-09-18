@@ -383,9 +383,8 @@ void require_repository(const std::string& repository) {
                  repository_part(std::string_view(repository).substr(slash + 1)));
 }
 
-void require_fence(const std::string& branch, const std::string& key) {
-  require_import(lower_hex(key, 64) && !branch.empty() && branch.size() <= 255 &&
-                 branch.find("..") == std::string::npos);
+void require_branch(const std::string& branch) {
+  require_import(!branch.empty() && branch.size() <= 255 && branch.find("..") == std::string::npos);
   std::size_t start = 0;
   do {
     const auto end = branch.find('/', start);
@@ -396,6 +395,11 @@ void require_fence(const std::string& branch, const std::string& key) {
     if (end == std::string::npos) break;
     start = end + 1;
   } while (true);
+}
+
+void require_fence(const std::string& branch, const std::string& key) {
+  require_import(lower_hex(key, 64));
+  require_branch(branch);
 }
 
 std::string url_segment(std::string_view text) {
@@ -518,6 +522,8 @@ int import_progress(void* pointer, curl_off_t, curl_off_t received, curl_off_t,
   }
 }
 }  // namespace
+
+void validate_github_state_branch(const std::string& branch) { require_branch(branch); }
 
 ImportContext::ImportContext(std::chrono::milliseconds budget) {
   require_import(budget.count() > 0 && budget <= std::chrono::seconds(30));
@@ -688,7 +694,18 @@ std::optional<ImportFence> CurlGitHubClient::import_read_fence(const std::string
                                                                const std::string& key,
                                                                ImportContext& context) {
   require_fence(branch, key);
-  const auto path = "fleet/imports/" + key + ".json";
+  return read_fence_(branch, "fleet/imports/" + key + ".json", context);
+}
+
+std::optional<ImportFence> CurlGitHubClient::build_read_fence(const std::string& branch,
+                                                              ImportContext& context) {
+  require_branch(branch);
+  return read_fence_(branch, "fleet/build-admission/current.json", context);
+}
+
+std::optional<ImportFence> CurlGitHubClient::read_fence_(const std::string& branch,
+                                                         const std::string& path,
+                                                         ImportContext& context) {
   const auto response = import_request_(
       "GET", "/repos/" + repo_ + "/contents/" + path + "?ref=" + url_segment(branch), {}, context);
   if (response.status == 404) {
@@ -719,13 +736,26 @@ ImportFence CurlGitHubClient::import_write_fence(const std::string& branch, cons
                                                  const std::optional<std::string>& expected_sha,
                                                  ImportContext& context) {
   require_fence(branch, key);
+  return write_fence_(branch, "fleet/imports/" + key + ".json", "Record Fleet import attempt",
+                      document, expected_sha, context);
+}
+
+ImportFence CurlGitHubClient::build_write_fence(const std::string& branch, const json& document,
+                                                const std::optional<std::string>& expected_sha,
+                                                ImportContext& context) {
+  require_branch(branch);
+  return write_fence_(branch, "fleet/build-admission/current.json", "Record Fleet build attempt",
+                      document, expected_sha, context);
+}
+
+ImportFence CurlGitHubClient::write_fence_(const std::string& branch, const std::string& path,
+                                           const std::string& message, const json& document,
+                                           const std::optional<std::string>& expected_sha,
+                                           ImportContext& context) {
   require_import(document.is_object() && (!expected_sha || lower_hex(*expected_sha, 40)));
   const auto text = document.dump() + "\n";
   require_import(text.size() <= fence_limit);
-  const auto path = "fleet/imports/" + key + ".json";
-  json payload{{"message", "Record Fleet import attempt"},
-               {"branch", branch},
-               {"content", base64_encode(text)}};
+  json payload{{"message", message}, {"branch", branch}, {"content", base64_encode(text)}};
   if (expected_sha) payload["sha"] = *expected_sha;
   const auto response =
       import_request_("PUT", "/repos/" + repo_ + "/contents/" + path, payload.dump(), context);
@@ -738,7 +768,7 @@ ImportFence CurlGitHubClient::import_write_fence(const std::string& branch, cons
                  ack.value("commit", json()).is_object() &&
                  ack["commit"].value("sha", json()).is_string() &&
                  lower_hex(ack["commit"]["sha"].get<std::string>(), 40));
-  const auto observed = import_read_fence(branch, key, context);
+  const auto observed = read_fence_(branch, path, context);
   require_import(observed && observed->sha == ack["content"]["sha"].get<std::string>() &&
                  observed->document.dump() + "\n" == text);
   return *observed;

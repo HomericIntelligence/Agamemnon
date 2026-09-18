@@ -9,9 +9,11 @@
 #include <memory>
 #include <mutex>
 #include <openssl/evp.h>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "httplib.h"
@@ -263,6 +265,8 @@ const std::string fence_key(64, 'a');
 const std::string fence_sha(40, 'b');
 const std::string fence_path = "fleet/imports/" + fence_key + ".json";
 const std::string contents_path = "/repos/fixture/state/contents/" + fence_path;
+const std::string build_fence_path = "fleet/build-admission/current.json";
+const std::string build_contents_path = "/repos/fixture/state/contents/" + build_fence_path;
 
 std::string encoded(const std::string& value) {
   std::string result(4 * ((value.size() + 2) / 3), '\0');
@@ -277,6 +281,12 @@ json contents(const json& document, const std::string& sha = fence_sha) {
           {"sha", sha},
           {"encoding", "base64"},
           {"content", encoded(document.dump() + "\n")}};
+}
+
+json build_contents(const json& document) {
+  auto result = contents(document);
+  result["path"] = build_fence_path;
+  return result;
 }
 
 json issue(int number, std::string body = "fixture") {
@@ -332,6 +342,267 @@ class GitHubImportTransport : public ::testing::Test {
     });
   }
 };
+
+class GitHubBuildFenceTransport : public GitHubImportTransport {};
+
+TEST_F(GitHubBuildFenceTransport, ConditionalWriteUsesFixedPathAndExactReadback) {
+  const json document{{"phase", "creating"}, {"identity", {{"generation", 1}}}};
+  std::atomic<int> reads{0};
+  server.Put(build_contents_path, [&](const auto& req, auto& res) {
+    const int write = ++calls;
+    const auto payload = json::parse(req.body);
+    EXPECT_EQ(req.get_header_value("Authorization"), "Bearer fixture-key");
+    EXPECT_EQ(payload.at("branch"), "fleet/state");
+    EXPECT_EQ(payload.at("content"), encoded(document.dump() + "\n"));
+    if (write == 1)
+      EXPECT_FALSE(payload.contains("sha"));
+    else
+      EXPECT_EQ(payload.at("sha"), fence_sha);
+    res.status = write == 1 ? 201 : 200;
+    res.set_content(json{{"content", {{"path", build_fence_path}, {"sha", fence_sha}}},
+                         {"commit", {{"sha", std::string(40, 'c')}}}}
+                        .dump(),
+                    "application/json");
+  });
+  server.Get(build_contents_path, [&](const auto& req, auto& res) {
+    ++reads;
+    EXPECT_EQ(req.get_param_value("ref"), "fleet/state");
+    res.set_content(build_contents(document).dump(), "application/json");
+  });
+  start();
+  IGitHubClient& transport = *client;
+  for (const auto& previous :
+       {std::optional<std::string>{}, std::optional<std::string>{fence_sha}}) {
+    ImportContext context;
+    const auto result = transport.build_write_fence("fleet/state", document, previous, context);
+    EXPECT_EQ(result.sha, fence_sha);
+    EXPECT_EQ(result.document.dump(), document.dump());
+    EXPECT_TRUE(result.document.at("identity").at("generation").is_number_integer());
+  }
+  ImportContext context;
+  const auto retained = transport.build_read_fence("fleet/state", context);
+  ASSERT_TRUE(retained.has_value());
+  EXPECT_EQ(retained->sha, fence_sha);
+  EXPECT_EQ(retained->document.dump(), document.dump());
+  EXPECT_EQ(calls, 2);
+  EXPECT_EQ(reads, 3);
+}
+
+TEST_F(GitHubBuildFenceTransport, AbsenceRequiresAnExactExistingBranch) {
+  struct BranchCase {
+    const char* name;
+    int status;
+    json response;
+    bool absent;
+  };
+  const std::vector<BranchCase> cases{
+      {"ExistingBranch", 200, {{"name", "main"}, {"commit", {{"sha", fence_sha}}}}, true},
+      {"MissingBranch", 404, json::object(), false},
+      {"UnavailableBranch", 503, json::object(), false},
+      {"WrongBranch", 200, {{"name", "other"}, {"commit", {{"sha", fence_sha}}}}, false},
+      {"InvalidCommit", 200, {{"name", "main"}, {"commit", {{"sha", "invalid"}}}}, false}};
+  std::atomic<std::size_t> selected{0};
+  std::atomic<int> branches{0};
+  server.Get(build_contents_path, [&](const auto& req, auto& res) {
+    ++calls;
+    EXPECT_EQ(req.get_param_value("ref"), "main");
+    res.status = 404;
+  });
+  server.Get("/repos/fixture/state/branches/main", [&](const auto&, auto& res) {
+    ++branches;
+    const auto& value = cases.at(selected.load());
+    res.status = value.status;
+    res.set_content(value.response.dump(), "application/json");
+  });
+  start();
+  for (std::size_t index = 0; index < cases.size(); ++index) {
+    SCOPED_TRACE(cases[index].name);
+    selected = index;
+    calls = 0;
+    branches = 0;
+    ImportContext context;
+    if (cases[index].absent)
+      EXPECT_EQ(client->build_read_fence("main", context), std::nullopt);
+    else
+      EXPECT_THROW(client->build_read_fence("main", context), std::runtime_error);
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(branches, 1);
+  }
+}
+
+TEST_F(GitHubBuildFenceTransport, RejectsInvalidBranchesBeforeAnyRequest) {
+  server.Get("/repos/fixture/state/.*", [&](const auto&, auto& res) {
+    ++calls;
+    res.status = 503;
+  });
+  server.Put("/repos/fixture/state/.*", [&](const auto&, auto& res) {
+    ++calls;
+    res.status = 503;
+  });
+  start();
+  const std::vector<std::string> invalid{
+      "",
+      "/main",
+      "main/",
+      "main//state",
+      "main..state",
+      ".main",
+      "main.",
+      "main.lock",
+      "main?ref=other",
+      "main#fragment",
+      "main:other",
+      std::string(101, 'a'),
+      std::string(100, 'a') + "/" + std::string(100, 'b') + "/" + std::string(54, 'c'),
+      std::string("main\0other", 10)};
+  for (const auto& branch : invalid) {
+    SCOPED_TRACE(branch);
+    ImportContext read;
+    EXPECT_THROW(client->build_read_fence(branch, read), std::runtime_error);
+    ImportContext write;
+    EXPECT_THROW(
+        client->build_write_fence(branch, json{{"phase", "creating"}}, std::nullopt, write),
+        std::runtime_error);
+  }
+  EXPECT_EQ(calls, 0);
+}
+
+TEST_F(GitHubBuildFenceTransport, RejectsWriteAndReadbackFailuresWithoutRetry) {
+  const json document{{"phase", "creating"}, {"identity", {{"generation", 1}}}};
+  const json acknowledged{{"content", {{"path", build_fence_path}, {"sha", fence_sha}}},
+                          {"commit", {{"sha", std::string(40, 'c')}}}};
+  const json retained = build_contents(document);
+  struct Failure {
+    const char* name;
+    int write_status;
+    json acknowledgment;
+    json readback;
+    int expected_reads;
+  };
+  std::vector<Failure> cases;
+  for (const auto& [name, status] : std::vector<std::pair<const char*, int>>{
+           {"Redirect", 302}, {"Conflict", 409}, {"RateLimit", 429}, {"Unavailable", 503}})
+    cases.push_back({name, status, acknowledged, retained, 0});
+  auto wrong_path = acknowledged;
+  wrong_path["content"]["path"] = fence_path;
+  auto invalid_sha = acknowledged;
+  invalid_sha["content"]["sha"] = std::string(39, 'b');
+  auto invalid_commit = acknowledged;
+  invalid_commit["commit"]["sha"] = std::string(40, 'G');
+  auto missing_commit = acknowledged;
+  missing_commit.erase("commit");
+  for (const auto& [name, response] :
+       std::vector<std::pair<const char*, json>>{{"WrongAcknowledgmentPath", wrong_path},
+                                                 {"InvalidAcknowledgmentSha", invalid_sha},
+                                                 {"InvalidCommitSha", invalid_commit},
+                                                 {"MissingCommit", missing_commit}})
+    cases.push_back({name, 201, response, retained, 0});
+  auto different_sha = retained;
+  different_sha["sha"] = std::string(40, 'd');
+  auto malformed_sha = retained;
+  malformed_sha["sha"] = 1;
+  auto wrong_read_path = retained;
+  wrong_read_path["path"] = fence_path;
+  auto changed_document = retained;
+  changed_document["content"] = encoded(json{{"phase", "prepared"}}.dump() + "\n");
+  auto changed_type = document;
+  changed_type["identity"]["generation"] = 1.0;
+  auto invalid_encoding = retained;
+  invalid_encoding["content"] = "!!!=";
+  auto nonobject = retained;
+  nonobject["content"] = encoded("[]");
+  auto symlink = retained;
+  symlink["type"] = "symlink";
+  for (const auto& [name, response] : std::vector<std::pair<const char*, json>>{
+           {"ReadbackShaMismatch", different_sha},
+           {"MalformedReadbackSha", malformed_sha},
+           {"WrongReadbackPath", wrong_read_path},
+           {"ChangedDocument", changed_document},
+           {"ChangedNumericType", build_contents(changed_type)},
+           {"InvalidBase64", invalid_encoding},
+           {"NonobjectDocument", nonobject},
+           {"LinkedContents", symlink}})
+    cases.push_back({name, 201, acknowledged, response, 1});
+  std::atomic<std::size_t> selected{0};
+  std::atomic<int> reads{0};
+  std::atomic<int> redirects{0};
+  server.Put(build_contents_path, [&](const auto&, auto& res) {
+    ++calls;
+    const auto& value = cases.at(selected.load());
+    res.status = value.write_status;
+    res.set_header("Retry-After", "30");
+    res.set_header("Location", "http://127.0.0.1:" + std::to_string(port) + "/elsewhere");
+    res.set_content(value.acknowledgment.dump(), "application/json");
+  });
+  server.Get(build_contents_path, [&](const auto&, auto& res) {
+    ++reads;
+    res.set_content(cases.at(selected.load()).readback.dump(), "application/json");
+  });
+  server.Get("/elsewhere", [&](const auto&, auto& res) {
+    ++redirects;
+    res.set_content("{}", "application/json");
+  });
+  start();
+  for (std::size_t index = 0; index < cases.size(); ++index) {
+    SCOPED_TRACE(cases[index].name);
+    selected = index;
+    calls = 0;
+    reads = 0;
+    ImportContext context{1s};
+    EXPECT_THROW(client->build_write_fence("main", document, std::nullopt, context),
+                 std::runtime_error);
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(reads, cases[index].expected_reads);
+    EXPECT_EQ(redirects, 0);
+  }
+}
+
+TEST_F(GitHubBuildFenceTransport, BoundsDocumentsAndRejectsInvalidExpectedShaBeforeWrite) {
+  constexpr std::size_t limit = 16 * 1024;
+  const json empty{{"padding", ""}};
+  const json document{{"padding", std::string(limit - empty.dump().size() - 1, 'x')}};
+  ASSERT_EQ(document.dump().size() + 1, limit);
+  std::atomic<int> reads{0};
+  std::atomic<bool> enlarged{false};
+  server.Put(build_contents_path, [&](const auto& req, auto& res) {
+    ++calls;
+    EXPECT_EQ(json::parse(req.body).at("content"), encoded(document.dump() + "\n"));
+    res.status = 201;
+    res.set_content(json{{"content", {{"path", build_fence_path}, {"sha", fence_sha}}},
+                         {"commit", {{"sha", std::string(40, 'c')}}}}
+                        .dump(),
+                    "application/json");
+  });
+  server.Get(build_contents_path, [&](const auto&, auto& res) {
+    ++reads;
+    auto response = document;
+    if (enlarged) response["padding"] = document.at("padding").get<std::string>() + "x";
+    res.set_content(build_contents(response).dump(), "application/json");
+  });
+  start();
+  ImportContext context;
+  EXPECT_EQ(client->build_write_fence("main", document, std::nullopt, context).document, document);
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(reads, 1);
+  auto oversized = document;
+  oversized["padding"] = document.at("padding").get<std::string>() + "x";
+  EXPECT_THROW(client->build_write_fence("main", oversized, std::nullopt, context),
+               std::runtime_error);
+  EXPECT_THROW(client->build_write_fence("main", json::array(), std::nullopt, context),
+               std::runtime_error);
+  for (const auto& sha : {std::string(), std::string(39, 'a'), std::string(41, 'a'),
+                          std::string(40, 'A'), std::string(40, 'g')}) {
+    SCOPED_TRACE(sha);
+    EXPECT_THROW(client->build_write_fence("main", document, sha, context), std::runtime_error);
+  }
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(reads, 1);
+  enlarged = true;
+  ImportContext read;
+  EXPECT_THROW(client->build_read_fence("main", read), std::runtime_error);
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(reads, 2);
+}
 
 TEST(GitHubImportContext, RejectsInvalidBudgetAndEnforcesSharedDeadlineAndBytes) {
   EXPECT_THROW(ImportContext{0ms}, std::runtime_error);

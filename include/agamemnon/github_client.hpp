@@ -14,6 +14,9 @@ namespace agamemnon {
 
 using json = nlohmann::json;
 
+/// Validate an existing state branch name without external access.
+void validate_github_state_branch(const std::string& branch);
+
 /// One import's shared monotonic deadline and received-body budget.
 class ImportContext {
  public:
@@ -57,6 +60,13 @@ class IGitHubClient {
   }
   virtual std::string import_create_issue(std::string_view, std::string_view, ImportContext&) {
     throw std::runtime_error("bounded GitHub import is unsupported");
+  }
+  virtual std::optional<ImportFence> build_read_fence(const std::string&, ImportContext&) {
+    throw std::runtime_error("durable build admission is unsupported");
+  }
+  virtual ImportFence build_write_fence(const std::string&, const json&,
+                                        const std::optional<std::string>&, ImportContext&) {
+    throw std::runtime_error("durable build admission is unsupported");
   }
 
   /// Returns all open issue bodies with the given label.
@@ -181,6 +191,11 @@ class CurlGitHubClient : public IGitHubClient {
                                  ImportContext& context) override;
   std::string import_create_issue(std::string_view title, std::string_view body,
                                   ImportContext& context) override;
+  std::optional<ImportFence> build_read_fence(const std::string& branch,
+                                              ImportContext& context) override;
+  ImportFence build_write_fence(const std::string& branch, const json& document,
+                                const std::optional<std::string>& expected_sha,
+                                ImportContext& context) override;
 
   // Retry / backoff constants (exposed for testing).
   static constexpr int kMaxRetries = 3;
@@ -208,6 +223,11 @@ class CurlGitHubClient : public IGitHubClient {
   Response import_request_(const char* method, const std::string& path, const std::string& payload,
                            ImportContext& context) const;
   json import_graphql_(const char* query, const json& variables, ImportContext& context) const;
+  std::optional<ImportFence> read_fence_(const std::string& branch, const std::string& path,
+                                         ImportContext& context);
+  ImportFence write_fence_(const std::string& branch, const std::string& path,
+                           const std::string& message, const json& document,
+                           const std::optional<std::string>& expected_sha, ImportContext& context);
 
  protected:
   // Only derived transport tests can select a literal loopback server.

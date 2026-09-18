@@ -92,9 +92,9 @@ int main() {
   agamemnon::BuildConfiguration build_config;
   nlohmann::json build_artifacts;
   try {
-    build_config =
-        agamemnon::load_build_configuration(optional_env("AGAMEMNON_FLEET_BUILD_CONFIG"),
-                                            gh_token && *gh_token, api_key_env && *api_key_env);
+    build_config = agamemnon::load_build_configuration(
+        optional_env("AGAMEMNON_FLEET_BUILD_CONFIG"), gh_token && *gh_token,
+        api_key_env && *api_key_env, optional_env("AGAMEMNON_FLEET_BUILD_STATE_BRANCH"));
     build_artifacts = agamemnon::load_build_artifact_configuration(
         optional_env("AGAMEMNON_FLEET_BUILD_ARTIFACTS"), gh_token && *gh_token,
         api_key_env && *api_key_env);
@@ -243,7 +243,7 @@ int main() {
   }
   auto fleet = std::make_shared<agamemnon::FleetService>(
       store, nats, &orchestrator, resolution_key ? resolution_key : "", projects,
-      build_config.catalog, build_config.authorities, build_artifacts);
+      build_config.catalog, build_config.authorities, build_artifacts, build_config.state_branch);
   // GitHub-backed Fleet must not silently use Core epic delivery. Explicit
   // durable mode without GitHub is rejected before attaching a consumer.
   const char* durable_env = std::getenv("AGAMEMNON_DURABLE_EPICS");

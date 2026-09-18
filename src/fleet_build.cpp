@@ -459,6 +459,51 @@ void validate_document(const json& document) {
   validate_retained_history(document, transitions);
 }
 
+json admission_identity(const json& document) {
+  const auto& record = document.at("record");
+  const auto& build = record.at("build");
+  const auto& allocation = build.at("allocation");
+  return {{"buildId", record.at("id")},
+          {"requestDigest", digest(build.at("request"))},
+          {"policyDigest", digest(build.at("policy"))},
+          {"parentDigest", digest(record.at("parent"))},
+          {"allocation",
+           {{"id", allocation.at("id")},
+            {"workerId", allocation.at("workerId")},
+            {"generation", allocation.at("generation")}}},
+          {"commandDigest", digest(document.at("commands").at(0).at("command"))}};
+}
+
+void validate_create_attempt(const json& document) {
+  fields(document, {"schema", "attemptId", "phase", "identity", "backingIssue"});
+  same(document.at("schema"), "hi/fleet/build-create-attempt/v1");
+  static const std::regex attempt(
+      "[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}");
+  if (!std::regex_match(text(document, "attemptId"), attempt))
+    throw FleetError(400, "invalid build creation attempt");
+  const auto& identity = document.at("identity");
+  fields(identity, {"buildId", "requestDigest", "policyDigest", "parentDigest", "allocation",
+                    "commandDigest"});
+  identifier(identity, "buildId");
+  for (const auto* field : {"requestDigest", "policyDigest", "parentDigest", "commandDigest"})
+    hash(identity, field);
+  const auto& allocation = identity.at("allocation");
+  fields(allocation, {"id", "workerId", "generation"});
+  identifier(allocation, "id");
+  identifier(allocation, "workerId");
+  integer(allocation.at("generation"));
+  if (document.at("phase") == "creating") {
+    same(document.at("backingIssue"), nullptr);
+  } else if (document.at("phase") == "linked") {
+    const auto number = text(document, "backingIssue", 10);
+    if (number.front() == '0' || number.find_first_not_of("0123456789") != std::string::npos ||
+        std::stoull(number) > static_cast<unsigned long long>(std::numeric_limits<int>::max()))
+      throw FleetError(400, "invalid build backing issue");
+  } else {
+    throw FleetError(400, "invalid build creation phase");
+  }
+}
+
 void authorize(const json& record, const json& authorities, const std::string& key) {
   if (!typed(record)) throw FleetError(409, "target is not a subordinate build");
   try {

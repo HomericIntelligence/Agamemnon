@@ -29,6 +29,44 @@ class BuildBacking : public MockGitHubClient {
   bool lose_create_response = false;
   bool lose_update_response = false;
   bool reject_update = false;
+  bool delay_next_build_create = false;
+  int build_create_attempts = 0;
+  std::optional<Call> pending_build_create;
+  std::optional<ImportFence> build_fence;
+  int fence_writes = 0;
+  bool fail_fence_read = false;
+  bool reject_creating = false;
+  bool lose_creating_response = false;
+  bool corrupt_creating_ack = false;
+  bool reject_linked = false;
+  bool lose_linked_response = false;
+
+  std::optional<ImportFence> build_read_fence(const std::string& branch,
+                                              ImportContext& context) override {
+    context.checkpoint();
+    if (branch != "build-state" || fail_fence_read)
+      throw std::runtime_error("fixture: build state read unavailable");
+    return build_fence;
+  }
+
+  ImportFence build_write_fence(const std::string& branch, const json& document,
+                                const std::optional<std::string>& expected,
+                                ImportContext& context) override {
+    context.checkpoint();
+    if (branch != "build-state" ||
+        (build_fence ? expected != std::optional(build_fence->sha) : expected.has_value()))
+      throw std::runtime_error("fixture: conditional build write conflict");
+    const bool creating = document.at("phase") == "creating";
+    if ((creating && reject_creating) || (!creating && reject_linked))
+      throw std::runtime_error("fixture: build state write rejected");
+    const auto revision = std::to_string(++fence_writes);
+    build_fence = ImportFence{std::string(40 - revision.size(), '0') + revision, document};
+    if ((creating && lose_creating_response) || (!creating && lose_linked_response))
+      throw std::runtime_error("fixture: build state response lost");
+    auto result = *build_fence;
+    if (creating && corrupt_creating_ack) result.document["attemptId"] = "wrong-attempt";
+    return result;
+  }
 
   std::vector<json> list_issues(std::string_view label) override {
     auto result = MockGitHubClient::list_issues(label);
@@ -40,10 +78,26 @@ class BuildBacking : public MockGitHubClient {
 
   std::string create_issue(std::string_view title, std::string_view body,
                            std::string_view label) override {
+    if (title.starts_with("fleet: build-jobs/")) {
+      ++build_create_attempts;
+      if (delay_next_build_create) {
+        delay_next_build_create = false;
+        pending_build_create =
+            Call{"create_issue", std::string(title), std::string(body), std::string(label)};
+        throw std::runtime_error("fixture: build create response lost before remote commit");
+      }
+    }
     const auto result = MockGitHubClient::create_issue(title, body, label);
     if (lose_create_response)
       throw std::runtime_error("fixture: create response lost after commit");
     return result;
+  }
+
+  std::string finish_pending_build_create() {
+    const auto pending = pending_build_create.value();
+    const auto number = MockGitHubClient::create_issue(pending.arg1, pending.arg2, pending.arg3);
+    pending_build_create.reset();
+    return number;
   }
 
   void update_issue_body(std::string_view number, std::string_view body) override {
@@ -83,7 +137,7 @@ class FleetBuildRoutes : public ::testing::Test {
 
   std::shared_ptr<FleetService> configured_service(const json& catalog, const json& authorities) {
     return std::make_shared<FleetService>(store, publisher, &orchestrator, "", nullptr, catalog,
-                                          authorities, build_artifacts());
+                                          authorities, build_artifacts(), "build-state");
   }
 
   void start_service(const json& catalog, const json& authorities) {
@@ -400,6 +454,250 @@ TEST_F(FleetConfiguredBuildRoutes, LostCreateAcknowledgementRehydratesOneChildWi
   EXPECT_EQ(json::parse(client->Get("/v1/fleet/build-jobs")->body).at("total"), 1);
 }
 
+struct PendingBuildRetryCase {
+  const char* name;
+  bool restart;
+  bool same_request;
+};
+
+class FleetPendingBuildCreation : public FleetConfiguredBuildRoutes,
+                                  public ::testing::WithParamInterface<PendingBuildRetryCase> {
+ protected:
+  std::size_t build_record_count() const {
+    std::size_t count = 0;
+    for (const auto& [number, issue] : github->created_issues)
+      if (issue.at("title").get<std::string>().starts_with("fleet: build-jobs/")) ++count;
+    return count;
+  }
+};
+
+TEST_P(FleetPendingBuildCreation, UncertainCreateKeepsOneAttemptAndReservationUntilReconciled) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto task_before = hmas_task_to_json(*store.get_hmas_task("real-parent-task"));
+  const auto publications_before = publisher.calls.size();
+  const auto request = submission();
+  github->delay_next_build_create = true;
+  const auto initial = post("build-jobs/submit", request);
+  ASSERT_TRUE(initial);
+  ASSERT_EQ(initial->status, 503) << initial->body;
+  ASSERT_TRUE(github->pending_build_create);
+  const auto original = *github->pending_build_create;
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(build_record_count(), 0u);
+  EXPECT_EQ(publisher.calls.size(), publications_before);
+
+  if (GetParam().restart) {
+    restart_service();
+    ASSERT_FALSE(HasFatalFailure());
+  }
+  // The complete external listing omits the pending create. Restore a real
+  // parent observation so an unknown parent cannot conceal the missing fence.
+  const auto observed =
+      post("events",
+           {{"schema", "hi/fleet/v1"},
+            {"eventId", "parent-active-after-empty-scan"},
+            {"workerId", "laptop-worker"},
+            {"targetKind", "sessions"},
+            {"targetId", "parent-session"},
+            {"generation", 1},
+            {"sourceSequence", 2},
+            {"kind", "activity"},
+            {"event", {{"activity", "model_working"}, {"observedAt", "2026-09-13T00:00:01Z"}}}});
+  ASSERT_TRUE(observed);
+  ASSERT_EQ(observed->status, 200) << observed->body;
+  const auto parent = json::parse(observed->body).at("record");
+  ASSERT_EQ(parent.at("observationState"), "observed");
+  ASSERT_EQ(parent.at("activity"), "model_working");
+  ASSERT_EQ(parent.at("claimStatus"), "claimed");
+
+  auto retry = request;
+  if (!GetParam().same_request) retry["idempotencyKey"] = "competing-build-request";
+  const auto denied = post("build-jobs/submit", retry);
+  ASSERT_TRUE(denied);
+  EXPECT_TRUE(denied->status == 409 || denied->status == 503) << denied->body;
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(build_record_count(), 0u);
+  EXPECT_EQ(publisher.calls.size(), publications_before);
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), task_before);
+
+  // Expose the original controller-produced body only after the denied retry.
+  const auto original_number = github->finish_pending_build_create();
+  restart_service();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto recovered = post("build-jobs/submit", request);
+  ASSERT_TRUE(recovered);
+  ASSERT_EQ(recovered->status, 202) << recovered->body;
+  const auto result = json::parse(recovered->body);
+  const auto begin = original.arg2.find("```json\n");
+  ASSERT_NE(begin, std::string::npos);
+  const auto end = original.arg2.find("\n```", begin + 8);
+  ASSERT_NE(end, std::string::npos);
+  const auto original_document = json::parse(original.arg2.substr(begin + 8, end - begin - 8));
+  EXPECT_EQ(result.at("record").at("id"), original_document.at("record").at("id"));
+  EXPECT_EQ(result.at("record").at("build"), original_document.at("record").at("build"));
+  EXPECT_EQ(result.at("record").at("parent"), original_document.at("record").at("parent"));
+  EXPECT_EQ(result.at("command"), original_document.at("commands").at(0).at("command"));
+  EXPECT_EQ(result.at("record").at("build").at("reservation"), "reserved");
+  EXPECT_EQ(github->created_issues.at(original_number).at("body"), original.arg2);
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(build_record_count(), 1u);
+  EXPECT_EQ(publisher.calls.size(), publications_before);
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), task_before);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    RetryMode, FleetPendingBuildCreation,
+    ::testing::Values(PendingBuildRetryCase{"SameProcessSameRequest", false, true},
+                      PendingBuildRetryCase{"RestartSameRequest", true, true},
+                      PendingBuildRetryCase{"SameProcessCompetingRequest", false, false},
+                      PendingBuildRetryCase{"RestartCompetingRequest", true, false}),
+    [](const ::testing::TestParamInfo<PendingBuildRetryCase>& info) { return info.param.name; });
+
+struct BuildFenceFailureCase {
+  const char* name;
+  bool BuildBacking::*flag;
+  bool retained;
+};
+
+class FleetBuildFenceFailure : public FleetConfiguredBuildRoutes,
+                               public ::testing::WithParamInterface<BuildFenceFailureCase> {};
+
+TEST_P(FleetBuildFenceFailure, UnconfirmedCreationGrantCannotSendAnIssuePost) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto backing = github->created_issues;
+  const auto publications = publisher.calls.size();
+  const auto task = hmas_task_to_json(*store.get_hmas_task("real-parent-task"));
+  github.get()->*GetParam().flag = true;
+  const auto response = post("build-jobs/submit", submission());
+  ASSERT_TRUE(response);
+  EXPECT_EQ(response->status, 503) << response->body;
+  EXPECT_EQ(github->build_create_attempts, 0);
+  EXPECT_EQ(github->created_issues, backing);
+  EXPECT_EQ(publisher.calls.size(), publications);
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), task);
+  github.get()->*GetParam().flag = false;
+  if (GetParam().retained) {
+    restart_service();
+    ASSERT_FALSE(HasFatalFailure());
+    const auto retry = post("build-jobs/submit", submission());
+    ASSERT_TRUE(retry);
+    EXPECT_EQ(retry->status, 503) << retry->body;
+    EXPECT_EQ(github->build_create_attempts, 0);
+    EXPECT_EQ(github->created_issues, backing);
+    EXPECT_EQ(publisher.calls.size(), publications);
+  } else {
+    const auto retry = post("build-jobs/submit", submission());
+    ASSERT_TRUE(retry);
+    EXPECT_EQ(retry->status, 202) << retry->body;
+    EXPECT_EQ(github->build_create_attempts, 1);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    PersistenceBoundary, FleetBuildFenceFailure,
+    ::testing::Values(
+        BuildFenceFailureCase{"ReadUnavailable", &BuildBacking::fail_fence_read, false},
+        BuildFenceFailureCase{"WriteRejected", &BuildBacking::reject_creating, false},
+        BuildFenceFailureCase{"LostResponse", &BuildBacking::lose_creating_response, true},
+        BuildFenceFailureCase{"InvalidAcknowledgment", &BuildBacking::corrupt_creating_ack, true}),
+    [](const ::testing::TestParamInfo<BuildFenceFailureCase>& info) { return info.param.name; });
+
+TEST_F(FleetConfiguredBuildRoutes,
+       DisabledCatalogRetainsUncertainToolCapacityAndCanonicalRecovery) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto task = hmas_task_to_json(*store.get_hmas_task("real-parent-task"));
+  const auto publications = publisher.calls.size();
+  github->delay_next_build_create = true;
+  ASSERT_EQ(post("build-jobs/submit", submission())->status, 503);
+  ASSERT_TRUE(github->pending_build_create);
+  restart_service(false);
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(post("pools", {{"id", "other-pool"}, {"capacity", 2}})->status, 201);
+  const auto backing = github->created_issues;
+  for (const auto& worker : {json{{"id", "tool-worker-1"}, {"allocationId", "other-allocation"}},
+                             json{{"id", "other-worker"}, {"allocationId", "tool-allocation-1"}}}) {
+    auto request = worker;
+    request.update({{"poolId", "other-pool"}, {"capacity", 1}, {"host", "fixture"}});
+    const auto rejected = post("workers", request);
+    ASSERT_TRUE(rejected);
+    EXPECT_EQ(rejected->status, 409) << rejected->body;
+  }
+  EXPECT_EQ(github->created_issues, backing);
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(publisher.calls.size(), publications);
+  github->finish_pending_build_create();
+  const auto replay = post("build-jobs/submit", submission());
+  ASSERT_TRUE(replay);
+  ASSERT_EQ(replay->status, 202) << replay->body;
+  EXPECT_EQ(json::parse(replay->body).at("record").at("build").at("reservation"), "reserved");
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(publisher.calls.size(), publications);
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), task);
+}
+
+TEST_F(FleetConfiguredBuildRoutes, MalformedOrConflictingCreationStateCannotBeAdopted) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(post("build-jobs/submit", submission())->status, 202);
+  ASSERT_TRUE(github->build_fence);
+  const auto original = *github->build_fence;
+  const auto backing = github->created_issues;
+  const auto publications = publisher.calls.size();
+  for (int mutation = 0; mutation != 7; ++mutation) {
+    SCOPED_TRACE(mutation);
+    github->build_fence = original;
+    auto& retained = github->build_fence->document;
+    if (mutation == 0) retained["phase"] = "reset";
+    if (mutation == 1) retained["identity"]["allocation"]["generation"] = true;
+    if (mutation == 2) retained["identity"]["allocation"]["generation"] = 1.0;
+    if (mutation == 3) retained["identity"]["requestDigest"] = std::string(64, '0');
+    if (mutation == 4) retained["backingIssue"] = "99999";
+    if (mutation == 5) retained.erase("attemptId");
+    if (mutation == 6) retained["unexpected"] = true;
+    restart_service(false);
+    ASSERT_FALSE(HasFatalFailure());
+    const auto replay = post("build-jobs/submit", submission());
+    ASSERT_TRUE(replay);
+    EXPECT_EQ(replay->status, 503) << replay->body;
+    EXPECT_EQ(github->build_create_attempts, 1);
+    EXPECT_EQ(github->created_issues, backing);
+    EXPECT_EQ(publisher.calls.size(), publications);
+  }
+  github->build_fence = original;
+  EXPECT_EQ(post("build-jobs/submit", submission())->status, 202);
+}
+
+TEST_F(FleetConfiguredBuildRoutes, MissingLinkedIssueCannotReleaseTheCreationBarrier) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  ASSERT_EQ(post("build-jobs/submit", submission())->status, 202);
+  ASSERT_TRUE(github->build_fence);
+  const auto number = github->build_fence->document.at("backingIssue").get<std::string>();
+  const auto original = github->created_issues.at(number);
+  github->created_issues.erase(number);
+  const auto fence = *github->build_fence;
+  const auto publications = publisher.calls.size();
+  restart_service();
+  ASSERT_FALSE(HasFatalFailure());
+  auto other = submission();
+  other["idempotencyKey"] = "other-build";
+  const auto rejected = post("build-jobs/submit", other);
+  ASSERT_TRUE(rejected);
+  EXPECT_EQ(rejected->status, 503) << rejected->body;
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(github->build_fence->document, fence.document);
+  EXPECT_EQ(github->build_fence->sha, fence.sha);
+  EXPECT_EQ(publisher.calls.size(), publications);
+  github->created_issues[number] = original;
+  const auto replay = post("build-jobs/submit", submission());
+  ASSERT_TRUE(replay);
+  EXPECT_EQ(replay->status, 202) << replay->body;
+  EXPECT_EQ(github->build_create_attempts, 1);
+}
+
 TEST_F(FleetConfiguredBuildRoutes, GrantRequiresDedicatedAuthorityAndAnExactImmutableClaim) {
   active_parent();
   ASSERT_FALSE(HasFatalFailure());
@@ -543,6 +841,69 @@ json terminal_fact(const json& admitted, bool cancelled = false) {
                             : json{{"reference", "receipt-1"}, {"digest", std::string(64, '4')}}},
       {"logs", nullptr},
       {"artifacts", nullptr}};
+}
+
+TEST_F(FleetConfiguredBuildRoutes, UnlinkedCreationAdoptsTheOriginalAfterValidCancellation) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto task = hmas_task_to_json(*store.get_hmas_task("real-parent-task"));
+  const auto publications = publisher.calls.size();
+  github->reject_linked = true;
+  ASSERT_EQ(post("build-jobs/submit", submission())->status, 503);
+  ASSERT_TRUE(github->build_fence);
+  ASSERT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(publisher.calls.size(), publications);
+  const auto id = github->build_fence->document.at("identity").at("buildId").get<std::string>();
+  const auto stop = post("build-jobs/" + id + "/cancel", build_cancel());
+  ASSERT_TRUE(stop);
+  ASSERT_EQ(stop->status, 202) << stop->body;
+  const auto changed = github->created_issues;
+  const auto after_stop = publisher.calls.size();
+  github->reject_linked = false;
+  restart_service(false);
+  ASSERT_FALSE(HasFatalFailure());
+  const auto replay = post("build-jobs/submit", submission());
+  ASSERT_TRUE(replay);
+  ASSERT_EQ(replay->status, 202) << replay->body;
+  const auto result = json::parse(replay->body);
+  EXPECT_EQ(result.at("record").at("id"), id);
+  EXPECT_EQ(result.at("record").at("status"), "cancelling");
+  EXPECT_EQ(result.at("command").at("operation"), "start");
+  EXPECT_EQ(github->build_create_attempts, 1);
+  EXPECT_EQ(github->created_issues, changed);
+  EXPECT_EQ(publisher.calls.size(), after_stop);
+  EXPECT_EQ(hmas_task_to_json(*store.get_hmas_task("real-parent-task")), task);
+}
+
+TEST_F(FleetConfiguredBuildRoutes, ResolvedCreationBarrierPermitsTheNextConfirmedReservation) {
+  active_parent();
+  ASSERT_FALSE(HasFatalFailure());
+  const auto first = post("build-jobs/submit", submission());
+  ASSERT_TRUE(first);
+  ASSERT_EQ(first->status, 202) << first->body;
+  const auto admitted = json::parse(first->body);
+  const auto id = admitted.at("record").at("id").get<std::string>();
+  auto next = submission();
+  next["idempotencyKey"] = "next-build";
+  EXPECT_EQ(post("build-jobs/submit", next)->status, 409);
+  EXPECT_EQ(github->build_create_attempts, 1);
+  ASSERT_EQ(post("build-jobs/" + id + "/cancel", build_cancel())->status, 202);
+  ASSERT_EQ(supervisor_post("build-jobs/" + id + "/facts", terminal_fact(admitted, true))->status,
+            200);
+  const auto second = post("build-jobs/submit", next);
+  ASSERT_TRUE(second);
+  ASSERT_EQ(second->status, 202) << second->body;
+  EXPECT_NE(json::parse(second->body).at("record").at("id"), id);
+  EXPECT_EQ(github->build_create_attempts, 2);
+  const auto latest_fence = github->build_fence->document;
+  const auto publications = publisher.calls.size();
+  const auto replay = post("build-jobs/submit", submission());
+  ASSERT_TRUE(replay);
+  ASSERT_EQ(replay->status, 202) << replay->body;
+  EXPECT_EQ(json::parse(replay->body).at("record").at("id"), id);
+  EXPECT_EQ(github->build_fence->document, latest_fence);
+  EXPECT_EQ(github->build_create_attempts, 2);
+  EXPECT_EQ(publisher.calls.size(), publications);
 }
 
 TEST_F(FleetConfiguredBuildRoutes, CleanupCancellationUsesStoredIdentityWithAdmissionDisabled) {
