@@ -208,6 +208,12 @@ Keep its branch configured when the build catalog is disabled. The retained
 attempt and canonical build issues continue to protect tool capacity. See
 [build admission and recovery](docs/fleet.md#subordinate-build-jobs).
 
+Durable epic registration also confirms a conditional creation-attempt record
+on the configured import state branch before each brief or root issue POST.
+An uncertain attempt survives an empty issue scan and controller restart; only
+an exact canonical issue can reconcile it. These records do not grant dispatch
+or replace issue-backed task authority. See [durable epic registration](docs/durable-epics.md).
+
 ---
 
 ## Pull-Based Work Queue Contract

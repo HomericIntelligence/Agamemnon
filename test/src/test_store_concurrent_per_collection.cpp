@@ -11,6 +11,7 @@
 //      cross-collection vs intra-collection workloads so the "profiling
 //      confirms it's the bottleneck" precondition from #184 is measurable.
 //      Skipped under TSan where instrumentation distorts timings.
+#include "agamemnon/fleet_issue.hpp"
 #include "agamemnon/store.hpp"
 
 #include <atomic>
@@ -21,6 +22,7 @@
 #include <thread>
 #include <vector>
 
+#include "../fleet/conditional_authority.hpp"
 #include <gtest/gtest.h>
 
 namespace agamemnon::test {
@@ -153,8 +155,10 @@ TEST(StorePerCollection, PinnedAgentsDoNotBlockDurableFleetClaim) {
 }
 
 TEST(StorePerCollection, PinnedTasksDoNotBlockDurableBriefRegistration) {
-  auto github = std::make_shared<MockGitHubClient>();
-  Store store(github);
+  auto github = std::make_shared<ConditionalAuthority>();
+  auto configuration = std::make_shared<IssueImportConfiguration>();
+  configuration->state_branch = "fixture-state";
+  Store store(github, configuration);
   TaskBrief brief;
   brief.id = "fleet-brief";
   brief.title = "durable brief with independent collection";

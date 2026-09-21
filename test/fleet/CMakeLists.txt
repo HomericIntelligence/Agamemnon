@@ -79,4 +79,8 @@ if(FLEET_NATIVE_NATS_PREFIX)
       ${CMAKE_CURRENT_LIST_DIR}/private_jetstream.py
       ${AGAMEMNON_TEST_NATS_SERVER} $<TARGET_FILE:fleet_jetstream_tests>)
   set_tests_properties(fleet_jetstream PROPERTIES LABELS "integration" TIMEOUT 60 RUN_SERIAL TRUE)
+  add_test(NAME fleet_epic_receiver COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_LIST_DIR}/private_jetstream.py
+      ${AGAMEMNON_TEST_NATS_SERVER} $<TARGET_FILE:fleet_epic_import> --fixture)
+  set_tests_properties(fleet_epic_receiver PROPERTIES LABELS "integration" TIMEOUT 60 RUN_SERIAL TRUE)
 endif()

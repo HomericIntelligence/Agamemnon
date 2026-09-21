@@ -41,6 +41,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- `fix(fleet)`: retain a confirmed creation attempt before durable epic brief/root
+  issue POSTs, preventing duplicate creation after lost responses, empty scans
+  and controller restart. Preserve generic non-epic creation (Refs #504).
+- `fix(fleet)`: supply controlled import authority to the producer-byte receiver,
+  register its separate fixture mode in CTest, align OpenAPI with the HTTPS v2
+  artifact profile, and isolate ordinary loopback clients from inherited proxies.
+
 - `fix(fleet)`: return a verified canonical task reference on unique import
   conflicts after complete history validation, preserving legacy identities and
   withholding references for ambiguous, malformed or incomplete history (Refs #510).

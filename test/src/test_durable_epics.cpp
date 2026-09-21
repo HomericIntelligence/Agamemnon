@@ -9,13 +9,17 @@
 #include <future>
 #include <mutex>
 
+#include "../fleet/conditional_authority.hpp"
 #include <gtest/gtest.h>
 
 namespace agamemnon::test {
-class EpicGitHub : public MockGitHubClient {
+class EpicGitHub : public ConditionalAuthority {
  public:
   bool fail_create = false;
   bool lose_create_response = false;
+  std::string delayed_create_label;
+  std::optional<json> delayed_create;
+  int create_attempts = 0;
   int fail_update = 0;
   int updates = 0;
   bool reserved_work = false;
@@ -43,13 +47,18 @@ class EpicGitHub : public MockGitHubClient {
     context.checkpoint();
     return list_issues_including_closed("agamemnon-hmas-task");
   }
-  std::optional<ImportFence> import_read_fence(const std::string& branch, const std::string&,
+  std::optional<ImportFence> import_read_fence(const std::string& branch, const std::string& key,
                                                ImportContext& context) override {
     context.checkpoint();
-    ++fence_reads;
     EXPECT_EQ(branch, "import-state");
-    if (reserved_work) return ImportFence{std::string(40, 'a'), {{"phase", "creating"}}};
-    return std::nullopt;
+    CanonicalWorkIssue work{};
+    work.repository_id = "R_epic_fixture";
+    work.issue_id = "I_epic_fixture";
+    if (key == import_work_key(work)) {
+      ++fence_reads;
+      if (reserved_work) return ImportFence{std::string(40, 'a'), {{"phase", "creating"}}};
+    }
+    return ConditionalAuthority::import_read_fence(branch, key, context);
   }
   std::vector<json> list_issues_including_closed(std::string_view label) override {
     if (fail_list_on_label == label) throw std::runtime_error("unavailable");
@@ -61,6 +70,12 @@ class EpicGitHub : public MockGitHubClient {
   }
   std::string create_issue(std::string_view title, std::string_view body,
                            std::string_view label) override {
+    ++create_attempts;
+    if (label == delayed_create_label) {
+      delayed_create_label.clear();
+      delayed_create = json{{"title", title}, {"body", body}, {"label", label}};
+      throw std::runtime_error("create response lost before server completion");
+    }
     if (fail_create) return "";
     auto id = MockGitHubClient::create_issue(title, body, label);
     if (lose_create_response) {
@@ -68,6 +83,14 @@ class EpicGitHub : public MockGitHubClient {
       throw std::runtime_error("lost create response");
     }
     return id;
+  }
+  void complete_delayed_create() {
+    ASSERT_TRUE(delayed_create.has_value());
+    const auto request = *delayed_create;
+    MockGitHubClient::create_issue(request.at("title").get<std::string>(),
+                                   request.at("body").get<std::string>(),
+                                   request.at("label").get<std::string>());
+    delayed_create.reset();
   }
   void update_issue_body(std::string_view id, std::string_view body) override {
     if (++updates == fail_update) throw std::runtime_error("update unavailable");
@@ -128,8 +151,8 @@ TEST(DurableEpics, MissingConfigurationOrRetainedImportFenceCannotAcquireWork) {
     EXPECT_TRUE(store.list_hmas_tasks_by_layer(HmasLayer::L0_ChiefArchitect).empty());
     EXPECT_EQ(gh->work_reads, configured ? 1 : 0);
     EXPECT_EQ(gh->fence_reads, configured ? 1 : 0);
-    ASSERT_EQ(gh->created_issues.size(), 1u);
-    EXPECT_EQ(gh->created_issues.begin()->second.at("label"), "agamemnon-brief");
+    ASSERT_EQ(gh->created_issues.size(), configured ? 1u : 0u);
+    if (configured) EXPECT_EQ(gh->created_issues.begin()->second.at("label"), "agamemnon-brief");
   }
 }
 
@@ -222,6 +245,94 @@ TEST(DurableEpics, UncertainBriefCreateRecoversFromAcknowledgedRead) {
   EXPECT_TRUE(bus.calls.empty());
   EXPECT_FALSE(orch.on_epic_registered(subject, epic().dump(), true).empty());
   EXPECT_EQ(gh->created_issues.size(), 2u);
+}
+
+TEST(DurableEpics, EmptyScanCannotRetryUncertainCreationAcrossRestart) {
+  for (const auto* label : {"agamemnon-brief", "agamemnon-hmas-task"}) {
+    SCOPED_TRACE(label);
+    auto gh = std::make_shared<EpicGitHub>();
+    gh->delayed_create_label = label;
+    FakeNatsPublisher bus;
+    Store store(gh, epic_configuration());
+    Orchestrator first(store, bus);
+    ASSERT_THROW(first.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+    ASSERT_TRUE(gh->delayed_create.has_value());
+    const auto attempts = gh->create_attempts;
+    const auto acknowledged = gh->created_issues.size();
+    EXPECT_TRUE(bus.calls.empty());
+
+    EXPECT_THROW(first.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+    EXPECT_EQ(gh->create_attempts, attempts);
+    EXPECT_EQ(gh->created_issues.size(), acknowledged);
+    EXPECT_TRUE(bus.calls.empty());
+
+    Store restarted(gh, epic_configuration());
+    Orchestrator second(restarted, bus);
+    EXPECT_THROW(second.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+    EXPECT_EQ(gh->create_attempts, attempts);
+    EXPECT_EQ(gh->created_issues.size(), acknowledged);
+    EXPECT_TRUE(bus.calls.empty());
+
+    // Complete the original server operation only after both empty scans. The
+    // next fresh controller must adopt that record without another issue POST.
+    gh->complete_delayed_create();
+    Store reconciled(gh, epic_configuration());
+    Orchestrator third(reconciled, bus);
+    std::string brief;
+    EXPECT_NO_THROW(brief = third.on_epic_registered(subject, epic().dump(), true));
+    EXPECT_FALSE(brief.empty());
+    EXPECT_EQ(gh->create_attempts, 2);
+    EXPECT_EQ(gh->created_issues.size(), 2u);
+    EXPECT_EQ(bus.calls.size(), 1u);
+  }
+}
+
+TEST(DurableEpics, UnconfirmedCreationIntentCannotPostOrDispatch) {
+  for (const auto* failure : {"rejected", "lost", "mismatched"}) {
+    SCOPED_TRACE(failure);
+    auto gh = std::make_shared<EpicGitHub>();
+    gh->reject_next_fence_write = std::string(failure) == "rejected";
+    gh->lose_next_fence_ack = std::string(failure) == "lost";
+    gh->mismatch_next_fence_ack = std::string(failure) == "mismatched";
+    FakeNatsPublisher bus;
+    Store store(gh, epic_configuration());
+    Orchestrator first(store, bus);
+    EXPECT_THROW(first.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+    EXPECT_EQ(gh->create_attempts, 0);
+    EXPECT_TRUE(gh->created_issues.empty());
+    EXPECT_TRUE(bus.calls.empty());
+
+    Store restarted(gh, epic_configuration());
+    Orchestrator second(restarted, bus);
+    if (std::string(failure) == "rejected") {
+      // No issue POST was attempted, and conditional insertion can establish a
+      // new confirmed intent after an explicitly rejected fixture write.
+      EXPECT_NO_THROW(second.on_epic_registered(subject, epic().dump(), true));
+      EXPECT_EQ(gh->create_attempts, 2);
+      EXPECT_EQ(bus.calls.size(), 1u);
+    } else {
+      EXPECT_THROW(second.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+      EXPECT_EQ(gh->create_attempts, 0);
+      EXPECT_TRUE(gh->created_issues.empty());
+      EXPECT_TRUE(bus.calls.empty());
+    }
+  }
+}
+
+TEST(DurableEpics, MissingIntentReadCannotBypassConditionalCreation) {
+  auto gh = std::make_shared<EpicGitHub>();
+  gh->delayed_create_label = "agamemnon-brief";
+  FakeNatsPublisher bus;
+  Store store(gh, epic_configuration());
+  Orchestrator first(store, bus);
+  ASSERT_THROW(first.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+  gh->hide_fences = true;
+  Store restarted(gh, epic_configuration());
+  Orchestrator second(restarted, bus);
+  EXPECT_THROW(second.on_epic_registered(subject, epic().dump(), true), std::runtime_error);
+  EXPECT_EQ(gh->create_attempts, 1);
+  EXPECT_TRUE(gh->created_issues.empty());
+  EXPECT_TRUE(bus.calls.empty());
 }
 
 TEST(DurableEpics, UncertainPublicationBeyondDedupWindowRequiresReconciliation) {

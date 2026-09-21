@@ -27,8 +27,21 @@ disposable local fixtures when appropriate. No live deployment or live GitHub
 record migration was performed as part of this implementation.
 
 The orchestrator confirms the brief and canonical root in GitHub before any
-dispatch. Deterministic brief creation reconciles open and closed backing issues,
-including a lost create response. Root `delivery` metadata records registration,
+dispatch. Before either issue POST, the Store confirms a conditional creation
+attempt on the configured import state branch in the same backing repository.
+The attempt uses `hi/agamemnon/epic-create-attempt/v1` and a domain-specific key
+derived from its brief or task entity path, separate from work-issue import keys.
+It reuses the bounded conditional Contents storage under `fleet/imports/`.
+The attempt does not replace an issue or authorize dispatch.
+
+An exact open or closed canonical issue can reconcile a lost create response.
+An empty scan cannot prove that the original server operation stopped. A retained
+attempt therefore blocks another POST, including after restart or a lost attempt
+acknowledgment. A stale missing attempt read must still pass conditional insertion;
+it cannot overwrite an existing attempt. Attempts remain retained after success.
+There is no automatic reset or deletion when an issue has not appeared. Preserve
+the unresolved operation for explicit reconciliation. The generic non-epic
+creation path is unchanged. Root `delivery` metadata records registration,
 publication intent, and confirmed publication. The outgoing task uses only the
 canonical `hi.myrmidon.pipeline.chief-architect.task.{task_id}` subject with
 `schema: hi/v1`, stable `msg_id`, and `operation: decompose`. It is not dual-published
@@ -129,6 +142,12 @@ wakeup. Legacy task lifecycle Core subscriptions are also outside this epic
 consumer slice. No production
 broker configuration or live issues were changed by these tests.
 
+The standard and focused test graphs also register `fleet_epic_receiver`. Its
+explicit `--fixture` mode sends controlled bytes through the same receiver used
+by the cross-repository test below. It checks failed persistence, replay and parent
+wakeup with the required fixture import authority. Its output identifies those
+bytes as a controlled receiver fixture; it does not claim a Telemachy producer run.
+
 The implementation follows the [NATS consumer contract](https://docs.nats.io/learn/jetstream/pull-consumers)
 and the installed nats.c headers for pull binding, explicit ACK, delayed NAK, TERM,
 publication IDs, and synchronous PubAck.
@@ -148,7 +167,8 @@ and invokes the real Telemachy registration/publish functions. It verifies the
 issue-backed outbox bytes against the broker, simulates a failed receipt write,
 and checks that a fresh producer invocation reuses children and gets a duplicate
 PubAck for identical bytes. The native fixture rejects an altered capture before
-processing, rejects its first controlled GitHub write without dispatch or ACK,
+processing, rejects its first controlled conditional attempt write before issue
+creation, dispatch or ACK,
 and then processes and replays the actual producer body across controller
 restart. A deliberately changed transport deduplication header exercises receiver
 idempotence without waiting for the broker window; the body stays unchanged.

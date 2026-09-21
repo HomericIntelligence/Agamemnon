@@ -1,3 +1,4 @@
+#include "agamemnon/fleet_issue.hpp"
 #include "agamemnon/github_client.hpp"
 #include "agamemnon/nats_client.hpp"
 #include "agamemnon/orchestrator.hpp"
@@ -5,10 +6,13 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <nats.h>
 #include <thread>
+
+#include "conditional_authority.hpp"
 
 using namespace agamemnon;
 using namespace std::chrono_literals;
@@ -17,16 +21,29 @@ namespace {
 void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
-class Authority : public MockGitHubClient {
+class Authority : public agamemnon::test::ConditionalAuthority {
  public:
-  bool reject_first_create = true;
-  std::string create_issue(std::string_view title, std::string_view body,
-                           std::string_view label) override {
-    if (reject_first_create) {
-      reject_first_create = false;
-      throw std::runtime_error("fixture_unconfirmed_creation");
-    }
-    return MockGitHubClient::create_issue(title, body, label);
+  Authority() { reject_next_fence_write = true; }
+  json import_work_issue(const std::string& owner, const std::string& name, int number,
+                         ImportContext& context) override {
+    context.checkpoint();
+    require(owner + "/" + name == "homeric/repo" && number == 42,
+            "fixture work identity differs from producer");
+    return {{"repository",
+             {{"id", "R_producer_fixture"},
+              {"nameWithOwner", "homeric/repo"},
+              {"issue",
+               {{"__typename", "Issue"},
+                {"id", "I_producer_fixture"},
+                {"number", 42},
+                {"url", "https://github.com/homeric/repo/issues/42"},
+                {"state", "OPEN"},
+                {"title", "Controlled producer epic"},
+                {"body", "Explicit unreserved work namespace"}}}}}};
+  }
+  std::vector<json> import_list_issues(ImportContext& context) override {
+    context.checkpoint();
+    return list_issues_including_closed("agamemnon-hmas-task");
   }
   std::vector<json> list_issues_including_closed(std::string_view label) override {
     std::vector<json> result;
@@ -77,24 +94,54 @@ std::string bytes(const natsMsg* message) {
 
 int main(int argc, char** argv) {
   try {
-    require(argc == 3, "usage: fleet_epic_import CAPTURE_JSON LOOPBACK_NATS_URL");
-    const std::string url = argv[2];
+    const bool fixture = argc == 2 && std::string_view(argv[1]) == "--fixture";
+    require(fixture || argc == 3,
+            "usage: fleet_epic_import CAPTURE_JSON LOOPBACK_NATS_URL | --fixture");
+    const char* fixture_url = std::getenv("AGAMEMNON_TEST_NATS_URL");
+    require(!fixture || fixture_url != nullptr, "fixture requires an isolated broker URL");
+    const std::string url = fixture ? fixture_url : argv[2];
     const std::string prefix = "nats://127.0.0.1:";
     require(url.starts_with(prefix), "private loopback broker required");
     const auto port = url.substr(prefix.size());
     require(!port.empty() && port.find_first_not_of("0123456789") == std::string::npos,
             "invalid private broker port");
-    std::ifstream input(argv[1]);
-    const auto capture = json::parse(input);
-    const auto subject = capture.at("subject").get<std::string>();
-    const auto payload = capture.at("payload").get<std::string>();
-    const auto envelope = json::parse(payload);
-    const auto source_sequence = capture.at("receipt").at("seq").get<std::uint64_t>();
     BrokerInspection inspection;
     require(natsConnection_ConnectTo(&inspection.connection, url.c_str()) == NATS_OK,
             "private broker connection failed");
     require(natsConnection_JetStream(&inspection.js, inspection.connection, nullptr) == NATS_OK,
             "JetStream unavailable");
+    json capture;
+    if (fixture) {
+      // CTest exercises this receiver with controlled bytes. The external
+      // producer contract still supplies its independently captured exact body.
+      NatsClient publisher(url);
+      require(publisher.connect(), "fixture publisher connection failed");
+      publisher.ensure_streams(true);
+      const std::string subject = "hi.pipeline.epic.receiver-fixture.registered";
+      const auto payload = json{
+          {"schema", "hi/v1"},
+          {"msg_id", "receiver-fixture-1"},
+          {"epic", {{"repo", "homeric/repo"}, {"issue", 42}, {"key", "receiver-fixture"}}},
+          {"children", {43, 44}},
+          {"workflow",
+           "feature"}}.dump();
+      jsPubAck* acknowledgement = nullptr;
+      const auto status =
+          js_Publish(&acknowledgement, inspection.js, subject.c_str(), payload.data(),
+                     static_cast<int>(payload.size()), nullptr, nullptr);
+      const bool confirmed = status == NATS_OK && acknowledgement != nullptr;
+      const auto sequence = confirmed ? acknowledgement->Sequence : 0;
+      jsPubAck_Destroy(acknowledgement);
+      require(confirmed, "fixture publication was not acknowledged");
+      capture = {{"subject", subject}, {"payload", payload}, {"receipt", {{"seq", sequence}}}};
+    } else {
+      std::ifstream input(argv[1]);
+      capture = json::parse(input);
+    }
+    const auto subject = capture.at("subject").get<std::string>();
+    const auto payload = capture.at("payload").get<std::string>();
+    const auto envelope = json::parse(payload);
+    const auto source_sequence = capture.at("receipt").at("seq").get<std::uint64_t>();
     natsMsg* raw = nullptr;
     require(js_GetMsg(&raw, inspection.js, "homeric-pipeline", source_sequence, nullptr, nullptr) ==
                 NATS_OK,
@@ -104,12 +151,17 @@ int main(int argc, char** argv) {
     require(exact, "producer capture differs from actual broker bytes");
 
     auto github = std::make_shared<Authority>();
+    auto configuration = std::make_shared<IssueImportConfiguration>();
+    configuration->state_branch = "import-state";
+    configuration->repositories = json::array({{{"key", "producer"},
+                                                {"repository", "homeric/repo"},
+                                                {"repositoryId", "R_producer_fixture"}}});
     std::string brief;
     const std::string consumer = "producer-native-contract";
     std::atomic<int> deliveries{0};
     std::atomic<bool> failed_write_fenced{false};
     {
-      Store store(github);
+      Store store(github, configuration);
       Transport transport(url);
       Orchestrator orchestrator(store, transport);
       require(transport.connect(), "consumer connection failed");
@@ -148,7 +200,7 @@ int main(int argc, char** argv) {
     require(publisher.publish_durable(subject, payload,
                                       envelope.at("msg_id").get<std::string>() + "-wire-replay"),
             "replay publication failed");
-    Store restarted(github);
+    Store restarted(github, configuration);
     Transport transport(url);
     Orchestrator orchestrator(restarted, transport);
     require(transport.connect(), "restarted consumer connection failed");
@@ -195,6 +247,7 @@ int main(int argc, char** argv) {
     require(restarted.get_hmas_task(parent.id)->state == TaskState::Decomposing,
             "child completion incorrectly completed parent");
     std::cout << json({{"schema", "hi/fleet/native-producer-proof/v1"},
+                       {"source", fixture ? "controlled-receiver-fixture" : "external-producer"},
                        {"exactBytes", payload.size()},
                        {"deliveries", deliveries.load()},
                        {"replays", replayed.load()},

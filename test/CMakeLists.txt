@@ -211,6 +211,17 @@ add_test(NAME fleet_jetstream COMMAND ${Python3_EXECUTABLE}
   ${AGAMEMNON_TEST_NATS_SERVER} $<TARGET_FILE:${PROJECT_NAME}_durable_transport_tests>)
 set_tests_properties(fleet_jetstream PROPERTIES LABELS "integration" TIMEOUT 60 RUN_SERIAL TRUE)
 
+# Compile and exercise the distinct producer-byte receiver in the standard
+# graph. Fixture mode does not substitute for the external Telemachy contract.
+add_executable(${PROJECT_NAME}_epic_import fleet/import_epic.cpp)
+target_compile_features(${PROJECT_NAME}_epic_import PRIVATE cxx_std_20)
+set_target_properties(${PROJECT_NAME}_epic_import PROPERTIES CXX_EXTENSIONS OFF)
+target_link_libraries(${PROJECT_NAME}_epic_import PRIVATE Agamemnon_core Threads::Threads)
+add_test(NAME fleet_epic_receiver COMMAND ${Python3_EXECUTABLE}
+  ${CMAKE_CURRENT_SOURCE_DIR}/fleet/private_jetstream.py
+  ${AGAMEMNON_TEST_NATS_SERVER} $<TARGET_FILE:${PROJECT_NAME}_epic_import> --fixture)
+set_tests_properties(fleet_epic_receiver PROPERTIES LABELS "integration" TIMEOUT 60 RUN_SERIAL TRUE)
+
 # ── Ported HMAS agent executor + work-stealing tests (ADR-015) ───────────────
 # Behavioural ports of Keystone's agent / work-stealing gtests, adapted to use
 # Agamemnon's dependency-free core::InProcessRouter instead of Keystone's

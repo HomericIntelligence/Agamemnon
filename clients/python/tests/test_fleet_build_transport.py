@@ -33,7 +33,8 @@ class FleetBuildTransportTests(unittest.IsolatedAsyncioTestCase):
         return AgamemnonClient(
             AgamemnonConfig(
                 host="127.0.0.1", port=self.port, api_key="controlled-main-key", timeout=timeout
-            )
+            ),
+            trust_env=False,
         )
 
     async def asyncTearDown(self):

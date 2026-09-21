@@ -10,6 +10,7 @@
 #include <nats.h>
 #include <thread>
 
+#include "../fleet/conditional_authority.hpp"
 #include <gtest/gtest.h>
 
 namespace agamemnon::test {
@@ -240,9 +241,9 @@ TEST_F(PrivateJetStream, PerSubjectLimitNeverEvictsPriorDurableWork) {
   }
 }
 
-class AuthorityFixture : public MockGitHubClient {
+class AuthorityFixture : public ConditionalAuthority {
  public:
-  bool reject_first_create = true;
+  AuthorityFixture() { reject_next_fence_write = true; }
   json import_work_issue(const std::string& owner, const std::string& name, int number,
                          ImportContext& context) override {
     context.checkpoint();
@@ -263,20 +264,6 @@ class AuthorityFixture : public MockGitHubClient {
   std::vector<json> import_list_issues(ImportContext& context) override {
     context.checkpoint();
     return list_issues_including_closed("agamemnon-hmas-task");
-  }
-  std::optional<ImportFence> import_read_fence(const std::string& branch, const std::string&,
-                                               ImportContext& context) override {
-    context.checkpoint();
-    EXPECT_EQ(branch, "import-state");
-    return std::nullopt;
-  }
-  std::string create_issue(std::string_view title, std::string_view body,
-                           std::string_view label) override {
-    if (reject_first_create) {
-      reject_first_create = false;
-      return "";
-    }
-    return MockGitHubClient::create_issue(title, body, label);
   }
   std::vector<json> list_issues_including_closed(std::string_view label) override {
     std::vector<json> result;

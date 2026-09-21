@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix="agamemnon-jetstream-") as directory:
             if not url.startswith("nats://127.0.0.1:"):
                 raise RuntimeError("broker did not bind loopback")
             env = {"PATH": os.defpath, "LANG": "C", "AGAMEMNON_TEST_NATS_URL": url}
-            result = subprocess.run([sys.argv[2]], env=env, timeout=30, check=False)
+            result = subprocess.run(sys.argv[2:], env=env, timeout=30, check=False)
             sys.exit(result.returncode)
         finally:
             broker.terminate()

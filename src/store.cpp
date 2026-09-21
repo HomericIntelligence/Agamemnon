@@ -11,6 +11,7 @@
 #include <iomanip>
 #include <iostream>
 #include <mutex>
+#include <openssl/sha.h>
 #include <optional>
 #include <random>
 #include <regex>
@@ -58,6 +59,35 @@ std::string lower_work_name(std::string value) {
   for (auto& c : value)
     if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
   return value;
+}
+
+void reserve_epic_creation(IGitHubClient& github, const IssueImportConfiguration* configuration,
+                           const std::string& entity) {
+  if (!configuration)
+    throw std::runtime_error("Durable epic creation requires shared persistence configuration");
+  const auto identity =
+      json{{"schema", "hi/agamemnon/epic-create-key/v1"}, {"entity", entity}}.dump();
+  unsigned char digest[SHA256_DIGEST_LENGTH];
+  if (!SHA256(reinterpret_cast<const unsigned char*>(identity.data()), identity.size(), digest))
+    throw std::runtime_error("Cannot bind durable epic creation");
+  std::ostringstream encoded;
+  encoded << std::hex << std::setfill('0');
+  for (const auto byte : digest) encoded << std::setw(2) << static_cast<unsigned int>(byte);
+  const auto key = encoded.str();
+  ImportContext context;
+  if (github.import_read_fence(configuration->state_branch, key, context))
+    throw std::runtime_error("Epic creation requires reconciliation");
+  const json attempt{{"schema", "hi/agamemnon/epic-create-attempt/v1"},
+                     {"entity", entity},
+                     {"attemptId", generate_uuid()}};
+  // A missing scan/read is not permission to repeat a POST. The conditional
+  // insert must acknowledge this invocation's distinct intent first. Retain it
+  // permanently: only an exact canonical issue can reconcile a lost response.
+  const auto confirmed =
+      github.import_write_fence(configuration->state_branch, key, attempt, std::nullopt, context);
+  if (confirmed.sha.empty() || confirmed.document.dump() != attempt.dump())
+    throw std::runtime_error("Epic creation intent was not acknowledged");
+  context.checkpoint();
 }
 
 void validate_import_entity(const json& raw) {
@@ -933,6 +963,8 @@ void Store::create_hmas_task(const HmasTask& task) {
   if (gh_) {
     const std::string title = "hmas-task: " + task.id;
     try {
+      if (task.delivery.contains("registration"))
+        reserve_epic_creation(*gh_, import_configuration_.get(), "hmas-tasks/" + task.id);
       std::string issue_num = gh_->create_issue(
           title, make_issue_body_("hmas-tasks/" + task.id, hmas_task_to_json(task)),
           "agamemnon-hmas-task");
@@ -1474,7 +1506,8 @@ void Store::ensure_durable_task_brief(const TaskBrief& brief) {
   if (!gh_) throw std::runtime_error("Durable brief requires GitHub persistence");
   std::unique_lock<std::shared_mutex> lk(briefs_mutex_);
   std::string issue_number;
-  // Always enumerate: this also reconciles a lost create response on retry.
+  // An exact issue can reconcile a lost response. An empty scan cannot clear a
+  // retained creation attempt or authorize a second issue POST.
   for (const auto& issue : gh_->list_issues_including_closed("agamemnon-brief")) {
     auto entity = parse_issue_entity_(issue);
     if (!entity.is_object()) throw std::runtime_error("Invalid durable brief record");
@@ -1484,6 +1517,7 @@ void Store::ensure_durable_task_brief(const TaskBrief& brief) {
     issue_number = std::to_string(issue.at("number").get<int>());
   }
   if (issue_number.empty()) {
+    reserve_epic_creation(*gh_, import_configuration_.get(), "briefs/" + brief.id);
     issue_number = gh_->create_issue(
         "brief: " + brief.id, make_issue_body_("briefs/" + brief.id, task_brief_to_json(brief)),
         "agamemnon-brief");

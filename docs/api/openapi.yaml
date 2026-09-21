@@ -310,9 +310,13 @@ paths:
         accepted. The controller uses the admitted build/attempt/snapshot identity
         and its separately configured backend credential to request
         GET /v1/fleet/build-jobs/{id}/logs with attempt, snapshotDigest, stream,
-        after and limit on the private backend. The first backend profile permits
-        only literal http://127.0.0.1:<port> or http://[::1]:<port>, with an explicit
-        decimal port from 1 through 65535 and no leading zero. HTTPS, DNS names,
+        after and limit on the private backend. The hi/fleet/build-artifacts/v2
+        configuration requires caCertificatePem with one X509 PEM trust certificate.
+        The first backend profile permits only literal https://127.0.0.1:<port>
+        or https://[::1]:<port>, with an explicit decimal port from 1 through 65535
+        and no leading zero. TLS verifies the certificate chain against that
+        dedicated trust and the literal IP against its IP SAN; default trust paths
+        are disabled. HTTP, DNS names,
         external origins, alternate numeric host spellings, URL credentials,
         paths, queries and fragments are rejected. Redirects and proxies are
         disabled. Connection timeout is 500 ms and total timeout is 1000 ms;
