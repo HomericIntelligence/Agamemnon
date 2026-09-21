@@ -6,6 +6,8 @@
 
 #include <functional>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "nlohmann/json.hpp"
 
@@ -55,18 +57,24 @@ class NatsClient : public NatsPublisher {
   bool is_connected() const { return connected_; }
 
   /// Create JetStream streams (idempotent — safe to call even if they already exist).
-  void ensure_streams();
+  void ensure_streams(bool durable_work = false);
 
   /// Publish a JSON string to a NATS subject.
   /// Retries up to kMaxRetries times with exponential backoff on infra failures.
   /// Pushes to the dead-letter queue after all retries are exhausted.
   /// Returns false if circuit is open, not connected, or all retries fail.
-  bool publish(const std::string& subject, const std::string& payload);
+  bool publish(const std::string& subject, const std::string& payload) override;
+  bool publish_durable(const std::string& subject, const std::string& payload,
+                       const std::string& message_id) override;
 
   /// Subscribe to a subject with a callback.
   /// The callback receives (subject, data) strings.
   using MessageCallback = std::function<void(const std::string& subject, const std::string& data)>;
   bool subscribe(const std::string& subject, MessageCallback cb);
+  /// Explicit ACK pull consumer. Success means the callback returned; exceptions
+  /// retain/retry delivery or durably quarantine it, never acknowledge success.
+  bool subscribe_durable(const std::string& stream, const std::string& subject,
+                         const std::string& durable, MessageCallback cb, int retry_delay_ms = 1000);
 
   /// Publish a structured log event to hi.logs.agamemnon.<event> (ADR-005).
   /// Fire-and-forget: NATS failures are logged but do not propagate.
@@ -85,6 +93,7 @@ class NatsClient : public NatsPublisher {
   void* conn_ = nullptr;  // natsConnection*  (opaque to avoid header leak)
   void* js_ = nullptr;    // jsCtx*
   bool connected_ = false;
+  std::vector<std::jthread> consumers_;
 
   CircuitBreaker breaker_;
   DeadLetterQueue dlq_;

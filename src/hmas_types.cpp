@@ -77,6 +77,9 @@ json hmas_task_to_json(const HmasTask& task) {
   j["module"] = task.module;
   j["issue"] = task.issue;
   j["assigned_lead_id"] = task.assigned_lead_id;
+  if (!task.fleet_claim.is_null()) j["fleet_claim"] = task.fleet_claim;
+  if (!task.fleet_resolution.is_null()) j["fleet_resolution"] = task.fleet_resolution;
+  if (!task.delivery.empty()) j["delivery"] = task.delivery;
   j["blocked_by"] = task.blocked_by;
   j["child_task_ids"] = task.child_task_ids;
   j["created_at"] = task.created_at;
@@ -157,6 +160,9 @@ HmasTask hmas_task_from_json(const json& j) {
   t.module = j.value("module", "");
   t.issue = j.value("issue", 0);
   t.assigned_lead_id = j.value("assigned_lead_id", "");
+  t.fleet_claim = j.value("fleet_claim", json(nullptr));
+  t.fleet_resolution = j.value("fleet_resolution", json(nullptr));
+  t.delivery = j.value("delivery", json::object());
   t.created_at = j.value("created_at", "");
   t.completed_at = j.value("completed_at", "");
   if (j.contains("blocked_by") && j["blocked_by"].is_array())

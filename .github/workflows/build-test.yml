@@ -269,7 +269,12 @@ jobs:
 
       - name: Negative PORT parsing smoke test
         env:
-          AGAMEMNON_API_KEY: ${{ secrets.AGAMEMNON_API_KEY }}
+          # Local test fixture only; startup authentication must remain enabled.
+          AGAMEMNON_API_KEY: port-smoke-fixture-only
+          AGAMEMNON_BIND_ADDRESS: 127.0.0.1
+          NATS_URL: nats://127.0.0.1:1
+          GITHUB_TOKEN: ""
+          AGAMEMNON_PROJECTS_CONFIG: ""
         run: |
           SERVER=./build/debug/Agamemnon_server
           # PORT=abc must warn and fall back to 8080
@@ -373,7 +378,9 @@ jobs:
         env:
           AGAMEMNON_PEER_DISCOVERY_INTEGRATION: required
         working-directory: build/debug
-        run: ctest -L integration -R PeerDiscovery --output-on-failure --timeout 60
+        run: >-
+          ctest -L integration -R '^NatsServerFixture\.'
+          --no-tests=error --output-on-failure --timeout 60
 
   docs:
     name: docs-validate

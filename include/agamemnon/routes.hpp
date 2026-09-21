@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 // Forward declarations to avoid pulling in heavy headers here.
 namespace httplib {
 class Server;
@@ -13,6 +15,9 @@ class RateLimiter;
 class AuthMiddleware;
 class MetricsRegistry;
 class Orchestrator;
+class FleetService;
+class FleetResearchService;
+class FleetIssueService;
 
 /// Register all /v1/ route handlers on the given server.
 /// Store, NatsPublisher, RateLimiter, AuthMiddleware, MetricsRegistry, and
@@ -21,6 +26,8 @@ class Orchestrator;
 /// In tests, pass a FakeNatsPublisher for call recording.
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
-                     Orchestrator& orchestrator);
+                     Orchestrator& orchestrator, std::shared_ptr<FleetService> fleet = nullptr,
+                     std::shared_ptr<FleetResearchService> research = nullptr,
+                     std::shared_ptr<FleetIssueService> issue = nullptr);
 
 }  // namespace agamemnon
