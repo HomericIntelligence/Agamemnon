@@ -378,7 +378,9 @@ jobs:
         env:
           AGAMEMNON_PEER_DISCOVERY_INTEGRATION: required
         working-directory: build/debug
-        run: ctest -L integration -R PeerDiscovery --output-on-failure --timeout 60
+        run: >-
+          ctest -L integration -R '^NatsServerFixture\.'
+          --no-tests=error --output-on-failure --timeout 60
 
   docs:
     name: docs-validate
