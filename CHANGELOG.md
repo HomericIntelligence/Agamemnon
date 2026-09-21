@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `fix(clients/python)`: require Python 3.10 or newer and AnyIO 4.14.2 or newer
+  to address CVE-2026-63374. Python 3.9 has no compatible patched AnyIO release.
+  The separate orchestration package's interpreter requirement is unchanged.
+
 ### Added
 
 - `feat(fleet)`: import an explicitly selected planned GitHub issue from an

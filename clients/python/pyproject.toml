@@ -8,11 +8,12 @@ version = "0.1.0"
 description = "Async Python client for the Agamemnon REST API"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "httpx>=0.27,<1",
+    # HTTPX uses AnyIO; this floor carries the CVE-2026-63374 fix.
+    "anyio>=4.14.2,<5",
     "pydantic>=2.0,<3",
-    "eval_type_backport>=0.2; python_version < '3.10'",
     "nats-py>=2.6,<3",
 ]
 
@@ -52,11 +53,8 @@ dev = [
 ]
 lint = [
     # pip-audit and its transitive msgpack floor only publish wheels for
-    # Python >=3.10; the audit runs on modern CI runners, so the group is
-    # marked accordingly. The client library itself still supports 3.9 — only
-    # this dev/audit tooling group is gated. (Under pixi this was a separate
-    # `lint` solve-group; uv shares the project's requires-python, hence the
-    # explicit markers.)
+    # Python >=3.10. Keep their existing markers explicit; this now matches
+    # the client library's minimum supported interpreter.
     "pip-audit>=2.8; python_version >= '3.10'",
     # Pinned to the first release carrying the PYSEC-2026-3721 fix (the GitHub
     # advisory database lists 26.2 as the fixed version). pip 26.1.2 is flagged
@@ -80,14 +78,14 @@ packages = ["src/agamemnon_client"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
 strict = true
-python_version = "3.9"
+python_version = "3.10"
 packages = ["agamemnon_client"]
 
 [[tool.mypy.overrides]]
@@ -98,11 +96,8 @@ module = [
 ignore_missing_imports = true
 
 # Do not type-check the internals of third-party async runtime libraries.
-# Under uv (ADR-018) the resolver selects a current anyio whose source uses
-# `match` statements; with our `python_version = "3.9"` target mypy would flag
-# that 3.10 syntax inside the installed package. anyio is pulled in only
-# transitively (httpx / respx) and its own type-correctness is not our concern,
-# so skip following imports into it. (pixi's older pinned anyio hid this.)
+# AnyIO supplies HTTPX's async runtime. Its source is outside this package's
+# type-check scope; the declared dependency floor also constrains HTTPX / respx.
 [[tool.mypy.overrides]]
 module = ["anyio.*"]
 follow_imports = "skip"

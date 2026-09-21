@@ -6,6 +6,10 @@ Async Python client for the [Agamemnon](https://github.com/HomericIntelligence/A
 
 ## Installation
 
+Requires Python 3.10 or newer. The client requires AnyIO 4.14.2 or newer to
+include the CVE-2026-63374 fix. The patched upstream release does not support
+Python 3.9, so the client no longer supports that interpreter.
+
 ```bash
 pip install HomericIntelligence-Agamemnon
 ```
