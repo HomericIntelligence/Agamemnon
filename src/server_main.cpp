@@ -5,6 +5,7 @@
 #include "agamemnon/peer_discovery.hpp"
 #include "agamemnon/port_parse.hpp"
 #include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/route_limits.hpp"
 #include "agamemnon/routes.hpp"
 #include "agamemnon/store.hpp"
 #include "agamemnon/version.hpp"
@@ -175,10 +176,20 @@ int main() {
   };
   server->set_read_timeout(env_int("SERVER_READ_TIMEOUT_SEC", 10));
   server->set_write_timeout(env_int("SERVER_WRITE_TIMEOUT_SEC", 10));
-  server->set_payload_max_length(static_cast<size_t>(env_int("SERVER_REQUEST_SIZE_LIMIT_MB", 4)) *
-                                 1024UL * 1024UL);
 
-  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator);
+  // ── Input length limits (#275) ─────────────────────────────────────────────
+  // Built from AGAMEMNON_* env vars (with SERVER_REQUEST_SIZE_LIMIT_MB
+  // back-compat for the body cap). Applied inside register_routes — both the
+  // transport-layer payload cap and the per-field length checks read it, so
+  // there is a single source of truth.
+  const agamemnon::RouteLimits limits = agamemnon::RouteLimits::from_env();
+  std::cout << "[agamemnon] input limits: name=" << limits.max_name_len
+            << " label=" << limits.max_label_len << " description=" << limits.max_description_len
+            << " subject=" << limits.max_subject_len << " program=" << limits.max_program_len
+            << " body_bytes=" << limits.max_body_bytes << "\n";
+
+  agamemnon::register_routes(*server, store, nats, rate_limiter, auth, metrics, orchestrator,
+                             limits);
 
   const char* port_env = std::getenv("PORT");
   int port = 8080;

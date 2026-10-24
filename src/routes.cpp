@@ -9,6 +9,7 @@
 #include "agamemnon/nats_publisher.hpp"
 #include "agamemnon/orchestrator.hpp"
 #include "agamemnon/rate_limiter.hpp"
+#include "agamemnon/route_limits.hpp"
 #include "agamemnon/store.hpp"
 #include "agamemnon/version.hpp"
 
@@ -29,16 +30,7 @@ namespace agamemnon {
 
 using json = nlohmann::json;
 
-// ── Input length limits ───────────────────────────────────────────────────────
-static constexpr std::size_t kMaxNameLen = 256;
-static constexpr std::size_t kMaxLabelLen = 256;
-static constexpr std::size_t kMaxDescriptionLen = 4096;
-static constexpr std::size_t kMaxSubjectLen = 512;
-static constexpr std::size_t kMaxProgramLen = 1024;
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-static constexpr std::size_t kMaxBodyBytes = 1U * 1024U * 1024U;  // 1 MiB
 
 // #164: strip internal-only fields from any JSON reachable in `body` before it
 // is serialised to the wire. Store retains `_github_issue` for its own GitHub-
@@ -83,9 +75,12 @@ static bool check_field_length(httplib::Response& res, const std::string& field_
   return true;
 }
 
-/// Parse JSON body; returns false and sets 400 on parse error.
-static bool parse_body(const httplib::Request& req, httplib::Response& res, json& out) {
-  if (req.body.size() > kMaxBodyBytes) {
+/// Parse JSON body; returns false and sets 400 on parse error. Bodies larger
+/// than max_body_bytes are rejected with 413 (#275: configurable via
+/// AGAMEMNON_MAX_BODY_BYTES).
+static bool parse_body(const httplib::Request& req, httplib::Response& res, json& out,
+                       std::size_t max_body_bytes) {
+  if (req.body.size() > max_body_bytes) {
     reply_json(res, 413, {{"error", "request body too large"}});
     return false;
   }
@@ -215,11 +210,17 @@ std::optional<PaginationParams> parse_pagination(const httplib::Request& req,
 
 // cppcheck-suppress unusedFunction
 // register_routes is the public entry point invoked from server_main.cpp.
+const RouteLimits& default_route_limits() {
+  static const RouteLimits kDefaultLimits{};
+  return kDefaultLimits;
+}
+
 void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
                      RateLimiter& rate_limiter, AuthMiddleware& auth, MetricsRegistry& metrics,
-                     Orchestrator& orchestrator) {
+                     Orchestrator& orchestrator, const RouteLimits& limits) {
   Store* sp = &store;
   NatsPublisher* np = &nats;
+  const RouteLimits* lp = &limits;
   // Production NatsClient overrides dead_letter_queue()/circuit_breaker() to
   // return non-null pointers; FakeNatsPublisher in tests returns nullptr.
   // Guarded accesses below skip these features when not available.
@@ -268,9 +269,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     return httplib::Server::HandlerResponse::Unhandled;
   });
 
-  // ── Global transport-layer body size limit (1 MB) ───────────────────────
-  static constexpr std::size_t kMaxBodyBytes = 1U << 20U;
-  server.set_payload_max_length(kMaxBodyBytes);
+  // ── Global transport-layer body size limit (configurable, #275) ────────
+  server.set_payload_max_length(lp->max_body_bytes);
 
   // ── Health / version ────────────────────────────────────────────────────
   server.Get("/health", [](const httplib::Request&, httplib::Response& res) {
@@ -331,26 +331,26 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // route with no docker-specific logic. Docker-hosted agents are created by posting here with
   // `{"host": "docker", "image": "..."}`; the resulting NATS subject
   // `hi.agents.docker.{name}.created` is unchanged.
-  server.Post("/v1/agents", [sp, np](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/agents", [sp, np, lp](const httplib::Request& req, httplib::Response& res) {
     json body;
-    if (!parse_body(req, res, body)) return;
+    if (!parse_body(req, res, body, lp->max_body_bytes)) return;
     if (!require_field_present(res, body, "name")) return;
     if (!require_string_if_present(res, body, "name")) return;
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
       return;
     if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+        !check_field_length(res, "name", body["name"].get<std::string>(), lp->max_name_len))
       return;
     if (body.contains("label") &&
-        !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
+        !check_field_length(res, "label", body["label"].get<std::string>(), lp->max_label_len))
       return;
     if (body.contains("program") &&
-        !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
+        !check_field_length(res, "program", body["program"].get<std::string>(), lp->max_program_len))
       return;
     if (body.contains("taskDescription") &&
         !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
-                            kMaxDescriptionLen))
+                            lp->max_description_len))
       return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
@@ -422,30 +422,31 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // PATCH /v1/agents/:id
   server.Patch(
-      R"(/v1/agents/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
+      R"(/v1/agents/([^/]+))", [sp, np, lp](const httplib::Request& req, httplib::Response& res) {
         std::string id = req.matches[1];
         json body;
-        if (!parse_body(req, res, body)) return;
+        if (!parse_body(req, res, body, lp->max_body_bytes)) return;
         if (!require_string_if_present(res, body, "name")) return;
         if (body.contains("name") &&
             !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
           return;
         if (body.contains("name") &&
-            !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+            !check_field_length(res, "name", body["name"].get<std::string>(), lp->max_name_len))
           return;
         if (body.contains("label") && !body["label"].is_string()) {
           reply_bad_request(res, "'label' must be a string");
           return;
         }
         if (body.contains("label") &&
-            !check_field_length(res, "label", body["label"].get<std::string>(), kMaxLabelLen))
+            !check_field_length(res, "label", body["label"].get<std::string>(), lp->max_label_len))
           return;
         if (body.contains("program") && !body["program"].is_string()) {
           reply_bad_request(res, "'program' must be a string");
           return;
         }
-        if (body.contains("program") &&
-            !check_field_length(res, "program", body["program"].get<std::string>(), kMaxProgramLen))
+        if (body.contains("program") && !check_field_length(res, "program",
+                                                            body["program"].get<std::string>(),
+                                                            lp->max_program_len))
           return;
         if (body.contains("taskDescription") && !body["taskDescription"].is_string()) {
           reply_bad_request(res, "'taskDescription' must be a string");
@@ -453,7 +454,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
         }
         if (body.contains("taskDescription") &&
             !check_field_length(res, "taskDescription", body["taskDescription"].get<std::string>(),
-                                kMaxDescriptionLen))
+                                lp->max_description_len))
           return;
         if (body.contains("status") && body["status"].is_string() &&
             !require_enum(res, body["status"].get<std::string>(), "status", kValidAgentStatuses))
@@ -494,16 +495,16 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   });
 
   // POST /v1/teams
-  server.Post("/v1/teams", [sp, np](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/teams", [sp, np, lp](const httplib::Request& req, httplib::Response& res) {
     json body;
-    if (!parse_body(req, res, body)) return;
+    if (!parse_body(req, res, body, lp->max_body_bytes)) return;
     if (!require_field_present(res, body, "name")) return;
     if (!require_string_if_present(res, body, "name")) return;
     if (body.contains("name") &&
         !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
       return;
     if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
+        !check_field_length(res, "name", body["name"].get<std::string>(), lp->max_name_len))
       return;
     if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
       return;
@@ -526,29 +527,33 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   });
 
   // PUT /v1/teams/:id
-  server.Put(R"(/v1/teams/([^/]+))", [sp, np](const httplib::Request& req, httplib::Response& res) {
-    std::string id = req.matches[1];
-    json body;
-    if (!parse_body(req, res, body)) return;
-    if (!require_string_if_present(res, body, "name")) return;
-    if (body.contains("name") &&
-        !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
-      return;
-    if (body.contains("name") &&
-        !check_field_length(res, "name", body["name"].get<std::string>(), kMaxNameLen))
-      return;
-    if (body.contains("agentIds") && !require_string_array(res, body["agentIds"], "agentIds"))
-      return;
-    if (body.contains("agent_ids") && !require_string_array(res, body["agent_ids"], "agent_ids"))
-      return;
-    json result = sp->update_team(id, body);
-    if (result.is_null()) {
-      reply_not_found(res, "team");
-      return;
-    }
-    np->publish("hi.agents.team.updated", result.dump());
-    reply_json(res, 200, {{"team", result}});
-  });
+  server.Put(R"(/v1/teams/([^/]+))",
+             [sp, np, lp](const httplib::Request& req, httplib::Response& res) {
+               std::string id = req.matches[1];
+               json body;
+               if (!parse_body(req, res, body, lp->max_body_bytes)) return;
+               if (!require_string_if_present(res, body, "name")) return;
+               if (body.contains("name") &&
+                   !require_nonempty_string(res, body["name"].get<std::string>(), "name"))
+                 return;
+               if (body.contains("name") &&
+                   !check_field_length(res, "name", body["name"].get<std::string>(),
+                                       lp->max_name_len))
+                 return;
+               if (body.contains("agentIds") &&
+                   !require_string_array(res, body["agentIds"], "agentIds"))
+                 return;
+               if (body.contains("agent_ids") &&
+                   !require_string_array(res, body["agent_ids"], "agent_ids"))
+                 return;
+               json result = sp->update_team(id, body);
+               if (result.is_null()) {
+                 reply_not_found(res, "team");
+                 return;
+               }
+               np->publish("hi.agents.team.updated", result.dump());
+               reply_json(res, 200, {{"team", result}});
+             });
 
   // DELETE /v1/teams/:id
   server.Delete(R"(/v1/teams/([^/]+))",
@@ -581,18 +586,18 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
              });
 
   // POST /v1/teams/:team_id/tasks
-  server.Post(R"(/v1/teams/([^/]+)/tasks)", [sp, np](const httplib::Request& req,
-                                                     httplib::Response& res) {
+  server.Post(R"(/v1/teams/([^/]+)/tasks)",
+              [sp, np, lp](const httplib::Request& req, httplib::Response& res) {
     std::string team_id = req.matches[1];
     json body;
-    if (!parse_body(req, res, body)) return;
+    if (!parse_body(req, res, body, lp->max_body_bytes)) return;
     if (!require_field_present(res, body, "subject")) return;
     if (!require_string_if_present(res, body, "subject")) return;
     if (body.contains("subject") &&
         !require_nonempty_string(res, body["subject"].get<std::string>(), "subject"))
       return;
     if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+        !check_field_length(res, "subject", body["subject"].get<std::string>(), lp->max_subject_len))
       return;
     if (body.contains("description") && !body["description"].is_string()) {
       reply_bad_request(res, "'description' must be a string");
@@ -600,7 +605,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
+                            lp->max_description_len))
       return;
     if (body.contains("type") && body["type"].is_string() &&
         !require_enum(res, body["type"].get<std::string>(), "type", kValidTaskTypes))
@@ -648,17 +653,17 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
              });
 
   // Shared handler for PUT and PATCH /v1/teams/:team_id/tasks/:task_id
-  auto update_task_handler = [sp, np](const httplib::Request& req, httplib::Response& res) {
+  auto update_task_handler = [sp, np, lp](const httplib::Request& req, httplib::Response& res) {
     std::string team_id = req.matches[1];
     std::string task_id = req.matches[2];
     json body;
-    if (!parse_body(req, res, body)) return;
+    if (!parse_body(req, res, body, lp->max_body_bytes)) return;
     if (body.contains("subject") && !body["subject"].is_string()) {
       reply_bad_request(res, "'subject' must be a string");
       return;
     }
     if (body.contains("subject") &&
-        !check_field_length(res, "subject", body["subject"].get<std::string>(), kMaxSubjectLen))
+        !check_field_length(res, "subject", body["subject"].get<std::string>(), lp->max_subject_len))
       return;
     if (body.contains("description") && !body["description"].is_string()) {
       reply_bad_request(res, "'description' must be a string");
@@ -666,7 +671,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
     }
     if (body.contains("description") &&
         !check_field_length(res, "description", body["description"].get<std::string>(),
-                            kMaxDescriptionLen))
+                            lp->max_description_len))
       return;
     if (body.contains("status") && body["status"].is_string() &&
         !require_enum(res, body["status"].get<std::string>(), "status", kValidTaskStatuses))
@@ -736,9 +741,9 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // ── HMAS Orchestration ────────────────────────────────────────────────────
 
   // POST /v1/briefs — submit a TaskBrief for HMAS orchestration
-  server.Post("/v1/briefs", [op](const httplib::Request& req, httplib::Response& res) {
+  server.Post("/v1/briefs", [op, lp](const httplib::Request& req, httplib::Response& res) {
     json body;
-    if (!parse_body(req, res, body)) {
+    if (!parse_body(req, res, body, lp->max_body_bytes)) {
       return;
     }
     if (!body.contains("title") || body["title"].get<std::string>().empty()) {
@@ -772,10 +777,10 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // POST /v1/tasks/:task_id/escalate — escalate an in-progress task
   server.Post(R"(/v1/tasks/([^/]+)/escalate)",
-              [op](const httplib::Request& req, httplib::Response& res) {
+              [op, lp](const httplib::Request& req, httplib::Response& res) {
                 const std::string task_id = req.matches[1];
                 json body;
-                if (!parse_body(req, res, body)) {
+                if (!parse_body(req, res, body, lp->max_body_bytes)) {
                   return;
                 }
                 const std::string reason = body.value("reason", "unspecified");
@@ -789,11 +794,11 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   // POST /v1/tasks/:task_id/split — worker overrun re-adjustment (ADR-013 §4):
   // register remainder subtasks blocked by the original so it can complete as
   // the first slice of the split.
-  server.Post(R"(/v1/tasks/([^/]+)/split)", [op](const httplib::Request& req,
-                                                 httplib::Response& res) {
+  server.Post(R"(/v1/tasks/([^/]+)/split)", [op, lp](const httplib::Request& req,
+                                                     httplib::Response& res) {
     const std::string task_id = req.matches[1];
     json body;
-    if (!parse_body(req, res, body)) {
+    if (!parse_body(req, res, body, lp->max_body_bytes)) {
       return;
     }
     if (!body.contains("subtasks") || !body["subtasks"].is_array() || body["subtasks"].empty()) {
@@ -814,10 +819,10 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
 
   // POST /v1/tasks/:task_id/complete — mark an HMAS task completed
   server.Post(R"(/v1/tasks/([^/]+)/complete)",
-              [op](const httplib::Request& req, httplib::Response& res) {
+              [op, lp](const httplib::Request& req, httplib::Response& res) {
                 const std::string task_id = req.matches[1];
                 json body;
-                if (!parse_body(req, res, body)) {
+                if (!parse_body(req, res, body, lp->max_body_bytes)) {
                   return;
                 }
                 const json payload = {{"task_id", task_id}};
@@ -848,8 +853,8 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
   if (!secret_env || std::string(secret_env).empty()) {
     std::cerr << "[agamemnon] warning: GITHUB_WEBHOOK_SECRET not set; webhook disabled\n";
   }
-  server.Post("/v1/github/webhook", [secret_env, sp, mp](const httplib::Request& req,
-                                                         httplib::Response& res) {
+  server.Post("/v1/github/webhook", [secret_env, sp, mp, lp](const httplib::Request& req,
+                                                             httplib::Response& res) {
     if (!secret_env || std::string(secret_env).empty()) {
       reply_json(res, 503, {{"error", "webhook not configured"}});
       return;
@@ -870,7 +875,7 @@ void register_routes(httplib::Server& server, Store& store, NatsPublisher& nats,
       return;
     }
     json payload;
-    if (!parse_body(req, res, payload)) return;
+    if (!parse_body(req, res, payload, lp->max_body_bytes)) return;
     auto normalized = normalize_issues_event(payload);
     if (!normalized) {
       reply_json(res, 200, {{"ignored", "no-op action or label"}});

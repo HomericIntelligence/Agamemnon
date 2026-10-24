@@ -38,6 +38,18 @@ class RouteTestFixture : public ::testing::Test {
   double rate_burst_{1e9};
   std::string nats_url_{"nats://127.0.0.1:14222"};  // unreachable — publishes are no-ops
 
+  // Preserves RoutesLimitsTest's bind-before-register-routes order
+  // (test_routes_limits.cpp:25-30). Default false matches every other fixture.
+  bool bind_before_register_routes_{false};
+
+  // Preserves RoutesLimitsTest's no-wait_until_ready() behaviour.
+  bool skip_wait_until_ready_{false};
+
+  // Configurable input limits (#275) handed to register_routes(). Defaults
+  // preserve the historical compile-time constants; a subclass may set this
+  // (e.g. from RouteLimits::from_env() after setenv) in its own constructor.
+  RouteLimits limits_{};
+
   void SetUp() override {
     store_ = std::make_unique<Store>();
     nats_ = std::make_unique<NatsClient>(nats_url_);
@@ -47,9 +59,17 @@ class RouteTestFixture : public ::testing::Test {
     orchestrator_ = std::make_unique<Orchestrator>(*store_, *nats_);
     server_ = std::make_unique<httplib::Server>();
 
-    register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_, *metrics_, *orchestrator_);
-    port_ = server_->bind_to_any_port("127.0.0.1");
-    ASSERT_GT(port_, 0) << "bind_to_any_port failed";
+    if (bind_before_register_routes_) {
+      port_ = server_->bind_to_any_port("127.0.0.1");
+      ASSERT_GT(port_, 0) << "bind_to_any_port failed";
+      register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_, *metrics_, *orchestrator_,
+                      limits_);
+    } else {
+      register_routes(*server_, *store_, *nats_, *rate_limiter_, *auth_, *metrics_, *orchestrator_,
+                      limits_);
+      port_ = server_->bind_to_any_port("127.0.0.1");
+      ASSERT_GT(port_, 0) << "bind_to_any_port failed";
+    }
 
     server_thread_ = std::thread([this] { server_->listen_after_bind(); });
 
