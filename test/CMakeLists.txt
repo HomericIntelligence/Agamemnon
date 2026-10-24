@@ -16,6 +16,7 @@ add_executable(${PROJECT_NAME}_tests
   src/test_store_concurrent_per_collection.cpp   # #184
   src/test_routes.cpp
   src/test_routes_malformed.cpp
+  src/test_route_limits.cpp   # #275
   src/test_routes_no_internal_leak.cpp   # #164
   src/test_nats_client.cpp
   src/test_peer_discovery.cpp

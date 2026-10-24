@@ -1,6 +1,8 @@
 #define CPPHTTPLIB_NO_EXCEPTIONS
 #include "route_test_fixture.hpp"
 
+#include <cstdlib>
+
 namespace agamemnon::test {
 
 using json = nlohmann::json;
@@ -14,6 +16,34 @@ class RoutesLimitsTest : public RouteTestFixture {
     return c;
   }
 };
+
+// ── Env-driven limits (#275): AGAMEMNON_MAX_NAME_LEN raised to 512 ───────────
+
+class RoutesLimitsEnvTest : public RoutesLimitsTest {
+ public:
+  RoutesLimitsEnvTest() {
+    setenv("AGAMEMNON_MAX_NAME_LEN", "512", 1);
+    limits_ = RouteLimits::from_env();
+  }
+
+  ~RoutesLimitsEnvTest() override { unsetenv("AGAMEMNON_MAX_NAME_LEN"); }
+};
+
+TEST_F(RoutesLimitsEnvTest, NameWithinRaisedLimitAccepted) {
+  json body{{"name", std::string(300, 'x')}, {"type", "worker"}};
+  auto c = client();
+  auto res = c.Post("/v1/agents", body.dump(), "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 201);  // 300 <= raised limit of 512
+}
+
+TEST_F(RoutesLimitsTest, NameAboveDefaultRejectedWithoutOverride) {
+  json body{{"name", std::string(300, 'x')}, {"type", "worker"}};
+  auto c = client();
+  auto res = c.Post("/v1/agents", body.dump(), "application/json");
+  ASSERT_TRUE(res);
+  EXPECT_EQ(res->status, 400);  // default 256 still enforced
+}
 
 // ── Transport-layer body size limit ──────────────────────────────────────────
 

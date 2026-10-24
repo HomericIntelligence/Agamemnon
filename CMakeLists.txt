@@ -83,6 +83,7 @@ target_compile_options(agamemnon_peer_discovery PRIVATE
 # Excludes server_main.cpp so gtest_main does not conflict with main().
 add_library(Agamemnon_core STATIC
   src/routes.cpp
+  src/route_limits.cpp
   src/store.cpp
   src/nats_client.cpp
   src/circuit_breaker.cpp
